@@ -12,7 +12,7 @@ October 9, 2020
 """
 import numpy as np
 from math import pi
-from pydrake.all import MultibodyPlant, DiagramBuilder, SceneGraph,AddMultibodyPlantSceneGraph, JacobianWrtVariable, AngleAxis, RotationMatrix, RigidTransform
+from pydrake.all import MultibodyPlant, DiagramBuilder, SceneGraph,AddMultibodyPlantSceneGraph, JacobianWrtVariable, AngleAxis, RotationMatrix, RigidTransform, MathematicalProgram, Solve
 from pydrake.multibody.parsing import Parser
 from systems.terrain import FlatTerrain
 from utilities import FindResource
@@ -194,3 +194,107 @@ class TimeSteppingMultibodyPlant():
             # Apply the rotation matrix
             all_tangents[n*4 : (n+1)*4, :] = R.multiply(tangent.transpose()).transpose()
         return all_tangents
+
+    def simulate(self, h, x0, u=None, N=1):
+        
+        # Initialize arrays
+        nx = x0.shape[0]
+        x = np.zeros(shape=(nx, N))
+        x[:,0] = x0
+        t = np.zeros(shape=(N,))
+        nf = 1
+        if u is None:
+            B = self.multibody.MakeAcutatorMatrix()
+            u = np.zeros(shape=(B.shape[1], N))
+        context = self.multibody.CreateDefaultContext()
+        Jn, Jt = self.GetContactJacobians(context)
+        f = np.zeros(shape=(Jn.shape[0] + Jt.shape[0], N))
+        # Integration loop
+        for n in range(0,N-1):
+            f[:,n] = self.contact_force(h, x[:,n], u[:,n])
+            x[:,n+1] = self.integrate(h, x[:,n], u[:,n], f[:,n])
+            t[n + 1] = t[n] + h
+        return (x, f)
+
+    def integrate(self, h, x, u, f):
+        # Get the configuration and the velocity
+        q, dq = np.split(x,2)
+        # Estimate the next configuration, assuming constant velocity
+        qhat = q + h * dq
+        # Set the context
+        context = self.multibody.CreateDefaultContext()
+        self.multibody.SetPositions(context, qhat)
+        v = self.multibody.MapQDotToVelocity(context, dq)
+        self.multibody.SetVelocities(context, v)
+        # Get the current system properties
+        M = self.multibody.CalcMassMatrixViaInverseDynamics(context)
+        C = self.multibody.CalcBiasTerm(context)
+        G = self.multibody.CalcGravityGeneralizedForces(context)
+        B = self.multibody.MakeAcutatorMatrix()
+        Jn, Jt = self.GetContactJacobians(context) 
+        J = np.vstack((Jn, Jt))
+        # Calculate the next state
+        b = h * (B.dot(u) - C.dot(dq) - N) + J.transpose().dot(f)
+        v = np.linalg.solve(M,b)
+        dq += v
+        q += h * dq
+        # Collect the configuration and velocity into a state vector
+        return np.concatenate((q,dq), axis=0)
+
+    def contact_force(self, h, x, u):
+        # Get the configuration and generalized velocity
+        q, dq = np.split(x,2)
+        # Estimate the configuration at the next time step
+        qhat = q + h*dq
+        # Get the system parameters
+        context = self.multibody.CreateDefaultContext()
+        self.multibody.SetPositions(context, q)
+        v = self.multibody.MapQDotToVelocity(context, dq) 
+        self.multibody.SetVelocities(context, v)
+        M = self.multibody.CalcMassMatrixViaInverseDynamics(context)
+        C = self.multibody.CalcBiasTerm(context)
+        G = self.multibody.CalcGravityGeneralizedForces(context)
+        B = self.multibody.MakeAcutatorMatrix()
+        M, C, B = self.plant.manipulator_dynamics(qhat, dq)
+        tau = B.dot(u) - C - G
+        Jn, Jt = self.GetContactJacobians(context) 
+        phi = self.GetNormalDistances(context)
+        alpha = Jn.dot(qhat) - phi
+        # Calculate the force size from the contact Jacobian
+        numT = Jt.shape[0]
+        numN = Jn.shape[0]
+        S = numT + 2*numN
+        # Initialize LCP parameters
+        P = np.zeros(shape=(S,S), dtype=float)
+        u = np.zeros(shape=(numN, numN*numT))
+        numF = int(numT/numN)
+        for n in range(0, numN):
+            u[n, n*numF + numN:numN + (n+1)*numF] = 1
+        # Construct LCP matrix
+        J = np.vstack((Jn, Jt))
+        JM = J.dot(np.linalg.inv(M))
+        P[0:numN + numT, 0:numN + numT] = JM.dot(J.transpose())
+        P[:, numN + numT:] = u.transpose()
+        P[numN + numT:, :] = -u
+        P[numN + numT:, 0:numN] = np.diag(self.GetFrictionCoefficients(context))
+        #Construct LCP bias vector
+        z = np.zeros(shape=(S,), dtype=float)
+        z[0:numN+numT] = h * JM.dot(tau) + J.dot(dq)
+        z[0:numN] += (Jn.dot(q) - alpha)/h   
+        # Solve the LCP for the reaction impluses
+        f, status = solve_lcp(P, z)
+        if f is None:
+            return np.zeros(shape=(numN+numT,))
+        else:
+            # Strip the slack variables from the LCP solution
+            return f[0:numN + numT]
+
+def solve_lcp(P, q):
+    prog = MathematicalProgram()
+    x = prog.NewContinuousVariables(q.size)
+    prog.AddLinearComplementarityConstraint(P,q)
+    result = Solve(prog)
+
+    status = result.is_success()
+    z = result.GetSolution(x)
+    return (z, status)
