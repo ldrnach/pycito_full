@@ -6,7 +6,7 @@ October 21, 2020
 """
 
 import numpy as np
-from math import exp, sin, pi
+from math import pi
 from functools import partial
 import matplotlib.pyplot as plt
 
@@ -47,10 +47,17 @@ class GaussianProcess():
             x: observed inputs to add to the model
             y: observed response data to add 
         """
+        # Calculate the residuals
+        r = np.zeros((y.shape[0], x.shape[1]))
+        for n in range(0, x.shape[1]):
+            r[:,n] = y[:,n] - self.mean(x[:,n])
         # Calculate the updated covariance matrix
         if self.cov is None:
-            self.cov = self.kernel(x, x) + self.noise * np.eye(len(x))
+            self.cov = self.kernel(x, x) + self.noise * np.eye(x.shape[1])
             self.chol = np.linalg.cholesky(self.cov).transpose()
+            self.data_x = x
+            self.data_y = y
+            self.residual = r
         else:
             # "Rank-1" update to the covariance matrix & cholesky factor
             K1 = self.kernel(self.data, x)
@@ -58,9 +65,11 @@ class GaussianProcess():
             C1 = np.linalg.solve(self.chol.transpose(), K1)
             C2 = np.linalg.cholesky(K2 - C1.transpose().dot(C1)).transpose()
             self.chol = np.block([[self.chol, C1],[np.zeros(C1.shape), C2]])
-        # Append the new observations to the list
-        self.data_x.append(x)
-        self.data_y.append(y)
+            # Append the new observations to the list
+            self.data_x = np.concatenate((self.data_x, x), axis=1)
+            self.data_y = np.concatenate((self.data_y, y), axis=1)
+            self.residual = np.concatenate((self.residual, r), axis=1)
+
 
     def prior(self, x):
         """ 
@@ -72,7 +81,9 @@ class GaussianProcess():
             mu: the prior mean
             S: the prior covariance
         """
-        mu = 0
+        mu = np.zeros((self.data_y.shape[0], x.shape[1]))
+        for n in range(0, x.shape[1]):
+            mu[:,n] = self.mean(x[:,n])
         S = self.kernel(x,x)
         return (mu, S)
 
@@ -86,35 +97,35 @@ class GaussianProcess():
             mu: posterior mean of the GP
             S: posterior covariance of the GP
         """
+        mu, K3 = self.prior(x)
         L1 = self.chol
         K2 = self.kernel(self.data_x, x)
-        K3 = self.kernel(x, x)
         R = np.linalg.solve(L1.transpose(), K2)
         # Posterior mean
-        mu = R.transpose().dot(np.linalg.solve(L1.transpose(), self.data_y))
+        mu = mu + R.transpose().dot(np.linalg.solve(L1.transpose(), self.residual.transpose())).transpose()
         # Posterior variance
         S = K3 - R.transpose().dot(R)
         return (mu,S)
-
 
 def constant_mean(x, c):
     return c
 
 def sqr_exp_kernel(x1, x2, M, s):
 
-    K = np.zeros(shape=(len(x1), len(x2)))
-    for i in range(0, len(x1)):
-        for j in range(0, len(x2)):
-            dx = x1[i] - x2[j]
-            K[i,j] = s*exp(-dx.dot(np.linalg.solve(M, dx))/2)
-    
+    K = np.zeros(shape=(x1.shape[1], x2.shape[1]))
+    for i in range(0, K.shape[0]):
+        for j in range(0, K.shape[1]):
+            dx = x1[:,i] - x2[:,j]
+            K[i,j] = s*np.exp(-dx.dot(np.linalg.solve(M, dx))/2)
     return K
 
 def plot_gp(ax, x, mu, S):
     """
 
     """
-    s = np.diag(S)
+    s = np.squeeze(np.diag(S))
+    mu = np.squeeze(mu)
+    x = np.squeeze(x)
     ax.plot(x, mu, linewidth=1.5)
     ax.fill_between(x, mu-s, mu+s, alpha=0.3)
 
@@ -122,31 +133,45 @@ if __name__ == "__main__":
     # Create a niosy sinusoid example
     sig = 0.2
     t = np.linspace(0,2*pi, 100)
-    x = sin(t)
+    x = np.sin(t)
     # Add noise
     r = sig * np.random.default_rng().normal(0, sig, 100)
     y = x + r
+    # Make sure the arrays have the correct shape
+    x = np.expand_dims(x, axis=1).transpose()
+    y = np.expand_dims(y, axis=1).transpose()
+    t = np.expand_dims(t, axis=1).transpose()
     # Choose 20 points at random
     perm = np.random.default_rng().permutation(100)
     idx = perm[0:20]
     # Model the data as a GP
-    kernel = partial(sqr_exp_kernel, M=1, s=1)
-    gp = GaussianProcess(xdim=1, kernel=kernel, noise=0.1^2)
+    kernel = partial(sqr_exp_kernel, M=np.ones((1,1)), s=1)
+    gp = GaussianProcess(xdim=1, kernel=kernel, noise=0.1**.2)
     # Add the observations to the GP
-    gp.add_data(x=t[idx], y=y[idx])
+    gp.add_data(x=t[:,idx], y=y[:,idx])
     # Plot the data, the GP prior, and the GP posterior
     fig, axs = plt.subplots(2,2)
     # Data
-    axs[0,0].plot(t[idx], y[idx])
-    axs[0,0].set_xlabel('Time')
-    axs[0,0].set_ylabel('Samples')
+    axs[0,0].plot(t[:,idx], y[:,idx],'bx')
+    axs[0,0].plot(np.squeeze(t),np.squeeze(x),'r-')
+    axs[0,0].set_xlabel('Sample')
+    axs[0,0].set_ylabel('Response')
     # GP Prior
     mu, S = gp.prior(t)
     plot_gp(axs[0,1], t, mu, S)
-    axs[0,1].plot(t[idx], y[idx])
+    axs[0,1].plot(t[:,idx], y[:,idx],'bx')
+    axs[0,1].set_xlabel('Sample')
+    axs[0,1].set_ylabel('Response')
     # GP Posterior
     mu,S = gp.posterior(t)
     plot_gp(axs[1,0], t, mu, S)
-    axs[1,1].plot(t[idx], y[idx])
+    axs[1,0].plot(t[:,idx], y[:,idx],'bx')
+    axs[1,0].set_xlabel('Sample')
+    axs[1,0].set_ylabel('Response')
+    # GP posterior with the true function
+    plot_gp(axs[1,1], t, mu, S)
+    axs[1,1].plot(np.squeeze(t), np.squeeze(x), 'r-', linewidth=1.5)
+    axs[1,1].set_xlabel('Sample')
+    axs[1,1].set_ylabel('Response')
     # Show the plots
     plt.show()
