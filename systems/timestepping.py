@@ -234,7 +234,7 @@ class TimeSteppingMultibodyPlant():
         Jn, Jt = self.GetContactJacobians(context) 
         J = np.vstack((Jn, Jt))
         # Calculate the next state
-        b = h * (B.dot(u) - C.dot(dq) - N) + J.transpose().dot(f)
+        b = h * (B.dot(u) - C.dot(dq) - G) + J.transpose().dot(f)
         v = np.linalg.solve(M,b)
         dq += v
         q += h * dq
