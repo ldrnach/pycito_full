@@ -7,7 +7,6 @@ October 21, 2020
 
 import numpy as np
 from math import pi
-from functools import partial
 import matplotlib.pyplot as plt
 
 class GaussianProcess():
@@ -31,11 +30,11 @@ class GaussianProcess():
         self.noise = noise
         # Set the prior mean and kernel functions
         if mean is None:
-            self.mean = partial(constant_mean, c=0.)
+            self.mean = ConstantFunc(0.)
         else:
             self.mean = mean
         if kernel is None:
-            self.kernel = partial(sqr_exp_kernel, M=np.eye(xdim), s=1.)
+            self.kernel = SquaredExpKernel(M=np.eye(xdim), s=1.)
         else:
             self.kernel = kernel
 
@@ -130,17 +129,25 @@ class GaussianProcess():
         S = K3 - R.transpose().dot(R)
         return (mu,S)
 
-def constant_mean(x, c):
-    return c
+class ConstantFunc():
+    def __init__(self, const):
+        self.const = const
+    
+    def __call__(self, x):
+        return self.const
 
-def sqr_exp_kernel(x1, x2, M, s):
-
-    K = np.zeros(shape=(x1.shape[1], x2.shape[1]))
-    for i in range(0, K.shape[0]):
-        for j in range(0, K.shape[1]):
-            dx = x1[:,i] - x2[:,j]
-            K[i,j] = s*np.exp(-dx.dot(np.linalg.solve(M, dx))/2)
-    return K
+class SquaredExpKernel():
+    def __init__(self, M, s):
+        self.M = M
+        self.s = s
+    
+    def __call__(self, x1, x2):
+        K = np.zeros(shape=(x1.shape[1], x2.shape[1]))
+        for i in range(0, K.shape[0]):
+            for j in range(0, K.shape[1]):
+                dx = x1[:,i] - x2[:,j]
+                K[i,j] = self.s*np.exp(-dx.dot(np.linalg.solve(self.M, dx))/2)
+        return K
 
 def plot_gp(ax, x, mu, S):
     """
@@ -168,7 +175,7 @@ if __name__ == "__main__":
     perm = np.random.default_rng().permutation(100)
     idx = perm[0:20]
     # Model the data as a GP
-    kernel = partial(sqr_exp_kernel, M=np.ones((1,1)), s=1)
+    kernel = SquaredExpKernel(M=np.ones((1,1)), s=1.)
     gp = GaussianProcess(xdim=1, kernel=kernel, noise=0.1**.2)
     # Add the observations to the GP
     gp.add_data(x=t[:,idx], y=y[:,idx])

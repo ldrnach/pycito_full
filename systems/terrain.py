@@ -5,7 +5,6 @@ October 12, 2020
 """
 import numpy as np
 from abc import ABC, abstractmethod 
-from functools import partial
 import systems.gaussianprocess as gp
 from pydrake.autodiffutils import AutoDiffXd
 
@@ -204,7 +203,7 @@ class VariableFrictionFlatTerrain(FlatTerrain):
         """ Constructs a flat terrain with variable friction """
         super().__init__(height, friction=None)
         if fric_func is None:
-            self.friction = partial(constant_friction, c=0.5)
+            self.friction = ConstantFunc(0.5)
         else:
             self.friction = fric_func
 
@@ -226,12 +225,12 @@ class GaussianProcessTerrain(FlatTerrain):
         # Set the default values
         if height_gp is None:
             height_gp = gp.GaussianProcess(xdim=2,
-                            mean=partial(constant_height, h=0.0), 
-                            kernel=partial(gp.sqr_exp_kernel, M=np.eye(2), s=1.))
+                            mean=ConstantFunc(0.0), 
+                            kernel=gp.SquaredExpKernel(M=np.eye(2), s=1.))
         if friction_gp is None:
             friction_gp = gp.GaussianProcess(xdim=2,
-                            mean=partial(constant_friction, c=0.5),
-                            kernel=partial(gp.sqr_exp_kernel, M=np.eye(2), s=1.))
+                            mean=ConstantFunc(0.5),
+                            kernel=gp.SquaredExpKernel(M=np.eye(2), s=1.))
         # Set up the terrain heightmap GP
         self.height = height_gp
         self.friction = friction_gp
@@ -284,19 +283,16 @@ class GaussianProcessTerrain(FlatTerrain):
         mu, _ = self.friction.posterior(x[0:1,:])
         return mu
 #TODO: Merge constant_height and constant_friction into one "constant" function
-def constant_height(x, h):
-    """Parameterized constant height function"""
-    if isinstance(x[0], AutoDiffXd):
-        y = AutoDiffXd(h, 0.*x[0].derivatives())
-    else:     
-        return h
 
-def constant_friction(x, c):
-    """ Parameterized constant friction function """
-    if isinstance(x[0], AutoDiffXd):
-        mu = AutoDiffXd(c, 0.*x[0].derivatives())
-    else:
-        return c
+def ConstantFunc():
+    """Parameterized constant function with AutoDiff type support"""
+    def __init__(self, const):
+        self.const = const
+    def __call__(self,x):
+        if isinstance(x[0], AutoDiffXd):
+            return AutoDiffXd(self.const, 0.*x[0].derivatives())
+        else:
+            return self.const
 
 if __name__ == "__main__":
     print("Hello world")
