@@ -140,6 +140,29 @@ class TimeSteppingMultibodyPlant():
         # Return list of friction coefficients
         return friction_coeff
 
+    def getTerrainPointsAndFrames(self, context):
+        """
+        Return the nearest points on the terrain and the local coordinate frame
+
+        Arguments:
+            context: current MultibodyPlant context
+        Return Values:
+            terrain_pts: a 3xN array of points on the terrain
+            terrain_frames: a 3x3xN array, specifying the local frame of the terrain
+        """
+        terrain_pts = []
+        terrain_frames = []
+        for frame, pose in zip(self.collision_frames, self.collision_poses):
+            # Calc collision point
+            collision_pt = self.multibody.CalcPointsPositions(context, frame, pose.translation(), self.mutibody.world_frame())
+            # Calc nearest point on terrain in world coordinates
+            terrain_pt = self.terrain.nearest_point(collision_pt)
+            terrain_pts.append(terrain_pt)
+            # Calc local coordinate frame
+            terrain_frames.append(self.terrain.local_frame(terrain_pt))
+
+        return (terrain_pts, terrain_frames)
+
     def toAutoDiffXd(self):
         """Covert the MultibodyPlant to use AutoDiffXd instead of Float"""
 
@@ -211,10 +234,11 @@ class TimeSteppingMultibodyPlant():
         f = np.zeros(shape=(Jn.shape[0] + Jt.shape[0], N))
         # Integration loop
         for n in range(0,N-1):
-            f[:,n] = self.contact_force(h, x[:,n], u[:,n])
+            f[:,n] = self.contact_impulse(h, x[:,n], u[:,n])
             x[:,n+1] = self.integrate(h, x[:,n], u[:,n], f[:,n])
             t[n + 1] = t[n] + h
-        return (x, f)
+            f[:,n] = f[:,n]/h
+        return (t, x, f)
 
     def integrate(self, h, x, u, f):
         # Get the configuration and the velocity
@@ -230,18 +254,18 @@ class TimeSteppingMultibodyPlant():
         M = self.multibody.CalcMassMatrixViaInverseDynamics(context)
         C = self.multibody.CalcBiasTerm(context)
         G = self.multibody.CalcGravityGeneralizedForces(context)
-        B = self.multibody.MakeAcutatorMatrix()
+        B = self.multibody.MakeActuationMatrix()
         Jn, Jt = self.GetContactJacobians(context) 
         J = np.vstack((Jn, Jt))
         # Calculate the next state
-        b = h * (B.dot(u) - C.dot(dq) - G) + J.transpose().dot(f)
+        b = h * (B.dot(u) - C.dot(dq) + G) + J.transpose().dot(f)
         v = np.linalg.solve(M,b)
         dq += v
         q += h * dq
         # Collect the configuration and velocity into a state vector
         return np.concatenate((q,dq), axis=0)
 
-    def contact_force(self, h, x, u):
+    def contact_impulse(self, h, x, u):
         # Get the configuration and generalized velocity
         q, dq = np.split(x,2)
         # Estimate the configuration at the next time step
@@ -254,9 +278,8 @@ class TimeSteppingMultibodyPlant():
         M = self.multibody.CalcMassMatrixViaInverseDynamics(context)
         C = self.multibody.CalcBiasTerm(context)
         G = self.multibody.CalcGravityGeneralizedForces(context)
-        B = self.multibody.MakeAcutatorMatrix()
-        M, C, B = self.plant.manipulator_dynamics(qhat, dq)
-        tau = B.dot(u) - C - G
+        B = self.multibody.MakeActuationMatrix()
+        tau = B.dot(u) - C + G
         Jn, Jt = self.GetContactJacobians(context) 
         phi = self.GetNormalDistances(context)
         alpha = Jn.dot(qhat) - phi
@@ -266,16 +289,16 @@ class TimeSteppingMultibodyPlant():
         S = numT + 2*numN
         # Initialize LCP parameters
         P = np.zeros(shape=(S,S), dtype=float)
-        u = np.zeros(shape=(numN, numN*numT))
+        w = np.zeros(shape=(numN, S))
         numF = int(numT/numN)
         for n in range(0, numN):
-            u[n, n*numF + numN:numN + (n+1)*numF] = 1
+            w[n, n*numF + numN:numN + (n+1)*numF] = 1
         # Construct LCP matrix
         J = np.vstack((Jn, Jt))
         JM = J.dot(np.linalg.inv(M))
         P[0:numN + numT, 0:numN + numT] = JM.dot(J.transpose())
-        P[:, numN + numT:] = u.transpose()
-        P[numN + numT:, :] = -u
+        P[:, numN + numT:] = w.transpose()
+        P[numN + numT:, :] = -w
         P[numN + numT:, 0:numN] = np.diag(self.GetFrictionCoefficients(context))
         #Construct LCP bias vector
         z = np.zeros(shape=(S,), dtype=float)
@@ -292,7 +315,7 @@ class TimeSteppingMultibodyPlant():
 def solve_lcp(P, q):
     prog = MathematicalProgram()
     x = prog.NewContinuousVariables(q.size)
-    prog.AddLinearComplementarityConstraint(P,q)
+    prog.AddLinearComplementarityConstraint(P,q,x)
     result = Solve(prog)
 
     status = result.is_success()

@@ -6,6 +6,10 @@ October 12, 2020
 import numpy as np
 from abc import ABC, abstractmethod 
 from functools import partial
+import systems.gaussianprocess as gp
+from pydrake.autodiffutils import AutoDiffXd
+
+#TODO: Check output of local_frame. Make sure the frame matrix is normalized and the vectors are COLS and not ROWS
 
 class Terrain(ABC):
     """
@@ -198,11 +202,11 @@ class SlopeStepTerrain(FlatTerrain):
 class VariableFrictionFlatTerrain(FlatTerrain):
     def __init__(self, height=0.0, fric_func=None):
         """ Constructs a flat terrain with variable friction """
-        super.__init__(height, friction=0.0)
+        super().__init__(height, friction=None)
         if fric_func is None:
-            self.friction_function = partial(constant_friction, c=0.5)
+            self.friction = partial(constant_friction, c=0.5)
         else:
-            self.friction_function = fric_func
+            self.friction = fric_func
 
     def get_friction(self, x):
         """
@@ -213,11 +217,86 @@ class VariableFrictionFlatTerrain(FlatTerrain):
         Return values
             fric_coeff: a scalar friction coefficients
         """
-        return self.friction_function(x)
+        return self.friction(x)
 
-def constant_friction(_, c):
+class GaussianProcessTerrain(FlatTerrain):
+    def __init__(self, height_gp=None, friction_gp=None):
+        """ Construct a terrain model based on the Gaussian process"""
+        super().__init__(height=None, friction=None)
+        # Set the default values
+        if height_gp is None:
+            height_gp = gp.GaussianProcess(xdim=2,
+                            mean=partial(constant_height, h=0.0), 
+                            kernel=partial(gp.sqr_exp_kernel, M=np.eye(2), s=1.))
+        if friction_gp is None:
+            friction_gp = gp.GaussianProcess(xdim=2,
+                            mean=partial(constant_friction, c=0.5),
+                            kernel=partial(gp.sqr_exp_kernel, M=np.eye(2), s=1.))
+        # Set up the terrain heightmap GP
+        self.height = height_gp
+        self.friction = friction_gp
+
+    def nearest_point(self, x):
+        """
+        Returns a point on the expected posterior terrain close to the supplied point x
+
+        Arguments:
+            x: (3x1), the point of interest
+        Return values:
+            y: (3x1), the point on the terrain which is nearest to x
+        """
+        terrain_pt = np.copy(x)
+        terrain_pt[2,:], _ = self.height.posterior(x[0:1,:])
+        return terrain_pt
+
+    def local_frame(self, x):
+        """
+        Returns the expected posterior local coordinate frame of the terrain at the supplied point x
+
+        Arguments:
+            x: (3x1), a point on the terrain
+        Return values:
+            R: a (3x3) array. The first row is the terrain normal vector, the remaining rows are the terrain tangential vectors
+        """
+        dg = self.posterior_gradient(x[0:1,:])
+        n = np.array([-dg[0], -dg[1], 1])
+        t1 = np.array([1, 0, dg[0]])
+        t2 = np.array([0, 1, dg[1]])
+        n = n / np.linalg.norm(n, ord=2)
+        t1 = t1 / np.linalg.norm(t1, ord=2)
+        t2 = t2 / np.linalg.norm(t2, ord=2)
+        return np.vstack((n, t1, t2))
+        
+    def posterior_gradient(self, x):
+        x_ad = np.array([AutoDiffXd(x[0], np.ones(1)), AutoDiffXd(x[1], np.ones(1))], dtype=object)
+        y_ad = self.height.posterior(x_ad)
+        return np.array([y_ad[0].derivatives(), y_ad[1].derivatives()])
+
+    def get_friction(self, x):
+        """
+        Returns the expected posterior value of terrain friction coefficient at the supplied point
+
+        Arguments:
+            x: (3x1) a point on the terrain
+        Return values
+            fric_coeff: a scalar friction coefficients
+        """
+        mu, _ = self.friction.posterior(x[0:1,:])
+        return mu
+#TODO: Merge constant_height and constant_friction into one "constant" function
+def constant_height(x, h):
+    """Parameterized constant height function"""
+    if isinstance(x[0], AutoDiffXd):
+        y = AutoDiffXd(h, 0.*x[0].derivatives())
+    else:     
+        return h
+
+def constant_friction(x, c):
     """ Parameterized constant friction function """
-    return c
+    if isinstance(x[0], AutoDiffXd):
+        mu = AutoDiffXd(c, 0.*x[0].derivatives())
+    else:
+        return c
 
 if __name__ == "__main__":
     print("Hello world")

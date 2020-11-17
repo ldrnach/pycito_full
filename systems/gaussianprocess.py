@@ -70,6 +70,29 @@ class GaussianProcess():
             self.data_y = np.concatenate((self.data_y, y), axis=1)
             self.residual = np.concatenate((self.residual, r), axis=1)
 
+    def pop(self):
+        """Remove data from the GP model using last-in, first-out model"""
+        if self.data_x.shape[0] == 0:
+            return
+        elif self.data_x.ndim == 1:
+            x = self.data_x
+            y = self.data_y
+            self.data_x = np.array([])
+            self.data_y = np.array([])
+            self.residual = np.array([])
+            self.chol = np.array([])
+            self.cov = None
+        else:
+            x = self.data_x[:,:-1]
+            y = self.data_y[:,:-1]
+            # Remove the last datum    
+            self.data_x = self.data_x[:,:-1]
+            self.data_y = self.data_y[:,:-1]
+            self.residual = self.residual[:,:-1]
+            # Downdate the cholesky factorization
+            self.chol = self.chol[:-1,:-1]
+            self.cov = self.cov[:-1,:-1]
+        return (x, y)
 
     def prior(self, x):
         """ 
