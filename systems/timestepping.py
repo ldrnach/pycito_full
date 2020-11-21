@@ -154,7 +154,7 @@ class TimeSteppingMultibodyPlant():
         terrain_frames = []
         for frame, pose in zip(self.collision_frames, self.collision_poses):
             # Calc collision point
-            collision_pt = self.multibody.CalcPointsPositions(context, frame, pose.translation(), self.mutibody.world_frame())
+            collision_pt = self.multibody.CalcPointsPositions(context, frame, pose.translation(), self.multibody.world_frame())
             # Calc nearest point on terrain in world coordinates
             terrain_pt = self.terrain.nearest_point(collision_pt)
             terrain_pts.append(terrain_pt)

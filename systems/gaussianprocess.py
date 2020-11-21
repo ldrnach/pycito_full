@@ -4,13 +4,15 @@ gaussianprocess.py: Gaussian Process Regression tools
 Luke Drnach
 October 21, 2020
 """
+#TODO: Update GaussianProcess to work with 1d (single vectors) and 2d (vector collections) arrays of data
 
 import numpy as np
 from math import pi
 import matplotlib.pyplot as plt
+from pydrake.autodiffutils import AutoDiffXd
 
 class GaussianProcess():
-    def __init__(self, xdim=1, mean=None, kernel=None, noise=0.):
+    def __init__(self, xdim=1, mean=None, kernel=None, noise=0.001):
         """
         Create a new GaussianProcess object
 
@@ -59,11 +61,11 @@ class GaussianProcess():
             self.residual = r
         else:
             # "Rank-1" update to the covariance matrix & cholesky factor
-            K1 = self.kernel(self.data, x)
-            K2 = self.kernel(x, x) + self.noise * np.eye(len(x))
+            K1 = self.kernel(self.data_x, x)
+            K2 = self.kernel(x, x) + self.noise * np.eye(x.shape[1])
             C1 = np.linalg.solve(self.chol.transpose(), K1)
             C2 = np.linalg.cholesky(K2 - C1.transpose().dot(C1)).transpose()
-            self.chol = np.block([[self.chol, C1],[np.zeros(C1.shape), C2]])
+            self.chol = np.block([[self.chol, C1],[np.zeros(C1.transpose().shape), C2]])
             # Append the new observations to the list
             self.data_x = np.concatenate((self.data_x, x), axis=1)
             self.data_y = np.concatenate((self.data_y, y), axis=1)
@@ -103,7 +105,12 @@ class GaussianProcess():
             mu: the prior mean
             S: the prior covariance
         """
-        mu = np.zeros((self.data_y.shape[0], x.shape[1]))
+        mu_ = self.mean(x[:,0])
+        if np.ndim(mu_) == 0:
+            mu = np.zeros((1, x.shape[1]), dtype=x.dtype)
+        else:
+            mu = np.zeros((mu_.shape[0], x.shape[1]), dtype=x.dtype)
+
         for n in range(0, x.shape[1]):
             mu[:,n] = self.mean(x[:,n])
         S = self.kernel(x,x)
@@ -120,33 +127,41 @@ class GaussianProcess():
             S: posterior covariance of the GP
         """
         mu, K3 = self.prior(x)
-        L1 = self.chol
-        K2 = self.kernel(self.data_x, x)
-        R = np.linalg.solve(L1.transpose(), K2)
-        # Posterior mean
-        mu = mu + R.transpose().dot(np.linalg.solve(L1.transpose(), self.residual.transpose())).transpose()
-        # Posterior variance
-        S = K3 - R.transpose().dot(R)
-        return (mu,S)
+        if self.cov is not None:
+            L1 = self.chol
+            K2 = self.kernel(self.data_x, x)
+            iL1 = np.linalg.inv(L1.transpose())
+            R = iL1.dot(K2)
+            # Posterior mean
+            mu = mu + R.transpose().dot(iL1.dot(self.residual.transpose())).transpose()
+            # Posterior variance
+            S = K3 - R.transpose().dot(R)
+            return (mu,S)
+        else:
+            return (mu, K3)
 
 class ConstantFunc():
     def __init__(self, const):
         self.const = const
-    
+    # TODO: Check for autodiff types
     def __call__(self, x):
-        return self.const
+        if isinstance(x[0], AutoDiffXd):
+            return AutoDiffXd(self.const, 0.*x[0].derivatives())
+        else:
+            return self.const
 
 class SquaredExpKernel():
     def __init__(self, M, s):
         self.M = M
         self.s = s
+        self._iM = np.linalg.inv(M)
     
     def __call__(self, x1, x2):
-        K = np.zeros(shape=(x1.shape[1], x2.shape[1]))
+        K = np.zeros(shape=(x1.shape[1], x2.shape[1]), dtype=x2.dtype)
         for i in range(0, K.shape[0]):
             for j in range(0, K.shape[1]):
                 dx = x1[:,i] - x2[:,j]
-                K[i,j] = self.s*np.exp(-dx.dot(np.linalg.solve(self.M, dx))/2)
+                K[i,j] = self.s*np.exp(-dx.dot(self._iM.dot(dx))/2)
         return K
 
 def plot_gp(ax, x, mu, S):

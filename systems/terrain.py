@@ -6,7 +6,7 @@ October 12, 2020
 import numpy as np
 from abc import ABC, abstractmethod 
 import systems.gaussianprocess as gp
-from pydrake.autodiffutils import AutoDiffXd
+from pydrake.autodiffutils import initializeAutoDiff, AutoDiffXd
 
 #TODO: Check output of local_frame. Make sure the frame matrix is normalized and the vectors are COLS and not ROWS
 
@@ -245,19 +245,22 @@ class GaussianProcessTerrain(FlatTerrain):
             y: (3x1), the point on the terrain which is nearest to x
         """
         terrain_pt = np.copy(x)
-        terrain_pt[2,:], _ = self.height.posterior(x[0:1,:])
-        return terrain_pt
+        if np.ndim(terrain_pt) == 1:
+            terrain_pt = np.expand_dims(terrain_pt, axis=1)
+        terrain_pt[2], _ = self.height.posterior(terrain_pt[0:2])
+        return np.squeeze(terrain_pt)
 
     def local_frame(self, x):
         """
         Returns the expected posterior local coordinate frame of the terrain at the supplied point x
 
         Arguments:
-            x: (3x1), a point on the terrain
+            x: (3,), a point on the terrain
         Return values:
-            R: a (3x3) array. The first row is the terrain normal vector, the remaining rows are the terrain tangential vectors
+            R: a (3,3) array. The first row is the terrain normal vector, the remaining rows are the terrain tangential vectors
         """
-        dg = self.posterior_gradient(x[0:1,:])
+        x = np.expand_dims(x,axis=1)
+        dg = self.posterior_gradient(x[0:2,:])
         n = np.array([-dg[0], -dg[1], 1])
         t1 = np.array([1, 0, dg[0]])
         t2 = np.array([0, 1, dg[1]])
@@ -267,22 +270,22 @@ class GaussianProcessTerrain(FlatTerrain):
         return np.vstack((n, t1, t2))
         
     def posterior_gradient(self, x):
-        x_ad = np.array([AutoDiffXd(x[0], np.ones(1)), AutoDiffXd(x[1], np.ones(1))], dtype=object)
-        y_ad = self.height.posterior(x_ad)
-        return np.array([y_ad[0].derivatives(), y_ad[1].derivatives()])
+        x_ad = initializeAutoDiff(x)
+        y_ad, _ = self.height.posterior(x_ad)
+        return y_ad[0,0].derivatives()
 
     def get_friction(self, x):
         """
         Returns the expected posterior value of terrain friction coefficient at the supplied point
 
         Arguments:
-            x: (3x1) a point on the terrain
+            x: (3,) a point on the terrain
         Return values
             fric_coeff: a scalar friction coefficients
         """
-        mu, _ = self.friction.posterior(x[0:1,:])
-        return mu
-#TODO: Merge constant_height and constant_friction into one "constant" function
+        x = np.expand_dims(x, axis=1)
+        mu, _ = self.friction.posterior(x[0:2,:])
+        return mu.item()
 
 def ConstantFunc():
     """Parameterized constant function with AutoDiff type support"""
