@@ -51,7 +51,7 @@ class ResidualTerrainEstimator():
         # Update the sample points
         new_pts = np.zeros((pts[0].shape[0], len(pts)))
         for n in range(0, len(pts)):
-            new_pts[:,n] = pts[n] + frames[n][0,:] * soln["phi_res"][n]
+            new_pts[:,n] = pts[n] - frames[n][0,:] * soln["phi_res"][n]
         # Add all the sample points to the terrain at the same time
         self.plant.terrain.height.add_data(new_pts[0:2,:], new_pts[2:,:])
 

@@ -8,9 +8,9 @@ import numpy as np
 from pydrake.systems.meshcat_visualizer import ConnectMeshcatVisualizer
 from utilities import FindResource
 from pydrake.all import MultibodyPlant, DiagramBuilder, AddMultibodyPlantSceneGraph, SceneGraph, MultibodyPositionToGeometryPose, DrakeVisualizer, Simulator, TrajectorySource, PiecewisePolynomial
-from pydrake.geometry.render import DepthCameraProperties, RenderLabel, MakeRenderEngineVtk, RenderEngineVtkParams
+from pydrake.geometry.render import ClippingRange, DepthRange, DepthRenderCamera, RenderCameraCore, MakeRenderEngineVtk, RenderEngineVtkParams
 from pydrake.multibody.parsing import Parser
-from pydrake.systems.sensors import RgbdSensor
+from pydrake.systems.sensors import RgbdSensor, CameraInfo
 from pydrake.math import RigidTransform, RollPitchYaw
 
 def create_a1_multibody():
@@ -50,12 +50,12 @@ def visualize_a1(x):
     visualizer = DrakeVisualizer()
     visualizer.AddToBuilder(builder, scene_graph)
     # build diagram and make visualization
+    # visualizer.start_recording() - DrakeVisualizer has no "start_recording" method, or anything similar    
     diagram = builder.Build()
     simulator = Simulator(diagram)
     simulator.Initialize()
     simulator.set_target_realtime_rate(1.0)
     simulator.AdvanceTo(x_traj.end_time())
-    # Need to actually produce the visualization of A1...
 
 def xyz_rpy_deg(xyz, rpy_deg):
     """Shorthand for defining a pose"""
@@ -73,33 +73,39 @@ def a1_meshcat_visualizer(x):
     renderer_name = "renderer"
     scene_graph.AddRenderer(renderer_name, MakeRenderEngineVtk(RenderEngineVtkParams()))
     # Add a camera - properties are chosen arbitrarily here
-    depth_prop = DepthCameraProperties(width=640, height=480, fov_y=np.pi/4, renderer_name=renderer_name, z_near=0.01, z_far=10.)
+    depth_camera = DepthRenderCamera(
+        RenderCameraCore(
+            renderer_name,
+            CameraInfo(width=640, height=480, fov_y=np.pi/4),
+            ClippingRange(0.01, 10.0),
+            RigidTransform()),
+        DepthRange(0.01, 10.0)
+        )
     world_id = plant.GetBodyFrameIdOrThrow(plant.world_body().index())
     X_WB = xyz_rpy_deg([4,0,0],[-90,0,90])
-    sensor = RgbdSensor(world_id, X_PB=X_WB, color_properties=depth_prop, depth_properties=depth_prop)
+    sensor = RgbdSensor(world_id, X_PB=X_WB, depth_camera=depth_camera)
     builder.AddSystem(sensor)
     builder.Connect(scene_graph.get_query_output_port(), sensor.query_object_input_port())
     # Add Drake Visualizer
     print("adding visualizer")
     DrakeVisualizer.AddToBuilder(builder, scene_graph)
     # Add and show meshcat visualizer
-    meshcat_vis = ConnectMeshcatVisualizer(builder, scene_graph, zmq_url="new", open_browser=False)
-    #meshcat_vis.vis.jupyter_cell()
+    meshcat_vis = ConnectMeshcatVisualizer(builder, scene_graph, zmq_url="new", open_browser=True)
+    #meshcat_vis.vis.render_static()
+    meshcat_vis.vis.jupyter_cell()
     # Finalize
     print("finalizing diagram")
     plant.Finalize()
     diagram = builder.Build()
     # Create context
     diagram_context = diagram.CreateDefaultContext()
-    sensor_context = sensor.GetMyMutableContextFromRoot(diagram_context)
-    sg_context = scene_graph.GetMyMutableContextFromRoot(diagram_context)
     # Publish visualization message
     print("initializing simulator")
     simulator = Simulator(diagram)
-    simulator.Initialize()
+    simulator.Initialize()      #Something breaks down here with A1
+    meshcat_vis.vis.render_static()
     # Remote workflow
     print("setting the context")
-    meshcat_vis.vis.render_static()
     # Set the context
     simulator.get_mutable_context().SetTime(0.0)
     plant_context = plant.GetMyContextFromRoot(simulator.get_mutable_context())
@@ -115,6 +121,8 @@ def a1_meshcat_visualizer(x):
     meshcat_vis.publish_recording()
     # Render meshcat
     meshcat_vis.vis.render_static()
+    # save the meshcat visualization as an animation
+    print("finished")
 
 
 if __name__ == "__main__":

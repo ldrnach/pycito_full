@@ -61,6 +61,21 @@ def traj_to_dict(t, x, f, u):
             "force": f,
             "control": u}
 
+def calc_terrain_height(x, terrain):
+    "Calculate terrain height across a trajectory"
+    heights = np.zeros((x.shape[1],))
+    for n in range(0,x.shape[1]):
+        pt = terrain.nearest_point(x[0:3,n])
+        heights[n] = pt[2]
+    return heights
+
+def calc_terrain_friction(x, terrain):
+    "Calculate friction coefficient across a trajectory"
+    fric = np.zeros((x.shape[1],))
+    for n in range(0, x.shape[1]):
+        fric[n] = terrain.get_friction(x[0:3,n])
+    return fric
+
 if __name__ == "__main__":
     # Setup
     file = "systems/urdf/sliding_block.urdf" 
@@ -81,5 +96,8 @@ if __name__ == "__main__":
         compare_trajectories(t, x, opt_traj["state"], f, opt_traj["force"][0:5,:], label)
         # Convert the results to a dictionary and save
         simdata[label] = traj_to_dict(t, x, f, u)
+        # Add in friction and terrain height to the results dictionary
+        simdata[label]["height"] = calc_terrain_height(x, terrain)
+        simdata[label]["friction"] = calc_terrain_friction(x, terrain)
     # Save the resulting trajectory optimizations
     utils.save("data/slidingblock/block_terrain_sims.pkl", simdata)

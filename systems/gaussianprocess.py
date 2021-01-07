@@ -164,14 +164,17 @@ class SquaredExpKernel():
                 K[i,j] = self.s*np.exp(-dx.dot(self._iM.dot(dx))/2)
         return K
 
-def plot_gp(ax, x, mu, S):
+def plot_gp(ax, x, mu, S, label=None):
     """
 
     """
     s = np.squeeze(np.diag(S))
     mu = np.squeeze(mu)
     x = np.squeeze(x)
-    ax.plot(x, mu, linewidth=1.5)
+    if label is None:
+        ax.plot(x, mu, linewidth=1.5)
+    else:
+        ax.plot(x, mu, linewidth=1.5, label=label)
     ax.fill_between(x, mu-s, mu+s, alpha=0.3)
 
 if __name__ == "__main__":
