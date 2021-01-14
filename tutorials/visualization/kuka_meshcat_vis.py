@@ -1,15 +1,14 @@
 """
 Copied from "Rendering Multibody Plant" Drake tutorial
-ONLY WORKS IF RUN IN JUPYTER CELL. Need to have the #%% on the first line.
+Note: We either need to run this in a Jupyter cell (start with #%%) or pause the script after the visualization is made to see it before the script terminates
 Luke Drnach
 November 20, 2020
 """
-#%%
+
 #import os
 import numpy as np
 #import matplotlib.pyplot as plt
 #import matplotlib as mpl
-
 
 from pydrake.common import FindResourceOrThrow
 from pydrake.geometry import DrakeVisualizer
@@ -96,5 +95,5 @@ simulator.AdvanceTo(1.0)
 meshcat_vis.publish_recording()
 # Render meshcat
 meshcat_vis.vis.render_static()
+input("View the visualization. Press <ENTER> to finish.")
 print("Finished")
-# %%

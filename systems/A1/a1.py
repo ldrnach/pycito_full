@@ -4,6 +4,7 @@ Description of A1 robot
 Luke Drnach
 November 5, 2020
 """
+#%%
 import numpy as np
 from pydrake.systems.meshcat_visualizer import ConnectMeshcatVisualizer
 from utilities import FindResource
@@ -67,7 +68,7 @@ def a1_meshcat_visualizer(x):
     print("Creating diagram")
     builder = DiagramBuilder()
     plant, scene_graph = AddMultibodyPlantSceneGraph(builder, 0.0)
-    Parser(plant).AddModelFromFile(FindResource("systems/A1/A1_description/urdf/a1.urdf"))
+    Parser(plant).AddModelFromFile(FindResource("systems/A1/A1_description/urdf/a1_no_collision.urdf"))
     # Add the renderer
     print("adding renderer")
     renderer_name = "renderer"
@@ -109,7 +110,7 @@ def a1_meshcat_visualizer(x):
     # Set the context
     simulator.get_mutable_context().SetTime(0.0)
     plant_context = plant.GetMyContextFromRoot(simulator.get_mutable_context())
-    plant.get_acutation_input_port().FixValue(plant_context, np.zeros((12,1)))
+    plant.get_actuation_input_port().FixValue(plant_context, np.zeros((12,1)))
     plant.SetPositions(plant_context,x)
     # Reset the recording
     print("recording the visualization")
@@ -124,13 +125,14 @@ def a1_meshcat_visualizer(x):
     # save the meshcat visualization as an animation
     print("finished")
 
+# if __name__ == "__main__":
+plant, _, _ = create_a1_multibody()
+print(f"A1 has {plant.num_positions()} position variables and {plant.num_velocities()} velocity variables")
+print(f"A1 has {plant.num_actuators()} actuators")
+print(f"A1 has {plant.num_collision_geometries()} collision geometries")
+context = plant.CreateDefaultContext()
+x = plant.GetPositions(context)
+print(f"Visualizing A1 default configuration")
+a1_meshcat_visualizer(x)
 
-if __name__ == "__main__":
-    plant, _, _ = create_a1_multibody()
-    print(f"A1 has {plant.num_positions()} position variables and {plant.num_velocities()} velocity variables")
-    print(f"A1 has {plant.num_actuators()} actuators")
-    print(f"A1 has {plant.num_collision_geometries()} collision geometries")
-    context = plant.CreateDefaultContext()
-    x = plant.GetPositions(context)
-    print(f"Visualizing A1 default configuration")
-    a1_meshcat_visualizer(x)
+# %%
