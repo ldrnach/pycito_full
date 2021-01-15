@@ -426,3 +426,29 @@ class ContactImplicitDirectTranscription():
                     }
         return soln_dict
 
+class NonlinearComplementarityFcn():
+    """
+    Implements a complementarity relationship involving a nonlinear function, such that:
+        f(x) >= 0
+        z >= 0
+        f(x)*z <= s
+    where f is the function, x and z are decision variables, and s is a slack parameter.
+    By default s=0 (strict complementarity)
+    """
+    def __init__(self, fcn, xdim=0, zdim=1, slack=0.):
+        self.fcn = fcn
+        self.xdim = xdim
+        self.zdim = zdim
+        self.slack = slack
+    
+    def __call__(self, vars):
+        """Evaluate the complementarity constraint """
+        x, z = np.split(vars, [self.xdim])
+        fcn_val = self.fcn(x)
+        return np.concatenate((fcn_val, z, fcn_val * z - self.slack), axis=0)
+
+    def lower_bound(self):
+        return np.concatenate((np.zeros((2*self.zdim,)), -np.full((self.zdim,), np.inf)), axis=0)
+    
+    def upper_bound(self):
+        return np.concatenate((np.full((2*self.zdim,), np.inf), np.zeros((self.zdim,))), axis=0)
