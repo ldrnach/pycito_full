@@ -9,11 +9,12 @@ Includes classes for creating A1 MultibodyPlant and TimesteppingMultibodyPlant a
 from utilities import FindResource
 from systems.timestepping import TimeSteppingMultibodyPlant
 from systems.visualization import Visualizer
+from systems.terrain import FlatTerrain
 
 class A1(TimeSteppingMultibodyPlant):
-    def __init__(self, urdf_file="systems/A1/A1_description/urdf/a1_foot_collision.urdf"):
+    def __init__(self, urdf_file="systems/A1/A1_description/urdf/a1_foot_collision.urdf", terrain=FlatTerrain()):
         # Initialize the time-stepping multibody plant
-        super(A1, self).__init__(file=FindResource(urdf_file))
+        super(A1, self).__init__(file=FindResource(urdf_file), terrain=terrain)
 
     @staticmethod
     def visualize(trajectory=None):

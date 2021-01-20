@@ -10,12 +10,13 @@ from pydrake.all import RigidTransform
 from utilities import FindResource
 from systems.timestepping import TimeSteppingMultibodyPlant
 from systems.visualization import Visualizer
+from systems.terrain import FlatTerrain
 
 class Block(TimeSteppingMultibodyPlant):
-    def __init__(self, urdf_file="systems/block/urdf/sliding_block.urdf"):
+    def __init__(self, urdf_file="systems/block/urdf/sliding_block.urdf", terrain=FlatTerrain()):
 
         # Initialize the time-stepping multibody plant
-        super(Block, self).__init__(file=FindResource(urdf_file))
+        super(Block, self).__init__(file=FindResource(urdf_file), terrain=terrain)
         # Weld the center body frame to the world frame
         body_inds = self.multibody.GetBodyIndices(self.model_index)
         base_frame = self.multibody.get_body(body_inds[0]).body_frame()
