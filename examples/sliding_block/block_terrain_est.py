@@ -4,10 +4,10 @@ Terrain estimation with the sliding block data
 Luke Drnach
 November 17, 2020
 """
-
+import timeit
 from systems.terrainestimator import ResidualTerrainEstimator
 from systems.terrain import GaussianProcessTerrain
-from systems.timestepping import TimeSteppingMultibodyPlant
+from systems.block.block import Block
 import systems.gaussianprocess as gp
 import utilities as utils
 import numpy as np
@@ -24,13 +24,10 @@ def get_data():
 
 def make_block_gp_model():
     """Load the block URDF and make a timestepping model with a GP terrain"""
-    # Specify the file
-    file = "systems/urdf/sliding_block.urdf"
     # Setup the GP terrain
     height_gp, fric_gp = make_gp_models()
-    terrain = GaussianProcessTerrain(height_gp, fric_gp)
     # Create the time-stepping model
-    plant = TimeSteppingMultibodyPlant(file, terrain)
+    plant = Block(terrain=GaussianProcessTerrain(height_gp, fric_gp))
     plant.Finalize()
     return plant
 
@@ -195,12 +192,15 @@ if __name__ == "__main__":
         u = data[key]["control"]
         # Run terrain estimation
         print(f"Estimating for {key}")
+        start = timeit.default_timer()
         run_terrain_estimation(plant, t, x, u)
+        stop = timeit.default_timer()
+        print(f"Elapsed time {stop - start}")
         # Plot the results
-        #plot_terrain_results(plant, data, key)
+        # splot_terrain_results(plant, data, key)
         # Make and save an animation
-        print(f"Distilling animation for {key}")
-        ani = BlockEstimationAnimator(plant, data, key)
-        savename = key + '.mp4'
-        ani.save(savename)
+        # print(f"Distilling animation for {key}")
+        # ani = BlockEstimationAnimator(plant, data, key)
+        # savename = key + '.mp4'
+        # ani.save(savename)
         #plt.show()
