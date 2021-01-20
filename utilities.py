@@ -104,5 +104,7 @@ def CheckProgram(prog):
     # Return the status flag
     return status
 
-def MakeAnimationFromFrames(args):
-    pass
+def GetKnots(trajectory):
+    breaks = trajectory.get_segment_times()
+    values = trajectory.vector_values(breaks)
+    return (breaks, values)
