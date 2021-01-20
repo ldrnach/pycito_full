@@ -1,3 +1,4 @@
+
 """
 acrobotSwingUp: example direct collocation trajectory optimization in pyDrake
 

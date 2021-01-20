@@ -1,26 +1,25 @@
 """
 Description of A1 robot
 
-Luke Drnach
-November 5, 2020
+Updated January 14, 2020
+Includes classes for creating A1 MultibodyPlant and TimesteppingMultibodyPlant as well as an A1Visualizer class
 """
 
+# Project Imports
 from utilities import FindResource
-from pydrake.all import MultibodyPlant
-from pydrake.multibody.parsing import Parser
+from systems.timestepping import TimeSteppingMultibodyPlant
+from systems.visualization import Visualizer
 
-def create_a1_multibody():
-    file = "systems/A1/A1_description/urdf/a1.urdf"
-    plant = MultibodyPlant(0.0)
-    a1 = Parser(plant).AddModelFromFile(FindResource(file))
-    plant.Finalize()
-    return(plant, a1)
+class A1(TimeSteppingMultibodyPlant):
+    def __init__(self, urdf_file="systems/A1/A1_description/urdf/a1_foot_collision.urdf"):
+        # Initialize the time-stepping multibody plant
+        super(A1, self).__init__(file=FindResource(urdf_file))
 
-def create_a1_timestepping():
-    pass
-
+    @staticmethod
+    def visualize(trajectory=None):
+        vis = Visualizer("systems/A1/A1_description/urdf/a1_no_collision.urdf")
+        vis.visualize_trajectory(xtraj=trajectory)
 
 if __name__ == "__main__":
-    plant, _ = create_a1_multibody()
-    print(f"A1 has {plant.num_positions()} position variables and {plant.num_velocities()} velocity variables")
-    print(f"A1 has {plant.num_actuators()} actuators")
+    a1 = A1()
+    a1.visualize()
