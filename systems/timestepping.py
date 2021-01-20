@@ -18,7 +18,6 @@ from systems.terrain import FlatTerrain
 from utilities import FindResource
 #TODO: Implemet toAutoDiffXd method to convert to autodiff class
 
-
 class TimeSteppingMultibodyPlant():
     """
     """
@@ -30,16 +29,12 @@ class TimeSteppingMultibodyPlant():
         self.multibody, self.scene_graph = AddMultibodyPlantSceneGraph(self.builder, 0.001)
         # Store the terrain
         self.terrain = terrain
-        self._dlevel=0
+        self._dlevel = 0
         # Build the MultibodyPlant from the file, if one exists
         self.model_index = []
         if file is not None:
             # Parse the file
             self.model_index = Parser(self.multibody).AddModelFromFile(FindResource(file))
-            # Weld the first frame to the world-frame
-            body_inds = self.multibody.GetBodyIndices(self.model_index)
-            base_frame = self.multibody.get_body(body_inds[0]).body_frame()
-            self.multibody.WeldFrames(self.multibody.world_frame(), base_frame, RigidTransform())
         # Initialize the collision data
         self.collision_frames = []
         self.collision_poses = []
@@ -321,3 +316,5 @@ def solve_lcp(P, q):
     status = result.is_success()
     z = result.GetSolution(x)
     return (z, status)
+    def get_multibody(self):
+        return self.multibody

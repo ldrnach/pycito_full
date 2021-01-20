@@ -126,23 +126,35 @@ class ContactImplicitDirectTranscription():
     def __add_contact_constraints(self):
         """ Add complementarity constraints for contact to the optimization problem"""
         # At each knot point, add constraints for normal distance, sliding velocity, and friction cone
+        self.distance_cstr = NonlinearComplementarityFcn(self._normal_distance,
+                                                    xdim = self.x.shape[0],
+                                                    zdim = self.numN,
+                                                    slack = 0.)
+        self.sliding_cstr = NonlinearComplementarityFcn(self._sliding_velocity,
+                                                    xdim = self.x.shape[0] + self.numN,
+                                                    zdim = self.numT,
+                                                    slack = 0.)
+        self.friccone_cstr = NonlinearComplementarityFcn(self._friction_cone, 
+                                                    xdim = self.x.shape[0] + self.numN + self.numT,
+                                                    zdim = self.numN,
+                                                    slack = 0.)
         for n in range(0, self.num_time_samples):
             # Add complementarity constraints for contact
-            self.prog.AddConstraint(self.__normal_distance_constraint, 
-                        lb=np.concatenate([np.zeros((2*self.numN,)), -np.full((self.numN,), np.inf)], axis=0),
-                        ub=np.concatenate([np.full((2*self.numN,), np.inf), np.zeros((self.numN,))], axis=0),
+            self.prog.AddConstraint(self.distance_cstr, 
+                        lb=self.distance_cstr.lower_bound(),
+                        ub=self.distance_cstr.upper_bound(),
                         vars=np.concatenate((self.x[:,n], self.l[0:self.numN,n]), axis=0),
                         description="normal_distance")
             # Sliding velocity constraint 
-            self.prog.AddConstraint(self.__sliding_velocity_constraint,
-                        lb=np.concatenate([np.zeros((2*self.numT,)), -np.full((self.numT,), np.inf)], axis=0),
-                        ub=np.concatenate([np.full((2*self.numT,), np.inf), np.zeros((self.numT,))], axis=0),
-                        vars=np.concatenate((self.x[:,n], self.l[self.numN:,n]), axis=0),
+            self.prog.AddConstraint(self.sliding_cstr,
+                        lb=self.sliding_cstr.lower_bound(),
+                        ub=self.sliding_cstr.upper_bound(),
+                        vars=np.concatenate((self.x[:,n], self.l[self.numN+self.numT:,n], self.l[self.numN:self.numN+self.numT,n]), axis=0),
                         description="sliding_velocity")
             # Friction cone constraint
-            self.prog.AddConstraint(self.__friction_cone_constraint, 
-                        lb=np.concatenate([np.zeros((2*self.numN,)),-np.full((self.numN,), np.inf)], axis=0),
-                        ub=np.concatenate([np.full((2*self.numN,), np.inf), np.zeros((self.numN,))], axis=0),
+            self.prog.AddConstraint(self.friccone_cstr, 
+                        lb=self.friccone_cstr.lower_bound(),
+                        ub=self.friccone_cstr.upper_bound(),
                         vars=np.concatenate((self.x[:,n], self.l[:,n]), axis=0),
                         description="friction_cone")
 
@@ -189,35 +201,31 @@ class ContactImplicitDirectTranscription():
         return np.concatenate((fq, fv), axis=0)
     
     # Complementarity Constraint functions for Contact
-    def __normal_distance_constraint(self, z):
+    def _normal_distance(self, state):
         """
-        Complementarity constraint between the normal distance to the terrain and the normal reaction force
+        Return normal distances to terrain
         
         Arguments:
             The decision variable list:
-                z = [state, normal_forces]
+                vars = [state, normal_forces]
         """
         # Check if the decision variables are floats
-        plant, context, _ = self.__autodiff_or_float(z)
-        # Split the variables from the decision list
-        x, fN = np.split(z, [self.x.shape[0]])
+        plant, context, _ = self.__autodiff_or_float(state)
         # Calculate the normal distance
-        plant.multibody.SetPositionsAndVelocities(context, x)    
-        phi = plant.GetNormalDistances(context)
-        # Return the normal distances, forces, and complementary product
-        return np.concatenate((phi, fN, phi*fN), axis=0)
+        plant.multibody.SetPositionsAndVelocities(context, state)    
+        return plant.GetNormalDistances(context)
 
-    def __sliding_velocity_constraint(self, z):
+    def _sliding_velocity(self, vars):
         """
         Complementarity constraint between the relative sliding velocity and the tangential reaction forces
 
         Arguments:
             The decision variable list:
-                z = [state, friction_forces, velocity_slacks]
+                vars = [state, velocity_slacks]
         """
-        plant, context, _ = self.__autodiff_or_float(z)
+        plant, context, _ = self.__autodiff_or_float(vars)
         # Split variables from the decision list
-        x, fT, gam = np.split(z, np.cumsum([self.x.shape[0], self.numT]))
+        x, gam = np.split(vars, [self.x.shape[0]])
         # Get the velocity, and convert to qdot
         _, v = np.split(x, 2)
         plant.multibody.SetPositionsAndVelocities(context, x)
@@ -225,27 +233,24 @@ class ContactImplicitDirectTranscription():
         # Get the contact Jacobian
         _, Jt = plant.GetContactJacobians(context)
         # Match sliding slacks to sliding velocities
-        r1 = self._e.transpose().dot(gam) + Jt.dot(dq)
-        r2 = fT * r1
-        return np.concatenate((r1, fT, r2), axis=0)
+        return self._e.transpose().dot(gam) + Jt.dot(dq)
 
-    def __friction_cone_constraint(self, z):
+    def _friction_cone(self, vars):
         """
         Complementarity constraint between the relative sliding velocity and the friction cone
 
         Arguments:
             The decision variable list is stored as :
-                z = [state,normal_forces, friction_forces, velocity_slacks]
+                z = [state,normal_forces, friction_forces]
         """
-        plant, context, _ = self.__autodiff_or_float(z)
-        ind = np.cumsum([self.x.shape[0], self.numN, self.numT])
-        x, fN, fT, gam = np.split(z, ind)
+        plant, context, _ = self.__autodiff_or_float(vars)
+        ind = np.cumsum([self.x.shape[0], self.numN])
+        x, fN, fT = np.split(vars, ind)
         plant.multibody.SetPositionsAndVelocities(context, x)
         mu = plant.GetFrictionCoefficients(context)
         mu = np.diag(mu)
         # Match friction forces to normal forces
-        r1 = mu.dot(fN) - self._e.dot(fT)
-        return np.concatenate((r1, gam, r1*gam), axis=0)
+        return mu.dot(fN) - self._e.dot(fT)
 
     # Joint Limit Constraints
     def __joint_limit_constraint(self, z):
@@ -426,3 +431,37 @@ class ContactImplicitDirectTranscription():
                     }
         return soln_dict
 
+    def set_slack(self, val):
+        self.distance_cstr.set_slack(val)
+        self.sliding_cstr.set_slack(val)
+        self.friccone_cstr.set_slack(val)
+
+class NonlinearComplementarityFcn():
+    """
+    Implements a complementarity relationship involving a nonlinear function, such that:
+        f(x) >= 0
+        z >= 0
+        f(x)*z <= s
+    where f is the function, x and z are decision variables, and s is a slack parameter.
+    By default s=0 (strict complementarity)
+    """
+    def __init__(self, fcn, xdim=0, zdim=1, slack=0.):
+        self.fcn = fcn
+        self.xdim = xdim
+        self.zdim = zdim
+        self.slack = slack
+    
+    def __call__(self, vars):
+        """Evaluate the complementarity constraint """
+        x, z = np.split(vars, [self.xdim])
+        fcn_val = self.fcn(x)
+        return np.concatenate((fcn_val, z, fcn_val * z - self.slack), axis=0)
+
+    def lower_bound(self):
+        return np.concatenate((np.zeros((2*self.zdim,)), -np.full((self.zdim,), np.inf)), axis=0)
+    
+    def upper_bound(self):
+        return np.concatenate((np.full((2*self.zdim,), np.inf), np.zeros((self.zdim,))), axis=0)
+
+    def set_slack(self, val):
+        self.slack = val

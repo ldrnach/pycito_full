@@ -84,7 +84,6 @@ def CheckProgram(prog):
         except RuntimeError:
             status = False
             print(f"Evaluating {cost.evaluator().get_description()} with AutoDiffs produces a RuntimeError")
-
     # Check that the outputs of all constraints are vectors
     for cstr in prog.generic_constraints():
         # Evaluate the constraint with floats
@@ -94,6 +93,9 @@ def CheckProgram(prog):
         except RuntimeError:
             status = False
             print(f"Evaluating {cstr.evaluator().get_description()} with floats produces a RuntimeError")
+        except ValueError:
+            status = False
+            print(f"Evaluating {cstr.evaluator().get_description()} resulted in a ValueError")
         # Evaluate constraint with AutoDiffXd
         try:
             xd = [AutoDiffXd(1.)] * len(cstr.variables())
@@ -103,3 +105,8 @@ def CheckProgram(prog):
             print(f"Evaluating {cstr.evaluator().get_description()} with AutoDiffs produces a RuntimeError")
     # Return the status flag
     return status
+
+def GetKnots(trajectory):
+    breaks = trajectory.get_segment_times()
+    values = trajectory.vector_values(breaks)
+    return (breaks, values)
