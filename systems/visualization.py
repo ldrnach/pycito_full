@@ -27,7 +27,7 @@ class Visualizer():
         self.plant = MultibodyPlant(time_step=0.0)
         self.scenegraph = SceneGraph()
         self.plant.RegisterAsSourceForSceneGraph(self.scenegraph)
-        Parser(self.plant).AddModelFromFile(FindResource(urdf))
+        self.model_index = Parser(self.plant).AddModelFromFile(FindResource(urdf))
         self.builder = DiagramBuilder()
         self.builder.AddSystem(self.scenegraph)
 
