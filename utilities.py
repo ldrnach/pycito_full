@@ -106,7 +106,7 @@ def CheckProgram(prog):
     # Return the status flag
     return status
 
-def GetKnots(trajectory):
+def GetKnotsFromTrajectory(trajectory):
     breaks = trajectory.get_segment_times()
     values = trajectory.vector_values(breaks)
     return (breaks, values)

@@ -8,12 +8,11 @@ November 9, 2020
 import numpy as np
 import matplotlib.pyplot as plt
 import utilities as utils
-from systems.timestepping import TimeSteppingMultibodyPlant
+from systems.block.block import Block
 from systems.terrain import FlatTerrain, StepTerrain, VariableFrictionFlatTerrain
+from pydrake.all import PiecewisePolynomial
 
-def terrain_sim(file, x0, dt, u, terrain):
-    plant = TimeSteppingMultibodyPlant(file, terrain)
-    plant.Finalize()
+def terrain_sim(plant, x0, dt, u):
     t, x, f = plant.simulate(dt, x0, u, N = u.shape[1])
     return (t, x, f)
 
@@ -78,20 +77,24 @@ def calc_terrain_friction(x, terrain):
 
 if __name__ == "__main__":
     # Setup
-    file = "systems/urdf/sliding_block.urdf" 
+    file = "systems/block/urdf/sliding_block.urdf" 
     opt_traj = utils.load("data/slidingblock/block_trajopt.pkl")
     x0 = opt_traj["state"][:,0]
     u = opt_traj["control"]
     dt = 0.01
     terrains = [FlatTerrain(),
+                StepTerrain(step_height=-0.5, step_location=2.5),
                 VariableFrictionFlatTerrain(fric_func=low_friction),
-                VariableFrictionFlatTerrain(fric_func=high_friction),
-                StepTerrain(step_height=-0.5, step_location=2.5)]
-    labels = ["FlatTerrain", "LowFriction", "HighFriction", "StepTerrain"]
+                VariableFrictionFlatTerrain(fric_func=high_friction)
+                ]
+    labels = ["FlatTerrain","StepTerrain", "LowFriction", "HighFriction"]
     simdata = {}
     for terrain, label in zip(terrains, labels):
+        # Create a new plant
+        plant = Block(file, terrain)
+        plant.Finalize()
         # Run the simulations
-        t, x, f = terrain_sim(file, x0, dt, u, terrain)
+        t, x, f = terrain_sim(plant, x0, dt, u)
         # Plot the results
         compare_trajectories(t, x, opt_traj["state"], f, opt_traj["force"][0:5,:], label)
         # Convert the results to a dictionary and save
@@ -99,5 +102,10 @@ if __name__ == "__main__":
         # Add in friction and terrain height to the results dictionary
         simdata[label]["height"] = calc_terrain_height(x, terrain)
         simdata[label]["friction"] = calc_terrain_friction(x, terrain)
+        # Make an animation of the trajectory
+        xtraj = PiecewisePolynomial.FirstOrderHold(t,x)
+        ani = plant.visualize_pyplot(xtraj)
+        ani.save('examples/sliding_block/figures/sim/' + label + 'Sim.mp4')
+        plt.show()
     # Save the resulting trajectory optimizations
     utils.save("data/slidingblock/block_terrain_sims.pkl", simdata)

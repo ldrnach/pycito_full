@@ -5,17 +5,17 @@ Luke Drnach
 November 17, 2020
 """
 import timeit
-from systems.terrainestimator import ResidualTerrainEstimator
-from systems.terrain import GaussianProcessTerrain
-from systems.block.block import Block
-import systems.gaussianprocess as gp
-import utilities as utils
 import numpy as np
 import matplotlib.pyplot as plt 
 import matplotlib.animation as animation
 from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 
+import utilities as utils
+import systems.gaussianprocess as gp
+from systems.terrainestimator import ResidualTerrainEstimator
+from systems.terrain import GaussianProcessTerrain
+from systems.block.block import Block
 
 def get_data():
     """Loads the data from the pickle file"""
@@ -203,4 +203,4 @@ if __name__ == "__main__":
         # ani = BlockEstimationAnimator(plant, data, key)
         # savename = key + '.mp4'
         # ani.save(savename)
-        #plt.show()
+        # plt.show()

@@ -298,7 +298,8 @@ class TimeSteppingMultibodyPlant():
         #Construct LCP bias vector
         z = np.zeros(shape=(S,), dtype=float)
         z[0:numN+numT] = h * JM.dot(tau) + J.dot(dq)
-        z[0:numN] += (Jn.dot(q) - alpha)/h   
+        #z[0:numN] += (Jn.dot(q) - alpha)/h   
+        z[0:numN] += phi/h
         # Solve the LCP for the reaction impluses
         f, status = solve_lcp(P, z)
         if f is None:
@@ -306,6 +307,9 @@ class TimeSteppingMultibodyPlant():
         else:
             # Strip the slack variables from the LCP solution
             return f[0:numN + numT]
+
+    def get_multibody(self):
+        return self.multibody
 
 def solve_lcp(P, q):
     prog = MathematicalProgram()
@@ -316,5 +320,5 @@ def solve_lcp(P, q):
     status = result.is_success()
     z = result.GetSolution(x)
     return (z, status)
-    def get_multibody(self):
-        return self.multibody
+    
+
