@@ -197,7 +197,7 @@ if __name__ == "__main__":
         stop = timeit.default_timer()
         print(f"Elapsed time {stop - start}")
         # Plot the results
-        # splot_terrain_results(plant, data, key)
+        plot_terrain_results(plant, data, key)
         # Make and save an animation
         # print(f"Distilling animation for {key}")
         # ani = BlockEstimationAnimator(plant, data, key)
