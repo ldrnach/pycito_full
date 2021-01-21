@@ -15,6 +15,79 @@ class ResidualTerrainEstimator():
         self.plant = timestepping_plant
         self.mbf = MultibodyForces(timestepping_plant.multibody)
         self.context = self.plant.multibody.CreateDefaultContext()
+        self._create_program()
+
+    def _create_program(self):
+
+        # Calculate the dimensions of the problem
+        Jn, Jt, *_ = self.get_contact_parameters()
+        numN = Jn.shape[0]
+        numT = Jt.shape[0]
+        numV = Jt.shape[1]
+        # Create the program
+        self.prog = MathematicalProgram()
+        # Add decision variables
+        self._create_decision_variables(numN, numT)
+        # Add the costs and constraints
+        self._add_costs(numN)
+        self._add_constraints(numN, numT, numV)
+
+    def _create_decision_variables(self, numN, numT):
+        self.dist_err = self.prog.NewContinuousVariables(numN, name="terrain_residual")
+        self.fric_err = self.prog.NewContinuousVariables(numN, name="friction_residual")
+        self.fN = self.prog.NewContinuousVariables(numN, name="normal_forces")
+        self.fT = self.prog.NewContinuousVariables(numT, name="friction_forces")
+        self.gam = self.prog.NewContinuousVariables(numN, name="velocity_slack")
+
+    def _add_costs(self, numN):
+        """Add a quadratic cost on the terrain and friction residuals"""
+        Q = 0.5 * np.eye(numN)
+        b = np.zeros((numN,))
+        self.prog.AddQuadraticCost(Q,b,vars=self.dist_err)
+        self.prog.AddQuadraticCost(Q,b,vars=self.fric_err)
+
+    def _add_constraints(self, numN, numT, numV):
+        """add  feasibility constraints to the program"""        
+
+        # Enforce feasibility of the contact forces
+        self.dynamics = self.prog.AddLinearEqualityConstraint(
+                            Aeq=np.zeros((numV, numN+numT)), 
+                            beq=np.zeros((numV,)), 
+                            vars=np.concatenate([self.fN, self.fT], axis=0))
+        # Enforce complementarity in the residual model
+        self.distance = NormalDistanceConstraint(phi = np.zeros((numN,)))
+        self.velocity = SlidingVelocityConstraint(v = np.zeros((numT,)))
+        self.friction = FrictionConeConstraint(mu = np.zeros((numN,)))
+        # Add the constraints
+        self.prog.AddConstraint(self.distance,
+                            lb=np.concatenate([np.zeros((2*numN,)), -np.full((numN,), np.inf)], axis=0),
+                            ub=np.concatenate([np.full((2*numN,), np.inf), np.zeros((numN,))], axis=0),
+                            vars=np.concatenate((self.dist_err, self.fN), axis=0))
+        self.prog.AddConstraint(self.velocity,
+                            lb=np.concatenate([np.zeros((2*numT,)), -np.full((numT,), np.inf)], axis=0),
+                            ub=np.concatenate([np.full((2*numT,), np.inf), np.zeros((numT,))], axis=0),
+                            vars=np.concatenate((self.fT, self.gam), axis=0))
+        self.prog.AddConstraint(self.friction,
+                            lb=np.concatenate([np.zeros((2*numN,)), -np.full((numN,), np.inf)], axis=0),
+                            ub=np.concatenate([np.full((2*numN,), np.inf), np.zeros((numN,))], axis=0),
+                            vars=np.concatenate((self.fric_err, self.fN, self.gam, self.fT),axis=0))
+        # Ensure estimated friction is nonnegative
+        self.bounding = self.prog.AddBoundingBoxConstraint(
+                            np.zeros((numN,)), 
+                            np.full((numN,), np.inf), 
+                            self.fric_err)
+
+    def _update_program(self, J, forces, mu, phi, vel):
+        mu = np.asarray(mu)
+        numN = mu.shape[0]
+        # Update the dynamics constraint
+        self.dynamics.evaluator().UpdateCoefficients(Aeq = J.transpose(), beq = forces)
+        # Update the contact constraints
+        self.distance.phi = phi
+        self.velocity.vel = vel
+        self.friction.mu = mu
+        # Update the bounding box constraint on the friction coefficient
+        self.bounding.evaluator().set_bounds(new_lb = -mu, new_ub = np.full((numN,), np.inf))
 
     def estimate_terrain(self, h, x1, x2, u):
         """Updates the terrain model in plant"""
@@ -36,12 +109,11 @@ class ResidualTerrainEstimator():
         pts, _  = self.plant.getTerrainPointsAndFrames(self.context)
         # Get the updated friction values
         mu = self.plant.GetFrictionCoefficients(self.context)
-        new_mu = np.array(mu) + soln["fric_res"]
+        new_mu = np.array(mu) + soln["fric_err"]
         new_mu = np.expand_dims(new_mu, axis=1)
         pts = np.column_stack(pts)
         # Update the friction model
         self.plant.terrain.friction.add_data(pts[0:2,:], new_mu)
-
 
     def update_terrain(self, x2, soln):
         """Update the terrain model in the plant"""
@@ -51,7 +123,7 @@ class ResidualTerrainEstimator():
         # Update the sample points
         new_pts = np.zeros((pts[0].shape[0], len(pts)))
         for n in range(0, len(pts)):
-            new_pts[:,n] = pts[n] - frames[n][0,:] * soln["phi_res"][n]
+            new_pts[:,n] = pts[n] - frames[n][0,:] * soln["dist_err"][n]
         # Add all the sample points to the terrain at the same time
         self.plant.terrain.height.add_data(new_pts[0:2,:], new_pts[2:,:])
 
@@ -75,112 +147,90 @@ class ResidualTerrainEstimator():
 
     def estimate_residuals(self, x2, forces):
 
-        # Setup the mathematical program
-        prog, dvars = self.create_program(x2, forces)
-        # Solve the program
-        result = Solve(prog)
-        # Get the solution from the variables
-        return self.unpack_solution(result, dvars)
-
-    def create_program(self, x2, forces):
-        # First set the state of the system
+        # Update the context
         self.plant.multibody.SetPositionsAndVelocities(self.context, x2)
-        # Calculate the dimensions of the problem
-        Jn, Jt, phi, mu = self.get_contact_parameters(self.context)
-        numN = Jn.shape[0]
-        numT = Jt.shape[0]
-        # Tangent velocity
+        # Get the contact Jacobian
+        Jn, Jt, phi, mu = self.get_contact_parameters()
+        J = np.concatenate((Jn, Jt), axis=0)
+        # Calculate the tangent velocity
         _, v = np.split(x2, [self.plant.multibody.num_positions()])
         dq = self.plant.multibody.MapVelocityToQDot(self.context, v)
         Vt = Jt.dot(dq)
-        # Contact Jacobian
-        J = np.concatenate([Jn, Jt], axis=0)
-        # Create the program and all the variables
-        prog = MathematicalProgram()
-        dvars = self.setup_variables(prog, numN, numT)
-        # Add the costs and constraints to the program
-        prog = self.add_costs_and_constraints(prog, dvars, phi, J, forces, Vt, mu)
-        return (prog, dvars)
+        # Update the program
+        self._update_program(J, forces, mu, phi, Vt)
+        # Solve the program
+        result = Solve(self.prog)
+        # Get the solution from the variables
+        return self.unpack_solution(result)
 
-    def get_contact_parameters(self, context):
-        Jn, Jt = self.plant.GetContactJacobians(context)
-        phi = self.plant.GetNormalDistances(context)
-        mu = self.plant.GetFrictionCoefficients(context)
+    def get_contact_parameters(self):
+        Jn, Jt = self.plant.GetContactJacobians(self.context)
+        phi = self.plant.GetNormalDistances(self.context)
+        mu = self.plant.GetFrictionCoefficients(self.context)
         return (Jn, Jt, phi, mu)
 
-    @staticmethod
-    def add_costs_and_constraints(prog, dvars, phi, J, f, Vt, mu):
-        """add residual cost and feasibility constraints to the program"""
-        numN = dvars["fN"].shape[0]
-        numT = dvars["fT"].shape[0]
-        # Add cost to choose the smallest residual that fits the data
-        Q = 0.5 * np.eye(numN)
-        b = np.zeros((numN,))
-        prog.AddQuadraticCost(Q,b,vars=dvars["phi_res"])
-        prog.AddQuadraticCost(Q,b,vars=dvars["fric_res"])
-        # Enforce feasibility of the contact forces
-        prog.AddLinearEqualityConstraint(Aeq=J.transpose(), beq=f, vars=np.concatenate([dvars["fN"], dvars["fT"]], axis=0))
-        # Enforce complementarity in the residual model
-        prog.AddConstraint(NormalDistanceConstraint(phi=phi),
-                            lb=np.concatenate([np.zeros((2*numN,)), -np.full((numN,), np.inf)], axis=0),
-                            ub=np.concatenate([np.full((2*numN,), np.inf), np.zeros((numN,))], axis=0),
-                            vars=np.concatenate((dvars["phi_res"], dvars["fN"]), axis=0))
-        prog.AddConstraint(SlidingVelocityConstraint(v=Vt),
-                            lb=np.concatenate([np.zeros((2*numT,)), -np.full((numT,), np.inf)], axis=0),
-                            ub=np.concatenate([np.full((2*numT,), np.inf), np.zeros((numT,))], axis=0),
-                            vars=np.concatenate((dvars["fT"], dvars["gam"]), axis=0))
-        prog.AddConstraint(FrictionConeConstraint(mu=mu),
-                            lb=np.concatenate([np.zeros((2*numN,)), -np.full((numN,), np.inf)], axis=0),
-                            ub=np.concatenate([np.full((2*numN,), np.inf), np.zeros((numN,))], axis=0),
-                            vars=np.concatenate((dvars["fric_res"], dvars["fN"], dvars["gam"], dvars["fT"]),axis=0))
-        # Ensure estimated friction is nonnegative
-        prog.AddBoundingBoxConstraint(-np.array(mu), np.full((numN,), np.inf), dvars["fric_res"])
-        # Return the updated program
-        return prog
-
-    @staticmethod
-    def setup_variables(prog, numN, numT):
-        dvars = {}
-        dvars["phi_res"] = prog.NewContinuousVariables(numN, name="terrain_residual")
-        dvars["fric_res"] = prog.NewContinuousVariables(numN, name="friction_residual")
-        dvars["fN"] = prog.NewContinuousVariables(numN, name="normal_forces")
-        dvars["fT"] = prog.NewContinuousVariables(numT, name="friction_forces")
-        dvars["gam"] = prog.NewContinuousVariables(numN, name="velocity_slack")
-        return dvars
-
-    @staticmethod
-    def unpack_solution(result, dvars):
-        soln = {}
-        for key in dvars.keys():
-            soln[key] = result.GetSolution(dvars[key])
-        soln["Success"] = result.is_success()
+    def unpack_solution(self, result):
+        soln = {"dist_err": result.GetSolution(self.dist_err),
+                "fric_err": result.GetSolution(self.fric_err),
+                "fN": result.GetSolution(self.fN),
+                "fT": result.GetSolution(self.fT),
+                "gam": result.GetSolution(self.gam),
+                "success": result.is_success()
+        }
         return soln
  
 class NormalDistanceConstraint():
     def __init__(self, phi):
         self.phi = phi
+
     def __call__(self, z):
         err, fN = np.split(z,2)
         return np.concatenate((self.phi + err, fN, fN*(self.phi+err)), axis=0)
 
+    @property
+    def phi(self):
+        return self.__phi 
+
+    @phi.setter
+    def phi(self, val):
+        self.__phi = val
+
 class SlidingVelocityConstraint():
     def __init__(self, v):
-        self.v = v
+        self.vel = v
+    
     def __call__(self, z):
-        fT, gam = np.split(z, [self.v.shape[0]])
+        fT, gam = np.split(z, [self.vel.shape[0]])
         w = duplicator(gam.shape[0], fT.shape[0])
-        r  = w.transpose().dot(gam) + self.v
+        r  = w.transpose().dot(gam) + self.vel
         return np.concatenate((r, fT, r * fT), axis=0)
+
+    @property
+    def vel(self):
+        return self.__vel
+    
+    @vel.setter
+    def vel(self, val):
+        self.__vel = np.asarray(val)
 
 class FrictionConeConstraint():
     def __init__(self, mu):
         self.mu = np.asarray(mu)
+    
     def __call__(self, z):
         numN = self.mu.shape[0]
         err, fN, gam, fT = np.split(z, np.cumsum([numN, numN, numN]))
         w = duplicator(numN, fT.shape[0])
         r = np.diag(self.mu + err).dot(fN) - w.dot(fT)
         return np.concatenate((r, gam, r*gam), axis=0)
+
+    @property
+    def mu(self):
+        return self.__mu 
+
+    @mu.setter
+    def mu(self, val):
+        self.__mu = np.asarray(val)
 
 def duplicator(numN, numT):
     w = np.zeros((numN, numT))
