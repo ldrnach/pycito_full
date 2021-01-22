@@ -199,8 +199,8 @@ if __name__ == "__main__":
         # Plot the results
         plot_terrain_results(plant, data, key)
         # Make and save an animation
-        # print(f"Distilling animation for {key}")
-        # ani = BlockEstimationAnimator(plant, data, key)
-        # savename = key + '.mp4'
-        # ani.save(savename)
-        # plt.show()
+        print(f"Distilling animation for {key}")
+        ani = BlockEstimationAnimator(plant, data, key)
+        savename = key + '.mp4'
+        ani.save(savename)
+        plt.show()
