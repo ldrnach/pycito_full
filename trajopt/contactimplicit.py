@@ -423,10 +423,12 @@ class ContactImplicitDirectTranscription():
         """ unpack the trajectories from the program result and store in a dictionary"""
         t = self.get_solution_times(soln)
         x, u, f, jl = self.reconstruct_all_trajectories(soln)
+        if jl is not None:
+            jl = jl.vector_values(t)
         soln_dict = {"time": t,
-                    "state": x,
-                    "control": u, 
-                    "force": f,
+                    "state": x.vector_values(t),
+                    "control": u.vector_values(t), 
+                    "force": f.vector_values(t),
                     "jointlimit": jl,
                     "solver": soln.get_solver_id().name(),
                     "success": soln.is_success(),

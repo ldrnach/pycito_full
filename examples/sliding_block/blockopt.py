@@ -12,13 +12,13 @@ import timeit
 import numpy as np
 import matplotlib.pyplot as plt
 from trajopt.contactimplicit import ContactImplicitDirectTranscription
-from systems.timestepping import TimeSteppingMultibodyPlant
+from systems.block.block import Block
 from pydrake.solvers.snopt import SnoptSolver
 import utilities as utils
 #TODO: Check if the ElasticWeight parameter is available in this version of Drake
 
 # Create the block model with the default flat terrain
-plant = TimeSteppingMultibodyPlant(file="systems/block/urdf/sliding_block.urdf")
+plant = Block()
 plant.Finalize()
 # Get the default context
 context = plant.multibody.CreateDefaultContext()
