@@ -46,12 +46,80 @@ def run_terrain_estimation(plant, t, x, u):
     for n in range(0, x.shape[1]-1):
         h = t[n+1]-t[n]
         estimator.estimate_terrain(h, x[:,n], x[:,n+1], u[:,n])
-        
-def plot_terrain_results(plant, data, key):
+
+def run_terrain_estimation_debug(plant, t, x, u):
+    """ runs residual terrain estimation and updates the plant"""
+    estimator = ResidualTerrainEstimator(plant)
+    soln1 = {"dist_err": [],
+                "fric_err": [],
+                "fN": [],
+                "fT": [],
+                "gam": [],
+                "success": []
+        }
+    soln2 = {key: value[:] for key, value in soln1.items()}
+    for n in range(0, x.shape[1]-1):
+        h = t[n+1]-t[n]
+        soln1_t, soln2_t = estimator.estimate_terrain(h, x[:,n], x[:,n+1], u[:,n])
+        soln1 = append_entries(soln1, soln1_t)
+        soln2 = append_entries(soln2, soln2_t)
+    for key in soln1.keys():
+        if key != "success":
+            soln1[key] = np.concatenate(soln1[key], axis=1)
+            soln2[key] = np.concatenate(soln2[key], axis=1)
+
+    return soln1, soln2
+
+def append_entries(target_dict, source_dict):
+    for key in target_dict.keys():
+        if key == "success":
+            target_dict[key].append(source_dict[key])
+        else:
+            target_dict[key].append(np.expand_dims(source_dict[key], axis=1))
+    return target_dict
+
+def plot_debug_results(soln1, soln2, data):
+    t = data["time"]
+    ts = t[0:-1]
+    f = data["force"]
+    x = data["state"]
+
+    _, axs = plt.subplots(3,1)
+    axs[0].plot(ts, soln1["dist_err"][0,:], linewidth=1.5, label="Pass 1")
+    axs[0].plot(ts, soln2["dist_err"][0,:], linewidth=1.5, label="Pass 2")
+    axs[0].set_ylabel("Terrain height residuals")
+    axs[1].plot(ts, soln1["fric_err"][0,:], linewidth=1.5, label="Pass 1")
+    axs[1].plot(ts, soln2["fric_err"][0,:], linewidth=1.5, label="Pass 2")
+    axs[1].set_ylabel("Terrain friction residuals")
+    axs[2].plot(ts, soln1["gam"][0,:], linewidth=1.5, label="Pass 1")
+    axs[2].plot(ts, soln2["gam"][0,:], linewidth=1.5, label="Pass 2")
+    axs[2].plot(t, x[2,:], linewidth=1.5, label="Sim")
+    axs[2].set_ylabel("Velocity")
+    axs[2].set_xlabel("Time (s)")
+    axs[2].legend()
+    _, axs2 = plt.subplots(3,1)
+    # Normal force subplot
+    axs2[0].plot(ts, soln1["fN"][0,:], linewidth=1.5, label="Pass 1")
+    axs2[0].plot(ts, soln2["fN"][0,:], linewidth=1.5, label="Pass 2")
+    axs2[0].plot(t, f[0,:], linewidth=1.5, label="Sim")
+    axs2[0].set_ylabel('Normal force')
+    # Friction force subplot
+    axs2[1].plot(ts, soln1["fT"][0,:] - soln1["fT"][2,:], linewidth=1.5, label="Pass 1")
+    axs2[1].plot(ts, soln2["fT"][0,:] - soln2["fT"][2,:], linewidth=1.5, label="Pass 2")
+    axs2[1].plot(t, f[1,:] - f[3,:], linewidth=1.5, label="Sim")
+    axs2[1].set_ylabel('X Friction Force')
+    axs2[2].plot(ts, soln1["fT"][1,:] - soln1["fT"][3,:], linewidth=1.5, label="Pass 1")
+    axs2[2].plot(ts, soln2["fT"][1,:] - soln1["fT"][3,:], linewidth=1.5, label="Pass 2")
+    axs2[2].plot(t, f[2,:] - f[4,:], linewidth = 1.5, label="Sim")
+    axs2[2].set_ylabel("Y Friction Force")
+    axs2[2].legend()
+    plt.show()
+
+def plot_terrain_results(plant, data):
     """plot the results from terrain estimation"""
-    x = data[key]["state"]
-    h = data[key]["height"]
-    m = data[key]["friction"]
+    x = data["state"]
+    h = data["height"]
+    m = data["friction"]
     # The coordinate axis
     x_1 = x[0:2,:]
     # The priors
@@ -193,14 +261,15 @@ if __name__ == "__main__":
         # Run terrain estimation
         print(f"Estimating for {key}")
         start = timeit.default_timer()
-        run_terrain_estimation(plant, t, x, u)
+        soln1, soln2 = run_terrain_estimation_debug(plant, t, x, u)
         stop = timeit.default_timer()
         print(f"Elapsed time {stop - start}")
+        plot_debug_results(soln1, soln2, data[key])
         # Plot the results
-        plot_terrain_results(plant, data, key)
+        plot_terrain_results(plant, data[key])
         # Make and save an animation
-        print(f"Distilling animation for {key}")
-        ani = BlockEstimationAnimator(plant, data, key)
-        savename = key + '.mp4'
-        ani.save(savename)
-        plt.show()
+        # print(f"Distilling animation for {key}")
+        # ani = BlockEstimationAnimator(plant, data, key)
+        # savename = key + '.mp4'
+        # ani.save(savename)
+        # plt.show()

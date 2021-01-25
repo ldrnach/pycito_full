@@ -98,9 +98,10 @@ class ResidualTerrainEstimator():
         # Update the terrain
         self.update_terrain(x2, soln)
         # Re-solve the optimization problem for the friction residuals (terrain shape might have changed)
-        soln = self.estimate_residuals(x2, f)
+        soln2 = self.estimate_residuals(x2, f)
         # Update the friction coefficient
-        self.update_friction(x2, soln)
+        self.update_friction(x2, soln2)
+        return (soln, soln2)
 
     def update_friction(self, x2, soln):
         """Update the friction model in the plant"""

@@ -79,3 +79,12 @@ print(f"SNOPT Exit Status {result.get_solver_detials().info}: {utils.SNOPT_DECOD
 xtraj, utraj, ltraj, jltraj = trajopt.reconstruct_all_trajectories(result)
 a1.plot_trajectories(xtraj, utraj,ltraj, jltraj)
 a1.visualize(xtraj)
+
+# Checking for floating base bodies
+floating = a1.multibody.GetFloatingBaseBodies()
+while len(floating) > 0:
+    body = a1.multibody.get_body(floating.pop())
+    body.has_quaternion_dofs()
+    # Get the indices in the state vector when floating positions and velocities begin
+    pos_idx = body.floating_positions_start()
+    vel_idx = body.floating_velocities_start()
