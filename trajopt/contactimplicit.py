@@ -7,7 +7,7 @@ Luke Drnach
 October 5, 2020
 """
 import numpy as np 
-from pydrake.all import MathematicalProgram
+from pydrake.all import MathematicalProgram, PiecewisePolynomial
 from pydrake.autodiffutils import AutoDiffXd
 from pydrake.multibody.tree import MultibodyForces_
 
@@ -384,20 +384,24 @@ class ContactImplicitDirectTranscription():
 
     def reconstruct_state_trajectory(self, soln):
         """Returns the state trajectory from the solution"""
-        return soln.GetSolution(self.x)
+        t = self.get_solution_times(soln)
+        return PiecewisePolynomial.FirstOrderHold(t, soln.GetSolution(self.x))
 
     def reconstruct_input_trajectory(self, soln):
         """Returns the input trajectory from the solution"""
-        return soln.GetSolution(self.u)
+        t = self.get_solution_times(soln)
+        return PiecewisePolynomial.FirstOrderHold(t, soln.GetSolution(self.u))
     
     def reconstruct_reaction_force_trajectory(self, soln):
         """Returns the reaction force trajectory from the solution"""
-        return soln.GetSolution(self.l)
+        t = self.get_solution_times(soln)
+        return PiecewisePolynomial.FirstOrderHold(t, soln.GetSolution(self.l))
     
     def reconstruct_limit_force_trajectory(self, soln):
         """Returns the joint limit force trajectory from the solution"""
         if self.jl:
-            return soln.GetSolution(self.jl)
+            t = self.get_solution_times(soln)
+            return PiecewisePolynomial(t, soln.GetSolution(self.jl))
         else:
             return None
 

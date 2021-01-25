@@ -18,7 +18,7 @@ import utilities as utils
 #TODO: Check if the ElasticWeight parameter is available in this version of Drake
 
 # Create the block model with the default flat terrain
-plant = TimeSteppingMultibodyPlant(file="systems/urdf/sliding_block.urdf")
+plant = TimeSteppingMultibodyPlant(file="systems/block/urdf/sliding_block.urdf")
 plant.Finalize()
 # Get the default context
 context = plant.multibody.CreateDefaultContext()
@@ -76,10 +76,11 @@ print(f"Optimal cost = {result.get_optimal_cost()}")
 print(f"SNOPT Exit Status {result.get_solver_details().info}: {utils.SNOPT_DECODER[result.get_solver_details().info]}")
 
 # Unpack and plot the trajectories
-x = trajopt.reconstruct_state_trajectory(result)
-u = trajopt.reconstruct_input_trajectory(result)
-l = trajopt.reconstruct_reaction_force_trajectory(result)
 t = trajopt.get_solution_times(result)
+x = trajopt.reconstruct_state_trajectory(result).vector_values(t)
+u = trajopt.reconstruct_input_trajectory(result).vector_values(t)
+l = trajopt.reconstruct_reaction_force_trajectory(result).vector_values(t)
+
 # Plot the horizontal trajectory
 fig1, axs1 = plt.subplots(3,1)
 axs1[0].plot(t, x[0,:], linewidth=1.5)

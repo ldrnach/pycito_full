@@ -13,6 +13,7 @@ October 9, 2020
 import numpy as np
 from math import pi
 from pydrake.all import MultibodyPlant, DiagramBuilder, SceneGraph,AddMultibodyPlantSceneGraph, JacobianWrtVariable, AngleAxis, RotationMatrix, RigidTransform, MathematicalProgram, Solve
+from pydrake.geometry import Role, Sphere
 from pydrake.multibody.parsing import Parser
 from systems.terrain import FlatTerrain
 from utilities import FindResource
@@ -38,6 +39,7 @@ class TimeSteppingMultibodyPlant():
         # Initialize the collision data
         self.collision_frames = []
         self.collision_poses = []
+        self.collision_radius = []
 
     def Finalize(self):
         """
@@ -190,6 +192,13 @@ class TimeSteppingMultibodyPlant():
                 frame_name = inspector.GetName(inspector.GetFrameId(id)).split("::")
                 self.collision_frames.append(self.multibody.GetFrameByName(frame_name[-1]))
                 self.collision_poses.append(inspector.GetPoseInFrame(id))
+                # Check for a spherical geometry
+                geoms = inspector.GetGeometries(inspector.GetFrameId(id), Role.kProximity)
+                shape = inspector.GetShape(geoms[0])
+                if type(shape) is Sphere:
+                    self.collision_radius.append(shape.radius())
+                else:
+                    self.collision_radius.append(0.)
 
     def __discretize_friction(self, normal, tangent):
         """
