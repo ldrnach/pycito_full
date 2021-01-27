@@ -176,7 +176,9 @@ class ResidualTerrainEstimator():
                 "fN": result.GetSolution(self.fN),
                 "fT": result.GetSolution(self.fT),
                 "gam": result.GetSolution(self.gam),
-                "success": result.is_success()
+                "success": result.is_success(),
+                "solver": result.get_solver_id().name(),
+                "status": result.get_solver_details().info
         }
         return soln
  

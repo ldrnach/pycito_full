@@ -9,4 +9,5 @@ y_ad = (1.0 + x_ad)**2
 # Evaluate function and derivative
 print(f"Value: {[y_ad[0].value(), y_ad[1].value()]}")
 print(f"Derivative: {np.vstack([y_ad[0].derivatives(), y_ad[1].derivatives()])}")
+print(f"Norm: {np.linalg.norm(y_ad)}")
 

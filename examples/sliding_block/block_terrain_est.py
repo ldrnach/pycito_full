@@ -55,7 +55,9 @@ def run_terrain_estimation_debug(plant, t, x, u):
                 "fN": [],
                 "fT": [],
                 "gam": [],
-                "success": []
+                "success": [],
+                "solver": [],
+                "status": []
         }
     soln2 = {key: value[:] for key, value in soln1.items()}
     for n in range(0, x.shape[1]-1):
@@ -64,7 +66,7 @@ def run_terrain_estimation_debug(plant, t, x, u):
         soln1 = append_entries(soln1, soln1_t)
         soln2 = append_entries(soln2, soln2_t)
     for key in soln1.keys():
-        if key != "success":
+        if key != "success" and key != 'solver' and key != "status":
             soln1[key] = np.concatenate(soln1[key], axis=1)
             soln2[key] = np.concatenate(soln2[key], axis=1)
 
@@ -72,7 +74,7 @@ def run_terrain_estimation_debug(plant, t, x, u):
 
 def append_entries(target_dict, source_dict):
     for key in target_dict.keys():
-        if key == "success":
+        if key == "success" or key == "solver" or key == "status":
             target_dict[key].append(source_dict[key])
         else:
             target_dict[key].append(np.expand_dims(source_dict[key], axis=1))
@@ -83,20 +85,26 @@ def plot_debug_results(soln1, soln2, data):
     ts = t[0:-1]
     f = data["force"]
     x = data["state"]
-
+    # Check for samples that did not solve appropriately
+    mask1 = np.invert(np.array(soln1["success"]))
+    mask2 = np.invert(np.array(soln2["success"]))
+    t_false1 = ts[mask1]
+    t_false2 = ts[mask2]
+    dt = t[1]
     _, axs = plt.subplots(3,1)
     axs[0].plot(ts, soln1["dist_err"][0,:], linewidth=1.5, label="Pass 1")
     axs[0].plot(ts, soln2["dist_err"][0,:], linewidth=1.5, label="Pass 2")
-    axs[0].set_ylabel("Terrain height residuals")
+    axs[0].set_ylabel("Height residuals")
     axs[1].plot(ts, soln1["fric_err"][0,:], linewidth=1.5, label="Pass 1")
     axs[1].plot(ts, soln2["fric_err"][0,:], linewidth=1.5, label="Pass 2")
-    axs[1].set_ylabel("Terrain friction residuals")
+    axs[1].set_ylabel("Friction residuals")
     axs[2].plot(ts, soln1["gam"][0,:], linewidth=1.5, label="Pass 1")
     axs[2].plot(ts, soln2["gam"][0,:], linewidth=1.5, label="Pass 2")
     axs[2].plot(t, x[2,:], linewidth=1.5, label="Sim")
     axs[2].set_ylabel("Velocity")
     axs[2].set_xlabel("Time (s)")
     axs[2].legend()
+    add_solve_highlights(axs, t_false1, t_false2, dt)
     _, axs2 = plt.subplots(3,1)
     # Normal force subplot
     axs2[0].plot(ts, soln1["fN"][0,:], linewidth=1.5, label="Pass 1")
@@ -113,7 +121,17 @@ def plot_debug_results(soln1, soln2, data):
     axs2[2].plot(t, f[2,:] - f[4,:], linewidth = 1.5, label="Sim")
     axs2[2].set_ylabel("Y Friction Force")
     axs2[2].legend()
+    add_solve_highlights(axs2, t_false1, t_false2, dt)
     plt.show()
+
+def add_solve_highlights(axs, t_false1, t_false2, dt):
+    for k in range(0, len(axs)):
+        for n in range(0, len(t_false1)):
+            axs[k].axvspan(t_false1[n], t_false1[n]+dt, color="tab:blue", alpha=0.5, zorder=1)
+        for n in range(0, len(t_false2)):
+            axs[k].axvspan(t_false2[n], t_false2[n] + dt, color="tab:orange", alpha=0.5, zorder=1)
+
+
 
 def plot_terrain_results(plant, data):
     """plot the results from terrain estimation"""
@@ -264,9 +282,13 @@ if __name__ == "__main__":
         soln1, soln2 = run_terrain_estimation_debug(plant, t, x, u)
         stop = timeit.default_timer()
         print(f"Elapsed time {stop - start}")
-        plot_debug_results(soln1, soln2, data[key])
+        print(f"Pass 1 solvers used: {set(soln1['solver'])}")
+        print(f"Pass 1 terminated with exit codes: {set(soln1['status'])}")
+        print(f"Pass 2 solvers used: {set(soln2['solver'])}")
+        print(f"Pass 2 terminated with exit codes: {set(soln2['status'])}")
+        #plot_debug_results(soln1, soln2, data[key])
         # Plot the results
-        plot_terrain_results(plant, data[key])
+        #plot_terrain_results(plant, data[key])
         # Make and save an animation
         # print(f"Distilling animation for {key}")
         # ani = BlockEstimationAnimator(plant, data, key)

@@ -43,6 +43,8 @@ class ContactImplicitDirectTranscription():
         self.mbf_ad = MBF_AD(self.plant_ad.multibody)
         # Create the mathematical program
         self.prog = MathematicalProgram()
+        # Check for floating DOF
+        self.__check_floating_dof()
         # Add decision variables to the program
         self.__add_decision_varibles()
         # Add dynamic constraints 
@@ -51,6 +53,18 @@ class ContactImplicitDirectTranscription():
         self.__add_contact_constraints()
         # Initialize the timesteps
         self.__set_initial_timesteps()
+
+    def __check_floating_dof(self):
+
+        # Get the floating bodies
+        floating = self.plant_f.multibody.GetFloatingBaseBodies()
+        self.floating_pos = []
+        self.floating_vel = []
+        while len(floating) > 0:
+            body = self.plant_f.multibody.get_body(floating.pop())
+            if body.has_quaternion_dofs():
+                self.floating_pos.append(body.floating_positions_start())
+                self.floating_vel.append(floating_vel = body.floating_velocities_start())
 
     def __add_decision_varibles(self):
         """
@@ -197,6 +211,10 @@ class ContactImplicitDirectTranscription():
         # Calc position residual from velocity
         dq2 = plant.multibody.MapVelocityToQDot(context, v2)
         fq = q2 - q1 - h*dq2
+        # Check for floating bodies / quaternion variables
+        if len(self.floating_pos) > 0:
+            for pidx, vidx in zip(self.floating_pos, self.floating_vel):
+                fq[pidx:pidx+4] = q2[pidx:pidx+4] - integrate_quaternion(x1[pidx:pidx+4],x1[vidx:vidx+3],h)
         # Return dynamics defects
         return np.concatenate((fq, fv), axis=0)
     
@@ -441,6 +459,44 @@ class ContactImplicitDirectTranscription():
         self.distance_cstr.set_slack(val)
         self.sliding_cstr.set_slack(val)
         self.friccone_cstr.set_slack(val)
+
+def integrate_quaternion(q, w, dt):
+    """
+    Integrate the unit quaternion q given it's associated angular velocity w
+
+    Arguments:
+        q: (4,) numpy array specifying a unit quaternion
+        w: (3,) numpy array specifying an angular velocity
+        dt: scalar indicating timestep 
+
+    Return Values
+        (4,) numpy array specifying the next step unit quaternion
+    """
+    # normalize the velocity vector
+    speed = np.linalg.norm(w)
+    nw = w/speed
+    # Calculate the rotation quaternion
+    Dq = np.zeros((4,))
+    Dq[1:] = np.cos(speed*dt/2) + nw * np.sin(speed*dt/2)
+    # Do the rotation
+    return quaternion_product(Dq, q)
+
+def quaternion_product(q1, q2):
+    """
+    Returns the quaternion product of two quaternions, q1*q2
+
+    Arguments:
+        q1: (4,) numpy array
+        q2: (4,) numpy array
+    """
+    qprod = np.zeros((4,), dtype=type(q1))
+    # Scalar part
+    qprod[0] = q1[0]*q2[0] - np.dot(q1[1:], q2[:])
+    # Vector part
+    qprod[1:] = q1[0]*q2[1:] + q2[0]*q1[1:] - np.cross(q1[1:], q2[1:])
+    # Return
+    return qprod
+
 
 class NonlinearComplementarityFcn():
     """
