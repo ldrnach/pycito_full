@@ -57,7 +57,8 @@ def run_terrain_estimation_debug(plant, t, x, u):
                 "gam": [],
                 "success": [],
                 "solver": [],
-                "status": []
+                "status": [],
+                "infeasible":[]
         }
     soln2 = {key: value[:] for key, value in soln1.items()}
     for n in range(0, x.shape[1]-1):
@@ -66,7 +67,10 @@ def run_terrain_estimation_debug(plant, t, x, u):
         soln1 = append_entries(soln1, soln1_t)
         soln2 = append_entries(soln2, soln2_t)
     for key in soln1.keys():
-        if key != "success" and key != 'solver' and key != "status":
+        if key == "infeasible":
+            soln1[key] = [name for name in soln1[key] if name]
+            soln2[key] = [name for name in soln1[key] if name]
+        elif key != "success" and key != 'solver' and key != "status":
             soln1[key] = np.concatenate(soln1[key], axis=1)
             soln2[key] = np.concatenate(soln2[key], axis=1)
 
@@ -74,7 +78,7 @@ def run_terrain_estimation_debug(plant, t, x, u):
 
 def append_entries(target_dict, source_dict):
     for key in target_dict.keys():
-        if key == "success" or key == "solver" or key == "status":
+        if key == "success" or key == "solver" or key == "status" or key == "infeasible":
             target_dict[key].append(source_dict[key])
         else:
             target_dict[key].append(np.expand_dims(source_dict[key], axis=1))
@@ -284,8 +288,10 @@ if __name__ == "__main__":
         print(f"Elapsed time {stop - start}")
         print(f"Pass 1 solvers used: {set(soln1['solver'])}")
         print(f"Pass 1 terminated with exit codes: {set(soln1['status'])}")
+        print(f"Pass 1 infeasible constraints: {soln1['infeasible']}")
         print(f"Pass 2 solvers used: {set(soln2['solver'])}")
         print(f"Pass 2 terminated with exit codes: {set(soln2['status'])}")
+        print(f"Pass 2 infeasible constraints: {soln2['infeasible']}")
         #plot_debug_results(soln1, soln2, data[key])
         # Plot the results
         #plot_terrain_results(plant, data[key])

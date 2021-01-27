@@ -43,8 +43,8 @@ class ResidualTerrainEstimator():
         """Add a quadratic cost on the terrain and friction residuals"""
         Q = 0.5 * np.eye(numN)
         b = np.zeros((numN,))
-        self.prog.AddQuadraticCost(Q,b,vars=self.dist_err)
-        self.prog.AddQuadraticCost(Q,b,vars=self.fric_err)
+        self.prog.AddQuadraticErrorCost(Q,b,vars=self.dist_err).evaluator().set_description("DistanceErrCost")
+        self.prog.AddQuadraticErrorCost(Q,b,vars=self.fric_err).evaluator().set_description("FrictionErrCost")
 
     def _add_constraints(self, numN, numT, numV):
         """add  feasibility constraints to the program"""        
@@ -54,6 +54,7 @@ class ResidualTerrainEstimator():
                             Aeq=np.zeros((numV, numN+numT)), 
                             beq=np.zeros((numV,)), 
                             vars=np.concatenate([self.fN, self.fT], axis=0))
+        self.dynamics.evaluator().set_description("DynamicsConstraint")
         # Enforce complementarity in the residual model
         self.distance = NormalDistanceConstraint(phi = np.zeros((numN,)))
         self.velocity = SlidingVelocityConstraint(v = np.zeros((numT,)))
@@ -62,21 +63,25 @@ class ResidualTerrainEstimator():
         self.prog.AddConstraint(self.distance,
                             lb=np.concatenate([np.zeros((2*numN,)), -np.full((numN,), np.inf)], axis=0),
                             ub=np.concatenate([np.full((2*numN,), np.inf), np.zeros((numN,))], axis=0),
-                            vars=np.concatenate((self.dist_err, self.fN), axis=0))
+                            vars=np.concatenate((self.dist_err, self.fN), axis=0),
+                            description="NormalDistanceConstraint")
         self.prog.AddConstraint(self.velocity,
                             lb=np.concatenate([np.zeros((2*numT,)), -np.full((numT,), np.inf)], axis=0),
                             ub=np.concatenate([np.full((2*numT,), np.inf), np.zeros((numT,))], axis=0),
-                            vars=np.concatenate((self.fT, self.gam), axis=0))
+                            vars=np.concatenate((self.fT, self.gam), axis=0),
+                            description="SlidingVelocityConstraint")
         self.prog.AddConstraint(self.friction,
                             lb=np.concatenate([np.zeros((2*numN,)), -np.full((numN,), np.inf)], axis=0),
                             ub=np.concatenate([np.full((2*numN,), np.inf), np.zeros((numN,))], axis=0),
-                            vars=np.concatenate((self.fric_err, self.fN, self.gam, self.fT),axis=0))
+                            vars=np.concatenate((self.fric_err, self.fN, self.gam, self.fT),axis=0),
+                            description="FrictionConeConstraint")
         # Ensure estimated friction is nonnegative
         self.bounding = self.prog.AddBoundingBoxConstraint(
                             np.zeros((numN,)), 
                             np.full((numN,), np.inf), 
                             self.fric_err)
-
+        self.bounding.evaluator().set_description("FrictionErrorBoxConstraint")
+    
     def _update_program(self, J, forces, mu, phi, vel):
         mu = np.asarray(mu)
         numN = mu.shape[0]
@@ -178,7 +183,8 @@ class ResidualTerrainEstimator():
                 "gam": result.GetSolution(self.gam),
                 "success": result.is_success(),
                 "solver": result.get_solver_id().name(),
-                "status": result.get_solver_details().info
+                "status": result.get_solver_details().info,
+                "infeasible": result.GetInfeasibleConstraintNames(self.prog)
         }
         return soln
  
@@ -236,8 +242,58 @@ class FrictionConeConstraint():
         self.__mu = np.asarray(val)
 
 def duplicator(numN, numT):
+
     w = np.zeros((numN, numT))
     nD = int(numT / numN)
     for n in range(0, numN):
         w[n, n*nD:(n+1)*nD] = 1
     return w
+
+class ResidualTerrainEstimation_Debug(ResidualTerrainEstimator):
+    """ Helper Class for debugging Residual Terrain Estimation"""
+    def __init__(self, timesteppingplant):
+        super(ResidualTerrainEstimation_Debug, self).__init__(timesteppingplant)
+        self.pass1 = {"results": [],
+                    "costs": [],
+                    "constraints": []
+        }
+        self.pass2 = {key: value[:] for key, value in self.pass1.items()}
+
+    def estimate_terrain(self, h, x1, x2, u):
+        """Updates the terrain model in plant"""
+        # Calculate the necessary forces to satisfy the dynamics
+        f = self.do_inverse_dynamics(x1, x2, u, h)
+        # Solve the optimization problem for the terrain residuals
+        soln = self.estimate_residuals(x2, f)
+        # Store the results from estimation
+        self.append_results(soln, self.pass1["results"])
+        # Store the costs and constraints
+        costs = self.evaluate_costs(soln)
+        cstrs = self.evaluate_constraints(soln)
+
+        # Update the terrain
+        self.update_terrain(x2, soln)
+        # Re-solve the optimization problem for the friction residuals (terrain shape might have changed)
+        soln2 = self.estimate_residuals(x2, f)
+        # Store the results from the estimation
+        self.append_results(soln, self.pass2["results"])
+        # Store the costs and constraints
+        costs = self.evaluate_costs(soln)
+        cstrs = self.evaluate_constraints(soln)
+
+        # Update the friction coefficient
+        self.update_friction(x2, soln2)
+        return (soln, soln2)
+
+    def append_results(self, source, target):
+        pass
+
+    def evaluate_costs(self, soln):
+        costs = self.prog.GetAllCosts()
+
+    def evaluate_constraints(self, soln):
+        cstrs = self.prog.GetAllConstraints()
+        for cstr in cstrs:
+            dvars = cstr.variables()
+            dvals = soln.GetSolution(dvars)
+            

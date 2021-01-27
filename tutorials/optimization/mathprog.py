@@ -19,9 +19,9 @@ prog = MathematicalProgram()
 # x is a numpy array - we can use an optional second argument to name the variables
 x = prog.NewContinuousVariables(2)
 #print(x)
-prog.AddConstraint(x[0] + x[1] == 1)
-prog.AddConstraint(x[0] <= x[1])
-prog.AddCost(x[0]**2 + x[1]**2)
+prog.AddConstraint(x[0] + x[1] == 1).evaluator().set_description("equality constraint")
+prog.AddConstraint(x[0] <= x[1]).evaluator().set_description("inequality constraint")
+prog.AddCost(x[0]**2 + x[1]**2).evaluator().set_description("cost")
 
 # Make and add a visualization callback
 fig = plt.figure()
@@ -59,3 +59,18 @@ print('optimal cost = ', result.get_optimal_cost())
 # Print the name of the solver
 print('solver is: ', result.get_solver_id().name())
 
+# We can also evaluate the costs and constraints after the fact
+costs = prog.GetAllCosts()
+cstrs = prog.GetAllConstraints()
+
+for cost in costs:
+    dvars = cost.variables()
+    dvals = result.GetSolution(dvars)
+    cost_val = cost.evaluator().Eval(dvals)
+    print(f"The value of cost {cost.evaluator().get_description()} is {cost_val}")
+
+for cstr in cstrs:
+    dvars = cstr.variables()
+    dvals = result.GetSolution(dvars)
+    cstr_val = cstr.evaluator().Eval(dvals)
+    print(f"The value of constraint {cstr.evaluator().get_description()} is {cstr_val}")
