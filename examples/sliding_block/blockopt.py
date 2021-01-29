@@ -70,48 +70,9 @@ stop = timeit.default_timer()
 print(f"Elapsed time: {stop-start}")
 utils.printProgramReport(result, prog)
 
-
 # Unpack and plot the trajectories
-t = trajopt.get_solution_times(result)
-x = trajopt.reconstruct_state_trajectory(result).vector_values(t)
-u = trajopt.reconstruct_input_trajectory(result).vector_values(t)
-l = trajopt.reconstruct_reaction_force_trajectory(result).vector_values(t)
-
-# Plot the horizontal trajectory
-fig1, axs1 = plt.subplots(3,1)
-axs1[0].plot(t, x[0,:], linewidth=1.5)
-axs1[0].set_title('Horizontal Trajectory')
-axs1[0].set_ylabel('Position')
-axs1[1].plot(t,x[2,:], linewidth=1.5)
-axs1[1].set_ylabel('Velocity')
-
-axs1[2].plot(t, u[0,:], linewidth=1.5)
-axs1[2].set_ylabel('Control (N)')
-axs1[2].set_xlabel('Time (s)')
-# Plot the vertical trajectory, as a check
-fig2, axs2 = plt.subplots(2,1)
-axs2[0].plot(t, x[1,:], linewidth=1.5)
-axs2[0].set_ylabel('Position')
-axs2[0].set_title('Vertical Trajectory')
-
-axs2[1].plot(t,x[3,:], linewidth=1.5)
-axs2[1].set_ylabel('Velocity')
-axs2[1].set_xlabel('Time (s)')
-# Plot the reaction forces
-fig3, axs3 = plt.subplots(3,1)
-axs3[0].plot(t, l[0,:], linewidth=1.5)
-axs3[0].set_ylabel('Normal')
-axs3[0].set_title('Ground reaction forces')
-
-axs3[1].plot(t, l[1,:] - l[3,:], linewidth=1.5)
-axs3[1].set_ylabel('Friction-x')
-
-axs3[2].plot(t, l[2, :] - l[4,:], linewidth=1.5)
-axs3[2].set_ylabel('Friction-y')
-axs3[2].set_xlabel('Time (s)')
-
-# Show the plots
-plt.show()
+xtraj, utraj, ftraj, _ = trajopt.reconstruct_all_trajectories(result)
+plant.plot_trajectories(xtraj, utraj, ftraj)
 print('Done!')
 
 # Save the results

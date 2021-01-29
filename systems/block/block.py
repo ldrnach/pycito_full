@@ -34,7 +34,7 @@ class Block(TimeSteppingMultibodyPlant):
             raise ValueError("trajectory must be a PiecewisePolynomial or 2D numpy array")
         return BlockPyPlotAnimator(self, trajectory)
         
-    def plot_trajectory(self, xtraj=None, utraj=None, ftraj=None):
+    def plot_trajectories(self, xtraj=None, utraj=None, ftraj=None):
         """
         plot the state, control, and force trajectories for the Block
         
@@ -44,38 +44,60 @@ class Block(TimeSteppingMultibodyPlant):
         #TODO: generalize for multiple contact points, generalize for free rotation
         # Plot the State trajectories
         if xtraj is not None:
-            t, x = GetKnotsFromTrajectory(xtraj)
-            fig1, axs1 = plt.subplots(2,1)
-            axs1[0].plot(t, x[0,:], linewidth=1.5, label='horizontal')
-            axs1[0].plot(t, x[1,:], linewidth=1.5, label='vertical')
-            axs1[0].set_ylabel('Position (m)')
-            axs1[1].plot(t, x[2,:], linewidth=1.5, label='horizontal')
-            axs1[1].plot(t, x[3,:], linewidth=1.5, label='vertical')
-            axs1[1].set_ylabel('Velocity (m/s)')
-            axs1[1].set_xlabel('Time (s)')
-            axs1[0].legend()
+            self.plot_state_trajectory(xtraj, show=False)
         # Plot the controls
         if utraj is not None:
-            t, u = GetKnotsFromTrajectory(utraj)
-            fig2, axs2 = plt.subplots(2,1)
-            axs2[0].plot(t, u, linewidth=1.5)
-            axs2[0].set_ylabel('Control (N)')
-            axs2[0].sey_xlabel('Time (s)')
+            self.plot_control_trajectory(utraj, show=False)
         # Plot the reaction forces
         if ftraj is not None:
-            t, f = GetKnotsFromTrajectory(ftraj)
-            fig3, axs3 = plt.subplots(3,1)
-            axs3[0].plot(t, f[0,:], linewidth=1.5)
-            axs3[0].set_ylabel('Normal')
-            axs3[0].set_title('Ground reaction forces')
-            axs3[1].plot(t, f[1,:] - f[3,:], linewidth=1.5)
-            axs3[1].set_ylabel('Friction-x')
-            axs3[2].plot(t, f[2, :] - f[4,:], linewidth=1.5)
-            axs3[2].set_ylabel('Friction-y')
-            axs3[2].set_xlabel('Time (s)')
+            self.plot_force_trajectory(ftraj, show=False)
         # Show the plots only when one of the inputs is not None
         if xtraj is not None or utraj is not None or ftraj is not None:
             plt.show()
+
+    @staticmethod
+    def plot_state_trajectory(xtraj, show=True):
+        t, x = GetKnotsFromTrajectory(xtraj)
+        fig, axs = plt.subplots(2,1)
+        axs[0].plot(t, x[0,:], linewidth=1.5, label='horizontal')
+        axs[0].plot(t, x[1,:], linewidth=1.5, label='vertical')
+        axs[0].set_ylabel('Position (m)')
+        axs[1].plot(t, x[2,:], linewidth=1.5, label='horizontal')
+        axs[1].plot(t, x[3,:], linewidth=1.5, label='vertical')
+        axs[1].set_ylabel('Velocity (m/s)')
+        axs[1].set_xlabel('Time (s)')
+        axs[0].legend()
+        if show:
+            plt.show()
+        return (fig, axs)
+
+    @staticmethod
+    def plot_control_trajectory(utraj, show=True):
+        t, u = GetKnotsFromTrajectory(utraj)
+        fig, axs = plt.subplots(2,1)
+        axs[0].plot(t, u[0,:], linewidth=1.5)
+        axs[0].set_ylabel('Control (N)')
+        axs[0].set_xlabel('Time (s)')
+        if show:
+            plt.show()
+        return (fig, axs)
+
+    @staticmethod
+    def plot_force_trajectory(ftraj, show=True):
+        t, f = GetKnotsFromTrajectory(ftraj)
+        fig, axs = plt.subplots(3,1)
+        axs[0].plot(t, f[0,:], linewidth=1.5)
+        axs[0].set_ylabel('Normal')
+        axs[0].set_title('Ground reaction forces')
+        axs[1].plot(t, f[1,:] - f[3,:], linewidth=1.5)
+        axs[1].set_ylabel('Friction-x')
+        axs[2].plot(t, f[2, :] - f[4,:], linewidth=1.5)
+        axs[2].set_ylabel('Friction-y')
+        axs[2].set_xlabel('Time (s)')
+        if show:
+            plt.show()
+        return (fig, axs)
+
 
     @staticmethod
     def visualize(trajectory=None):
