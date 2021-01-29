@@ -13,7 +13,7 @@ from matplotlib.patches import Rectangle
 
 import utilities as utils
 import systems.gaussianprocess as gp
-from systems.terrainestimator import ResidualTerrainEstimator
+from systems.terrainestimator import ResidualTerrainEstimator, ResidualTerrainEstimation_Debug
 from systems.terrain import GaussianProcessTerrain
 from systems.block.block import Block
 
@@ -48,33 +48,44 @@ def run_terrain_estimation(plant, t, x, u):
         estimator.estimate_terrain(h, x[:,n], x[:,n+1], u[:,n])
 
 def run_terrain_estimation_debug(plant, t, x, u):
-    """ runs residual terrain estimation and updates the plant"""
-    estimator = ResidualTerrainEstimator(plant)
-    soln1 = {"dist_err": [],
-                "fric_err": [],
-                "fN": [],
-                "fT": [],
-                "gam": [],
-                "success": [],
-                "solver": [],
-                "status": [],
-                "infeasible":[]
-        }
-    soln2 = {key: value[:] for key, value in soln1.items()}
+    """run residual terrain estimation in debug mode """
+    estimator = ResidualTerrainEstimation_Debug(plant)
     for n in range(0, x.shape[1]-1):
         h = t[n+1]-t[n]
-        soln1_t, soln2_t = estimator.estimate_terrain(h, x[:,n], x[:,n+1], u[:,n])
-        soln1 = append_entries(soln1, soln1_t)
-        soln2 = append_entries(soln2, soln2_t)
-    for key in soln1.keys():
-        if key == "infeasible":
-            soln1[key] = [name for name in soln1[key] if name]
-            soln2[key] = [name for name in soln1[key] if name]
-        elif key != "success" and key != 'solver' and key != "status":
-            soln1[key] = np.concatenate(soln1[key], axis=1)
-            soln2[key] = np.concatenate(soln2[key], axis=1)
+        estimator.estimate_terrain(h, x[:,n], x[:,n+1], u[:,n])
+    # Print out the debug report
+    estimator.print_report()
+    # Plot the constraint violations
+    estimator.plot_constraints()
 
-    return soln1, soln2
+# def run_terrain_estimation_debug(plant, t, x, u):
+#     """ runs residual terrain estimation and updates the plant"""
+#     estimator = ResidualTerrainEstimator(plant)
+#     soln1 = {"dist_err": [],
+#                 "fric_err": [],
+#                 "fN": [],
+#                 "fT": [],
+#                 "gam": [],
+#                 "success": [],
+#                 "solver": [],
+#                 "status": [],
+#                 "infeasible":[]
+#         }
+#     soln2 = {key: value[:] for key, value in soln1.items()}
+#     for n in range(0, x.shape[1]-1):
+#         h = t[n+1]-t[n]
+#         soln1_t, soln2_t = estimator.estimate_terrain(h, x[:,n], x[:,n+1], u[:,n])
+#         soln1 = append_entries(soln1, soln1_t)
+#         soln2 = append_entries(soln2, soln2_t)
+#     for key in soln1.keys():
+#         if key == "infeasible":
+#             soln1[key] = [name for name in soln1[key] if name]
+#             soln2[key] = [name for name in soln1[key] if name]
+#         elif key != "success" and key != 'solver' and key != "status":
+#             soln1[key] = np.concatenate(soln1[key], axis=1)
+#             soln2[key] = np.concatenate(soln2[key], axis=1)
+
+#     return soln1, soln2
 
 def append_entries(target_dict, source_dict):
     for key in target_dict.keys():
@@ -283,15 +294,15 @@ if __name__ == "__main__":
         # Run terrain estimation
         print(f"Estimating for {key}")
         start = timeit.default_timer()
-        soln1, soln2 = run_terrain_estimation_debug(plant, t, x, u)
+        run_terrain_estimation_debug(plant, t, x, u)
         stop = timeit.default_timer()
-        print(f"Elapsed time {stop - start}")
-        print(f"Pass 1 solvers used: {set(soln1['solver'])}")
-        print(f"Pass 1 terminated with exit codes: {set(soln1['status'])}")
-        print(f"Pass 1 infeasible constraints: {soln1['infeasible']}")
-        print(f"Pass 2 solvers used: {set(soln2['solver'])}")
-        print(f"Pass 2 terminated with exit codes: {set(soln2['status'])}")
-        print(f"Pass 2 infeasible constraints: {soln2['infeasible']}")
+        # print(f"Elapsed time {stop - start}")
+        # print(f"Pass 1 solvers used: {set(soln1['solver'])}")
+        # print(f"Pass 1 terminated with exit codes: {set(soln1['status'])}")
+        # print(f"Pass 1 infeasible constraints: {soln1['infeasible']}")
+        # print(f"Pass 2 solvers used: {set(soln2['solver'])}")
+        # print(f"Pass 2 terminated with exit codes: {set(soln2['status'])}")
+        # print(f"Pass 2 infeasible constraints: {soln2['infeasible']}")
         #plot_debug_results(soln1, soln2, data[key])
         # Plot the results
         #plot_terrain_results(plant, data[key])

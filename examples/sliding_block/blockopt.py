@@ -68,12 +68,8 @@ start = timeit.default_timer()
 result = solver.Solve(prog)
 stop = timeit.default_timer()
 print(f"Elapsed time: {stop-start}")
-# Print the details of the solution
-print(f"Optimization successful? {result.is_success()}")
-print(f"Solved with {result.get_solver_id().name()}")
-print(f"Optimal cost = {result.get_optimal_cost()}")
-# Get the exit code from SNOPT
-print(f"SNOPT Exit Status {result.get_solver_details().info}: {utils.SNOPT_DECODER[result.get_solver_details().info]}")
+utils.printProgramReport(result, prog)
+
 
 # Unpack and plot the trajectories
 t = trajopt.get_solution_times(result)
@@ -119,6 +115,6 @@ plt.show()
 print('Done!')
 
 # Save the results
-file = "data/slidingblock/block_trajopt.pkl"
-data = trajopt.result_to_dict(result)
-utils.save(file, data)
+# file = "data/slidingblock/block_trajopt.pkl"
+# data = trajopt.result_to_dict(result)
+# utils.save(file, data)

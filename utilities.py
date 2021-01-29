@@ -110,3 +110,24 @@ def GetKnotsFromTrajectory(trajectory):
     breaks = trajectory.get_segment_times()
     values = trajectory.vector_values(breaks)
     return (breaks, values)
+
+
+def printProgramReport(result, prog=None, filename=None):
+    """print out information about the result of the mathematical program """
+    # Print out general information
+    report = f"Optimization successful? {result.is_success()}\n"
+    report += f"Optimal cost = {result.get_optimal_cost()}\n"
+    report += f"Solved with {result.get_solver_id().name()}\n"
+    # Print out SNOPT specific information
+    if result.get_solver_id().name() == "SNOPT/fortran":
+        exit_code = result.get_solver_details().info
+        report += f"SNOPT Exit Status {exit_code}: {SNOPT_DECODER[exit_code]}\n"
+        if prog is not None:
+            # Filter out the empty infeasible constraints
+            infeasibles = result.GetInfeasibleConstraintNames(prog)
+            report += f"Infeasible constriants: {infeasibles}\n"
+    if filename is None:
+        print(report)
+    else:
+        with open(filename, "w") as file:
+            file.write(report)

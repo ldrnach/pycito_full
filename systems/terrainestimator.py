@@ -6,6 +6,7 @@ November 10, 2020
 """
 
 import numpy as np
+import matplotlib.pyplot as plt
 from pydrake.all import MathematicalProgram, MultibodyForces, Solve
 
 #TODO: Write GaussianProcessTerrain with Update methods. Test on actual data
@@ -99,29 +100,28 @@ class ResidualTerrainEstimator():
         # Calculate the necessary forces to satisfy the dynamics
         f = self.do_inverse_dynamics(x1, x2, u, h)
         # Solve the optimization problem for the terrain residuals
-        soln = self.estimate_residuals(x2, f)
+        result = self.estimate_residuals(x2, f)
         # Update the terrain
-        self.update_terrain(x2, soln)
+        self.update_terrain(x2, result.GetSolution(self.dist_err))
         # Re-solve the optimization problem for the friction residuals (terrain shape might have changed)
-        soln2 = self.estimate_residuals(x2, f)
+        result = self.estimate_residuals(x2, f)
         # Update the friction coefficient
-        self.update_friction(x2, soln2)
-        return (soln, soln2)
+        self.update_friction(x2, result.GetSolution(self.fric_err))
 
-    def update_friction(self, x2, soln):
+    def update_friction(self, x2, fric_err):
         """Update the friction model in the plant"""
         # Collect contact points
         self.plant.multibody.SetPositionsAndVelocities(self.context, x2)
         pts, _  = self.plant.getTerrainPointsAndFrames(self.context)
         # Get the updated friction values
         mu = self.plant.GetFrictionCoefficients(self.context)
-        new_mu = np.array(mu) + soln["fric_err"]
+        new_mu = np.array(mu) + fric_err
         new_mu = np.expand_dims(new_mu, axis=1)
         pts = np.column_stack(pts)
         # Update the friction model
         self.plant.terrain.friction.add_data(pts[0:2,:], new_mu)
 
-    def update_terrain(self, x2, soln):
+    def update_terrain(self, x2, dist_err):
         """Update the terrain model in the plant"""
         # Collect contact points
         self.plant.multibody.SetPositionsAndVelocities(self.context, x2)
@@ -129,7 +129,7 @@ class ResidualTerrainEstimator():
         # Update the sample points
         new_pts = np.zeros((pts[0].shape[0], len(pts)))
         for n in range(0, len(pts)):
-            new_pts[:,n] = pts[n] - frames[n][0,:] * soln["dist_err"][n]
+            new_pts[:,n] = pts[n] - frames[n][0,:] * dist_err[n]
         # Add all the sample points to the terrain at the same time
         self.plant.terrain.height.add_data(new_pts[0:2,:], new_pts[2:,:])
 
@@ -167,7 +167,7 @@ class ResidualTerrainEstimator():
         # Solve the program
         result = Solve(self.prog)
         # Get the solution from the variables
-        return self.unpack_solution(result)
+        return result
 
     def get_contact_parameters(self):
         Jn, Jt = self.plant.GetContactJacobians(self.context)
@@ -253,47 +253,149 @@ class ResidualTerrainEstimation_Debug(ResidualTerrainEstimator):
     """ Helper Class for debugging Residual Terrain Estimation"""
     def __init__(self, timesteppingplant):
         super(ResidualTerrainEstimation_Debug, self).__init__(timesteppingplant)
-        self.pass1 = {"results": [],
-                    "costs": [],
-                    "constraints": []
+        self.pass1 = {"results": {},
+                    "costs": {},
+                    "constraints": {}
         }
-        self.pass2 = {key: value[:] for key, value in self.pass1.items()}
+        self.pass2 = {key: {} for key in self.pass1.keys()}
 
     def estimate_terrain(self, h, x1, x2, u):
         """Updates the terrain model in plant"""
         # Calculate the necessary forces to satisfy the dynamics
         f = self.do_inverse_dynamics(x1, x2, u, h)
         # Solve the optimization problem for the terrain residuals
-        soln = self.estimate_residuals(x2, f)
+        result = self.estimate_residuals(x2, f)
         # Store the results from estimation
-        self.append_results(soln, self.pass1["results"])
-        # Store the costs and constraints
-        costs = self.evaluate_costs(soln)
-        cstrs = self.evaluate_constraints(soln)
-
+        self.record_intermediate_values(result, self.pass1)
         # Update the terrain
-        self.update_terrain(x2, soln)
+        self.update_terrain(x2, result.GetSolution(self.dist_err))
         # Re-solve the optimization problem for the friction residuals (terrain shape might have changed)
-        soln2 = self.estimate_residuals(x2, f)
+        result = self.estimate_residuals(x2, f)
         # Store the results from the estimation
-        self.append_results(soln, self.pass2["results"])
-        # Store the costs and constraints
-        costs = self.evaluate_costs(soln)
-        cstrs = self.evaluate_constraints(soln)
-
+        self.record_intermediate_values(result, self.pass2)
         # Update the friction coefficient
-        self.update_friction(x2, soln2)
-        return (soln, soln2)
+        self.update_friction(x2, result.GetSolution(self.fric_err))
 
-    def append_results(self, source, target):
-        pass
+    def record_intermediate_values(self, result, storage_dict):
+        # Calculate all cost values
+        costs = self.evaluate_costs(result)
+        # Calculate all constraint values
+        cstrs = self.evaluate_constraints(result)
+        # Record all costs, constraints, and solution values
+        append_dict(costs, storage_dict["costs"])
+        append_dict(cstrs, storage_dict["constraints"])
+        append_dict(self.unpack_solution(result), storage_dict["results"])
 
     def evaluate_costs(self, soln):
+        cvals = {}
+        # Get all the costs in the program
         costs = self.prog.GetAllCosts()
-
+        for cost in costs:
+            # Use the cost description as a key
+            name = cost.evaluator().get_description()
+            # Evaluate the cost
+            dvals = soln.GetSolution(cost.variables())
+            cvals[name] = cost.evaluator().Eval(dvals)
+        return cvals
+            
     def evaluate_constraints(self, soln):
+        cvals = {}
+        # Get all the constraints in the program
         cstrs = self.prog.GetAllConstraints()
         for cstr in cstrs:
-            dvars = cstr.variables()
-            dvals = soln.GetSolution(dvars)
-            
+            # Use the constraint description as a key
+            name = cstr.evaluator().get_description()
+            # Evaluate the constraint
+            dvals = soln.GetSolution(cstr.variables())
+            cvals[name] = cstr.evaluator().Eval(dvals)
+        return cvals
+
+    def print_report(self):
+        """ Print a debugging summary to the terminal"""
+        # First pass
+        print(f"In the first pass: ")
+        self._print_report_for_pass(self.pass1)
+        # Second pass
+        print(f"In the second pass: ")
+        self._print_report_for_pass(self.pass2)
+
+    def _print_report_for_pass(self, pass_dict):
+        """Print summaries for a given pass of the terrain estimation algorithm"""
+        print(f"{sum(pass_dict['results']['success'])} of {len(pass_dict['results']['success'])} successful solves")
+        print(f"The solvers used were: {set(pass_dict['results']['solver'])}")
+        print(f"The exit codes were {set(pass_dict['results']['status'])}")
+        infeas = [name for name in pass_dict['results']['infeasible'] if name]
+        print(f"Infeasible constraints include {infeas}")
+    
+    def plot_constraints(self):
+        """ Plot all recorded constraint values """
+        self._plot_pass_constraints(self.pass1["constraints"], 1)
+        self._plot_pass_constraints(self.pass2["constraints"], 2)
+        plt.show()
+
+    def _plot_pass_constraints(self, cstr, num):
+
+        # Calculate number of plots from number of contacts
+        numN = int(cstr["NormalDistanceConstraint"].shape[0]/3)
+        numT = int(cstr["SlidingVelocityConstraint"].shape[0]/(3 * numN))
+        for n in range(numN):
+            _, axs = plt.subplots(2, 1)
+            # Plot the normal distance
+            plot_complementarity(axs[0], cstr["NormalDistanceConstraint"][n,:], cstr["NormalDistanceConstraint"][numN+n,:], 'Normal Distance','Normal Force')
+            # Plot the friction cone
+            plot_complementarity(axs[1], cstr["FrictionConeConstraint"][n,:], cstr["FrictionConeConstraint"][numN+n,:], "Friction Cone", "Sliding Slack")
+            axs[0].set_title("Pass " +str(num) + " Contact Point " + str(n))
+            _, axs2 = plt.subplots(numT, 1)
+            # Plot the tangential forces
+            vt = cstr["SlidingVelocityConstraint"][n*numT:(n+1)*numT,:]
+            ft = cstr["SlidingVelocityConstraint"][(numN+n)*numT:(numN+n+1)*numT,:]
+            for k in range(numT):
+                plot_complementarity(axs2[k], ft[k,:], vt[k,:], 'Friction Force', 'Tangent Velocity')
+            axs2[0].set_title("Pass " + str(num) + " Contact Point " + str(n))
+
+    def plot_solutions(self):
+        """ Plot all solution variables """
+        pass
+
+def append_dict(source, target):
+    for key in source.keys():    
+        if key in target and len(target[key]) > 0:
+            if type(source[key]) is np.ndarray:
+                if source[key].ndim == 1:
+                    source[key] = np.expand_dims(source[key], axis=1)
+                if target[key].ndim == 1:
+                    target[key] = (np.expand_dims(target[key], axis=1))
+                target[key] = np.concatenate((target[key], source[key]), axis=1)
+            else:
+                # Append the new value to the old one in a list
+                target[key].append(source[key])
+        elif type(source[key]) is np.ndarray:
+            target[key] = source[key]
+        else:
+            # If the key doesn't exist or is empty, copy the data over
+            target[key] = [source[key]]
+        
+def plot_complementarity(ax, y1, y2, label1, label2):
+    x = range(0, len(y1))
+    color = "tab:red"
+    ax.set_ylabel(label1, color = color)
+    ax.plot(x, y1, color=color, linewidth=1.5)
+
+    # Create the second axis 
+    ax2 = ax.twinx()
+    color = "tab:blue"
+    ax2.set_ylabel(label2, color=color)
+    ax2.plot(x, y2, color=color, linewidth=1.5)
+    # Align the axes at zero
+    align_axes(ax,ax2)
+
+def align_axes(ax, ax2):
+    lims = np.array([ax.get_ylim(), ax2.get_ylim()])
+    # Pad the limits to make sure there is some range
+    lims += np.array([[-1,1],[-1,1]])
+    lim_range = lims[:,1] - lims[:,0]
+    lim_frac = lims.transpose() / lim_range
+    lim_frac = lim_frac.transpose()
+    new_frac = np.array([min(lim_frac[:,0]), max(lim_frac[:,1])])
+    ax.set_ylim(lim_range[0]*new_frac)
+    ax2.set_ylim(lim_range[1]*new_frac)
