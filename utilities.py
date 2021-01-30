@@ -2,6 +2,7 @@ import os
 from sys import exit
 from pydrake.autodiffutils import AutoDiffXd
 import pickle
+import numpy as np
 
 SNOPT_DECODER = {
     0: "finished successfully",
@@ -131,3 +132,21 @@ def printProgramReport(result, prog=None, filename=None):
     else:
         with open(filename, "w") as file:
             file.write(report)
+
+def quat2rpy(quat):
+    """
+    Convert a quaternion to Roll-Pitch-Yaw
+    
+    Arguments:
+        quaternion: a (4,n) numpy array of quaternions
+    
+    Return values:
+        rpy: a (3,n) numpy array of roll-pitch-yaw values
+    """
+    rpy = np.zeros((3, quat.shape[1]))
+    rpy[0,:] = np.atan2(2*(quat[0,:]*quat[1,:] + quat[2,:]*quat[3,:]),
+                         1-2*(quat[1,:]**2 + quat[2,:]**2))
+    rpy[1,:] = np.asin(2*(quat[0,:]*quat[2,:]-quat[3,:]*quat[1,:]))
+    rpy[2,:] = np.atan2(2*(quat[0,:]*quat[3,:]+quat[1,:]*quat[2,:]),
+                        1-2*(quat[2,:]**2 + quat[3,:]**2))
+    return rpy

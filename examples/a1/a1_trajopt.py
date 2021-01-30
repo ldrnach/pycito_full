@@ -30,7 +30,7 @@ no_vel = np.zeros((a1.multibody.num_velocities(),))
 x0 = np.concatenate((pose, no_vel), axis=0)
 xf = x0.copy()
 # Set the final pose 1m in front of the initial pose
-xf[4] += 1
+xf[4] += 1.
 # Add initial and final state constraints
 trajopt.add_state_constraint(knotpoint=0, value=x0)
 trajopt.add_state_constraint(knotpoint=100, value=xf)
@@ -69,11 +69,7 @@ result = solver.Solve(prog)
 stop = timeit.default_timer()
 print(f"Elapsed time: {stop-start}")
 # Print details of solution
-print(f"Optimization successful? {result.is_success()}")
-print(f"Solved with {result.get_solver_id().name()}")
-print(f"Optimal cost = {result.get_optimal_cost()}")
-# Get exit code from SNOPT
-print(f"SNOPT Exit Status {result.get_solver_detials().info}: {utils.SNOPT_DECODER[result.get_solver_details().info]}")
+utils.printProgramReport(result, prog)
 
 # Get the solution trajectories
 xtraj, utraj, ltraj, jltraj = trajopt.reconstruct_all_trajectories(result)

@@ -320,6 +320,60 @@ class TimeSteppingMultibodyPlant():
     def get_multibody(self):
         return self.multibody
 
+    def joint_limit_jacobian(self):
+        """ 
+        Returns a matrix for mapping the positive-only joint limit torques to 
+
+
+        """
+        #TODO: double check the implementation - make sure we return the correct shape matrix
+        #First get joint limits
+        qhigh = self.multibody.GetPositionUpperLimits()
+        qlow = self.multibody.GetPositionLowerLimits()
+        # Assert two sided limits
+        low_inf = np.isinf(qlow)
+        assert all(low_inf == np.isinf(qhigh))
+        # Make the joint limit Jacobian
+        if not all(low_inf):
+            njl = sum(low_inf)
+            return np.concatenate([np.eye(njl), -np.eye(njl)], axis=0)
+        else:
+            return None
+
+    def resolve_limit_forces(self, jl_forces):
+        """ 
+        Combine positive and negative components of joint limit torques
+        
+        Arguments:
+            jl_forces: (2n, m) numpy array
+
+        Return values:
+            (n, m) numpy array
+        """
+        #TODO: double check the implementation
+        JL = self.joint_limit_jacobian()
+        return JL.dot(jl_forces)
+
+    def duplicator_matrix(self):
+        #TODO: Rewrite to calculate numN, numT without the Jacobians
+        context = self.multibody.CreateDefaultContext()
+        Jn, Jt = self.GetContactJacobian(context)
+        numN = Jn.shape[0]
+        numT = Jt.shape[0]
+        w = np.zeros((numN, numT))
+        nD = int(numT / numN)
+        for n in range(numN):
+            w[n, n*nD:(n+1)*nD] = 1
+        return w
+
+    def friction_discretization_matrix(self):
+        """ Make a matrix for converting discretized friction into a single vector"""
+        pass
+
+    def resolve_forces(self, forces):
+        """ Convert discretized friction & normal forces into a non-discretized 3-vector"""
+        pass
+
 def solve_lcp(P, q):
     prog = MathematicalProgram()
     x = prog.NewContinuousVariables(q.size)

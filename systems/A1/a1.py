@@ -6,9 +6,10 @@ Includes classes for creating A1 MultibodyPlant and TimesteppingMultibodyPlant a
 """
 # Library imports
 import numpy as np
+import matplotlib.pyplot as plt
 from pydrake.all import PiecewisePolynomial
 # Project Imports
-from utilities import FindResource
+from utilities import FindResource, GetKnotsFromTrajectory, quat2rpy
 from systems.timestepping import TimeSteppingMultibodyPlant
 from systems.visualization import Visualizer
 from systems.terrain import FlatTerrain
@@ -86,7 +87,6 @@ class A1(TimeSteppingMultibodyPlant):
             act_limit[n] = self.multibody.GetJointActuatorByName(act_names[n]).effort_limit()
         return act_limit
        
-
     def standing_pose(self):
         # Get the default configuration vector
         context = self.multibody.CreateDefaultContext()
@@ -101,6 +101,132 @@ class A1(TimeSteppingMultibodyPlant):
         pos[6] = pos[6] - np.amin(dist)
         return pos
 
+    def plot_trajectories(self, xtraj=None, utraj=None, ftraj=None, jltraj=None):
+        """ Plot all the trajectories for A1 """
+        show_all = False
+        if xtraj:
+            self.plot_state_trajectory(xtraj, show=False)
+            show_all = True
+        if utraj:
+            self.plot_control_trajectory(utraj, show=False)
+            show_all = True
+        if ftraj:
+            self.plot_force_trajectory(ftraj, show=False)
+            show_all = True
+        if jltraj:
+            self.plot_limit_trajectory(jltraj, show=False)
+            show_all = True
+        if show_all:
+            plt.show()
+
+    def plot_state_trajectory(self, xtraj, show=True):
+        """ Plot the state trajectory for A1"""
+        # Get the configuration and velocity trajectories as arrays
+        t, x = GetKnotsFromTrajectory(xtraj)
+        nq = self.multibody.num_positions()
+        q, v = np.split(x, [nq])
+        # Get orientation from quaternion
+        q[1:4] = quat2rpy(q[0:4,:])
+        # Plot COM orientation and position
+        _, paxs = plt.subplots(2,1)
+        labels=[["Roll", "Pitch", "Yaw"],["X", "Y", "Z"]]
+        ylabels = ["Orientation","Position"]
+        for n in range(2):
+            for k in range(3):
+                paxs[n].plot(t, q[1 + 3*n + k,:], linewidth=1.5, label=labels[n][k])
+            paxs[n].set_ylabel(ylabels[n])
+            paxs[n].legend()
+        paxs[-1].set_xlabel('Time (s)')
+        paxs[0].set_title("COM Configuration")
+        #Plot COM orientation rate and translational velocity
+        _, axs = plt.subplots()
+        for n in range(2):
+            for k in range(3):
+                axs[n].plot(t, v[3*n + k,:], linewidth=1.5, label=labels[n][k])
+            axs[n].set_ylabel(ylabels[n] + " Rate")
+            axs[n].legend()
+        axs[-1].set_xlabel('Time (s)')
+        axs[0].set_title("COM Velocities")
+        # Plot joint positions and velocities 
+        _, jaxs = plt.subplots(3,1)
+        _, jvaxs = plt.subplots(3,1)
+        # Loop over each joint angle
+        legs = ["FR", "FL", "BR", "BL"]
+        angles = ["Hip Roll", "Hip Pitch","Knee Pitch"]
+        for n in range(3):
+            # Loop over each leg
+            for k in range(4):
+                jaxs[n].plot(t, q[7+4*n+k,:], linewidth=1.5, label=legs[k])
+                jvaxs[n].plot(t, v[6+4*n+k, :], linewidth=1.5, label=legs[k])
+            jaxs[n].set_ylabel(angles[n])
+            jvaxs[n].set_ylabel(angles[n] + " Rate")
+        jaxs[-1].set_xlabel('Time (s)')
+        jvaxs[-1].set_xlabel('Time (s)')
+        jaxs[0].set_title("Joint Angles")
+        jvaxs[0].set_title("Joint Rates")
+        jaxs[0].legend()
+        jvaxs[0].legend()            
+        if show:
+            plt.show()
+
+    def plot_control_trajectory(self, utraj, show=True):
+        """Plot joint actuation torque trajectories"""
+        # Get the knot points from the trajectory
+        t, u = GetKnotsFromTrajectory(utraj)
+        # Plot the actuation torques, organized by joint angle
+        _, axs = plt.subplots(3,1)
+        leg = ['FR','FL','BR','BL']
+        angles = ['Hip Roll','Hip Pitch','Knee Pitch']
+        for n in range(3):
+            for k in range(4):
+                axs[n].plot(t, u[n+3*k,:], linewidth=1.5, label=leg[k])
+            axs[n].set_ylabel(angles[n])
+        # Set x label and title
+        axs[-1].set_xlabel('Time (s)')
+        axs[0].set_title("Joint Actuation Torques")   
+        axs[0].legend()
+        # Show the plot 
+        if show:
+            plt.show()
+
+    def plot_force_trajectory(self, ftraj, show=True):
+        """ Plot reaction force trajectories"""
+        t, f = GetKnotsFromTrajectory(ftraj)
+        f = self.resolve_forces(f)  #TODO: Write Resolve_Forces into timestepping
+        _, axs = plt.subplot(3,1)
+        legs = ['FR', 'FL', 'BR', 'BL']
+        labels = ['Normal', 'Friction-1', 'Friction-2']
+        for k in range(3):
+            for n in range(4):
+                axs[k].plot(t, f[n + 4*k,:], linewidth=1.5, label=legs[n])
+            axs[k].set_ylabel(labels[k])
+        axs[-1].set_xlabel('Time (s)')
+        axs[0].set_title('Reaction Forces')
+        axs[0].legend()
+        if show:
+            plt.show()
+
+    def resolve_forces(self, f):
+        """ Resolve discretized forces into three-component forces """
+        return f
+
+    def plot_limit_trajectory(self, jltraj, show=True):
+        #TODO: Finish limit trajectory implementation
+        t, jl = GetKnotsFromTrajectory(jltraj)
+        jl = self.resolve_limit_forces(jl)  #TODO: Write resolve_limit_forces
+        leg = ['FR','FL','BR','BL']
+        angle = ['Hip Roll','Hip Pitch','Knee Pitch']
+        _, axs = plt.subplots(3,1)
+        for n in range(3):
+            for k in range(4):
+                axs[n].plot(t, jl[4*n + k,:], linewidth=1.5, label=leg[k])
+            axs[n].set_ylabel(angle[n])
+        axs[-1].set_xlabel('Time (s)')
+        axs[0].set_title('Joint Limit Torques')
+        axs[0].legend()
+        if show:
+            plt.show()
+
     @staticmethod
     def visualize(trajectory=None):
         vis = Visualizer("systems/A1/A1_description/urdf/a1_no_collision.urdf")
@@ -112,6 +238,8 @@ if __name__ == "__main__":
     print(f"A1 effort limits {a1.get_actuator_limits()}")
     qmin, qmax = a1.get_joint_limits()
     print(f"A1 has lower joint limits {qmin} and upper joint limits {qmax}")
+    print(f"A1 has actuation matrix:")
+    print(a1.multibody.MakeActuationMatrix())
     #a1.configuration_sweep()
     # a1.print_frames()
     # pos = a1.standing_pose()

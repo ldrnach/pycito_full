@@ -64,7 +64,7 @@ class ContactImplicitDirectTranscription():
             body = self.plant_f.multibody.get_body(floating.pop())
             if body.has_quaternion_dofs():
                 self.floating_pos.append(body.floating_positions_start())
-                self.floating_vel.append(floating_vel = body.floating_velocities_start())
+                self.floating_vel.append(body.floating_velocities_start())
 
     def _add_decision_variables(self):
         """
