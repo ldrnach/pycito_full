@@ -6,11 +6,17 @@ October 12, 2020
 import numpy as np
 import unittest
 from systems.timestepping import TimeSteppingMultibodyPlant
+from pydrake.all import RigidTransform
 #TODO: Write tests for testing autodiff functions
 class TestTimeStepping(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls._model = TimeSteppingMultibodyPlant(file="systems/urdf/fallingBox.urdf")
+        # Weld the world frame to the base frame
+        body_inds = cls._model.multibody.GetBodyIndices(cls._model.model_index)
+        base_frame = cls._model.multibody.get_body(body_inds[0]).body_frame()
+        cls._model.multibody.WeldFrames(cls._model.multibody.world_frame(), base_frame, RigidTransform())
+        # Finalize the model
         cls._model.Finalize()  
 
     def setUp(self):
@@ -50,7 +56,7 @@ class TestTimeStepping(unittest.TestCase):
         # Assert that there are 8 normal jacobians, and 32 tangent jacobians
         Jn, Jt = self._model.GetContactJacobians(self.context)
         numN = self._model.multibody.num_collision_geometries()
-        numT = 4*(self._model._dlevel+1)*numN
+        numT = 4*(self._model._dlevel)*numN
         numQ = self._model.multibody.num_positions()
         self.assertTupleEqual(Jn.shape, (numN,numQ), msg="Normal Jacobian has the wrong shape")
         self.assertTupleEqual(Jt.shape, (numT,numQ), msg="Tangential Jacobian has the wrong shape")

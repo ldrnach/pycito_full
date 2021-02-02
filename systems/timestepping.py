@@ -22,7 +22,7 @@ from utilities import FindResource
 class TimeSteppingMultibodyPlant():
     """
     """
-    def __init__(self, file=None, terrain=FlatTerrain(), dlevel=0):
+    def __init__(self, file=None, terrain=FlatTerrain(), dlevel=1):
         """
         Initialize TimeSteppingMultibodyPlant with a model from a file and an arbitrary terrain geometry. Initialization also welds the first frame in the MultibodyPlant to the world frame
         """
@@ -30,7 +30,7 @@ class TimeSteppingMultibodyPlant():
         self.multibody, self.scene_graph = AddMultibodyPlantSceneGraph(self.builder, 0.001)
         # Store the terrain
         self.terrain = terrain
-        self._dlevel = 0
+        self._dlevel = dlevel
         # Build the MultibodyPlant from the file, if one exists
         self.model_index = []
         if file is not None:
@@ -88,11 +88,11 @@ class TimeSteppingMultibodyPlant():
         Return Values
             (Jn, Jt): the tuple of contact Jacobians. Jn represents the normal components and Jt the tangential components
         """
-        #TODO: Update GetContactJacobian to use new friction discretization routine
         qtype = self.multibody.GetPositions(context).dtype
         nCollision = len(self.collision_frames)
+        D = self.friction_discretization_matrix().transpose()
         Jn = np.zeros((nCollision, self.multibody.num_positions()),dtype=qtype)
-        Jt = np.zeros((nCollision * 4 * (self._dlevel+1), self.multibody.num_positions()),dtype=qtype)
+        Jt = np.zeros((nCollision * 4 * (self._dlevel), self.multibody.num_positions()),dtype=qtype)
         for n in range(0, nCollision):
             # Transform collision frames to world coordinates
             collision_pt = self.multibody.CalcPointsPositions(context,
@@ -105,7 +105,7 @@ class TimeSteppingMultibodyPlant():
             terrain_frame = self.terrain.local_frame(terrain_pt)
             normal, tangent = np.split(terrain_frame, [1], axis=0)
             # Discretize to the chosen level 
-            tangent = self.__discretize_friction(normal, tangent)  
+            Dtangent = D[:, 2*n:2*(n+1)].dot(tangent)
             # Get the contact point Jacobian
             J = self.multibody.CalcJacobianTranslationalVelocity(context,
                  JacobianWrtVariable.kQDot,
@@ -115,7 +115,7 @@ class TimeSteppingMultibodyPlant():
                  self.multibody.world_frame())
             # Calc contact Jacobians
             Jn[n,:] = normal.dot(J)
-            Jt[n*4*(self._dlevel+1) : (n+1)*4*(self._dlevel+1), :] = tangent.dot(J)
+            Jt[n*4*(self._dlevel) : (n+1)*4*(self._dlevel), :] = Dtangent.dot(J)
         # Return the Jacobians as a tuple of np arrays
         return (Jn, Jt)    
 
@@ -201,7 +201,7 @@ class TimeSteppingMultibodyPlant():
                 else:
                     self.collision_radius.append(0.)
 
-    def __discretize_friction(self, normal, tangent):
+    def discretize_friction(self, normal, tangent):
         """
         Rotates the terrain tangent vectors to discretize the friction cone
         
@@ -213,12 +213,12 @@ class TimeSteppingMultibodyPlant():
         """
         # Reflect the current friction basis
         tangent = np.concatenate((tangent, -tangent), axis=0)
-        all_tangents = np.zeros((4*(self._dlevel+1), tangent.shape[1]))
+        all_tangents = np.zeros((4*(self._dlevel), tangent.shape[1]))
         all_tangents[0:4, :] = tangent
         # Rotate the tangent basis around the normal vector
-        for n in range(1, self._dlevel+1):
+        for n in range(1, self._dlevel):
             # Create an angle-axis representation of rotation
-            R = RotationMatrix(theta_lambda=AngleAxis(angle=n*pi/(2*(self._dlevel+1)), axis=normal))
+            R = RotationMatrix(theta_lambda=AngleAxis(angle=n*pi/(2*(self._dlevel)), axis=normal))
             # Apply the rotation matrix
             all_tangents[n*4 : (n+1)*4, :] = R.multiply(tangent.transpose()).transpose()
         return all_tangents
@@ -372,11 +372,9 @@ class TimeSteppingMultibodyPlant():
             return f_jl[has_limits]
 
     def duplicator_matrix(self):
-        #TODO: Rewrite to calculate numN, numT without the Jacobians
-        context = self.multibody.CreateDefaultContext()
-        Jn, Jt = self.GetContactJacobian(context)
-        numN = Jn.shape[0]
-        numT = Jt.shape[0]
+        """Returns a matrix of 1s and 0s for combining friction forces or duplicating sliding velocities"""
+        numN = len(self.collision_frames)
+        numT = 4*self._dlevel*numN
         w = np.zeros((numN, numT))
         nD = int(numT / numN)
         for n in range(numN):
@@ -393,6 +391,8 @@ class TimeSteppingMultibodyPlant():
         D = np.zeros((2*numN, n*numN))
         for k in range(numN):
             D[2*k:2*k+2, k*n:(k+1)*n] = _D
+        # Threshold out small values
+        D[np.abs(D)<1e-10] = 0
         return D
 
     def resolve_forces(self, forces):
@@ -403,6 +403,18 @@ class TimeSteppingMultibodyPlant():
         D = self.friction_discretization_matrix()
         ff = D.dot(fT)
         return np.concatenate((fN, ff), axis=0)
+
+    @property
+    def dlevel(self):
+        return self._dlevel
+
+    @dlevel.setter
+    def dlevel(self, val):
+        """Check that the value of dlevel is a positive integer"""
+        if type(val) is int and val > 0:
+            self._dlevel = val
+        else:
+            raise ValueError("dlevel must be a positive integer")
 
 def solve_lcp(P, q):
     prog = MathematicalProgram()
