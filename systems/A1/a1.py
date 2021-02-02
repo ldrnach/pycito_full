@@ -211,9 +211,11 @@ class A1(TimeSteppingMultibodyPlant):
         return f
 
     def plot_limit_trajectory(self, jltraj, show=True):
-        #TODO: Finish limit trajectory implementation
+        """
+        Plot the joint limit torque trajectories
+        """
         t, jl = GetKnotsFromTrajectory(jltraj)
-        jl = self.resolve_limit_forces(jl)  #TODO: Write resolve_limit_forces
+        jl = self.resolve_limit_forces(jl)
         leg = ['FR','FL','BR','BL']
         angle = ['Hip Roll','Hip Pitch','Knee Pitch']
         _, axs = plt.subplots(3,1)

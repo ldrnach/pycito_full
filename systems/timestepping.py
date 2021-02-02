@@ -88,6 +88,7 @@ class TimeSteppingMultibodyPlant():
         Return Values
             (Jn, Jt): the tuple of contact Jacobians. Jn represents the normal components and Jt the tangential components
         """
+        #TODO: Update GetContactJacobian to use new friction discretization routine
         qtype = self.multibody.GetPositions(context).dtype
         nCollision = len(self.collision_frames)
         Jn = np.zeros((nCollision, self.multibody.num_positions()),dtype=qtype)
@@ -326,17 +327,29 @@ class TimeSteppingMultibodyPlant():
 
 
         """
-        #TODO: double check the implementation - make sure we return the correct shape matrix
-        #First get joint limits
-        qhigh = self.multibody.GetPositionUpperLimits()
+        # Create the Jacobian as if all joints were limited
+        nV = self.multibody.num_velocities()
+        I = np.eye(nV)
+        # Check for infinite limits
+        qhigh= self.multibody.GetPositionUpperLimits()
         qlow = self.multibody.GetPositionLowerLimits()
         # Assert two sided limits
         low_inf = np.isinf(qlow)
         assert all(low_inf == np.isinf(qhigh))
         # Make the joint limit Jacobian
         if not all(low_inf):
-            njl = sum(low_inf)
-            return np.concatenate([np.eye(njl), -np.eye(njl)], axis=0)
+            # Remove floating base limits
+            floating = self.multibody.GetFloatingBaseBodies()
+            floating_pos = []
+            while len(floating) > 0:
+                body = self.multibody.get_body(floating.pop())
+                if body.has_quaternion_dofs():
+                    floating_pos.append(body.floating_positions_start())
+            low_inf = np.delete(floating_pos)
+            low_inf = np.squeeze(low_inf)
+            I[low_inf, low_inf] = 0
+            #TODO: Check for floating base velocities
+            return np.concatenate([I, -I], axis=1)
         else:
             return None
 
@@ -350,9 +363,13 @@ class TimeSteppingMultibodyPlant():
         Return values:
             (n, m) numpy array
         """
-        #TODO: double check the implementation
         JL = self.joint_limit_jacobian()
-        return JL.dot(jl_forces)
+        has_limits = (np.diag(JL) != 0)
+        f_jl = JL.dot(jl_forces)
+        if f_jl.ndim > 1:
+            return f_jl[has_limits,:]
+        else:
+            return f_jl[has_limits]
 
     def duplicator_matrix(self):
         #TODO: Rewrite to calculate numN, numT without the Jacobians
@@ -368,11 +385,24 @@ class TimeSteppingMultibodyPlant():
 
     def friction_discretization_matrix(self):
         """ Make a matrix for converting discretized friction into a single vector"""
-        pass
+        n = 4 * self._dlevel
+        theta = np.linspace(0,n-1,n) * 2 * np.pi / n
+        _D = np.vstack((np.cos(theta), np.sin(theta)))
+        # Repeat the matrix for every contact point
+        numN = len(self.collision_frames)
+        D = np.zeros((2*numN, n*numN))
+        for k in range(numN):
+            D[2*k:2*k+2, k*n:(k+1)*n] = _D
+        return D
 
     def resolve_forces(self, forces):
         """ Convert discretized friction & normal forces into a non-discretized 3-vector"""
-        pass
+        numN = len(self.collision_frames)
+        fN = forces[0:numN, :]
+        fT = forces[numN:, :]
+        D = self.friction_discretization_matrix()
+        ff = D.dot(fT)
+        return np.concatenate((fN, ff), axis=0)
 
 def solve_lcp(P, q):
     prog = MathematicalProgram()
