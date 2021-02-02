@@ -90,49 +90,49 @@ class ContactImplicitDirectTranscription():
         self._e = self.plant_ad.duplicator_matrix()
 
         # And joint limit variables to the program
-        qhigh = self.plant_ad.multibody.GetPositionUpperLimits()
         qlow = self.plant_ad.multibody.GetPositionLowerLimits()
         # Assume that the joint limits be two-sided
         self.Jl = self.plant_ad.joint_limit_jacobian()
         if self.Jl is not None:
             qlow = self.plant_ad.multibody.GetPositionLowerLimits()
-            self._liminds = not np.isinf(qlow)
+            self._liminds = np.isfinite(qlow)
             nJL = sum(self._liminds)
             self.jl = self.prog.NewContinuousVariables(rows = 2*nJL, cols=self.num_time_samples, name="jl")
         else:
             self.jl = False
-        
-        
+            
     def _add_dynamic_constraints(self):
         """Add constraints to enforce rigid body dynamics and joint limits"""
-        # At each knot point, add
-        #   Bounding box constraints on the timesteps
-        #   Equality constraints enforcing the dynamics
-        for n in range(0, self.num_time_samples-1):
-            # Add in timestep bounding box constraint
-            self.prog.AddBoundingBoxConstraint(self.minimum_timestep, self.maximum_timestep, self.h[n,:])
-            # Add joint limit constraints
-            if self.jl:
-                # Add dynamics as constraints 
+        # Check for joint limits first
+        if self.Jl is not None:
+            # Create the joint limit constraint
+            self.joint_limit_cstr = NonlinearComplementarityFcn(self._joint_limit, xdim=self.x.shape[0], zdim=self.jl.shape[0], slack=0)
+            for n in range(0, self.num_time_samples-1):
+                # Add timestep constraints
+                self.prog.AddBoundingBoxConstraint(self.minimum_timestep, self.maximum_timestep, self.h[n,:])
+                # Add dynamics constraints
                 self.prog.AddConstraint(self._backward_dynamics, 
                             lb=np.zeros(shape=(self.x.shape[0], 1)),
                             ub=np.zeros(shape=(self.x.shape[0], 1)),
                             vars=np.concatenate((self.h[n,:], self.x[:,n], self.x[:,n+1], self.u[:,n], self.l[:,n+1], self.jl[:,n+1]), axis=0),
                             description="dynamics")
                 # Add joint limit constraints
-                self.prog.AddConstraint(self._joint_limit_constraint,
-                        lb=0,
-                        ub=0,
+                self.prog.AddConstraint(self.joint_limit_cstr,
+                        lb=self.joint_limit_cstr.lower_bound(),
+                        ub=self.joint_limit_cstr.upper_bound(),
                         vars=np.concatenate((self.x[:,n+1], self.jl[:,n+1]), axis=0),
                         description="joint_limits")
-            else:
-                # Add just dynamics as constraints 
+        else:
+            for n in range(0, self.num_time_samples-1):
+                # Add timestep constraints
+                self.prog.AddBoundingBoxConstraint(self.minimum_timestep, self.maximum_timestep, self.h[n,:])
+                # Add dynamics as constraints 
                 self.prog.AddConstraint(self._backward_dynamics, 
-                            lb=np.zeros(shape=(self.x.shape[0],1)),
+                            lb=np.zeros(shape=(self.x.shape[0], 1)),
                             ub=np.zeros(shape=(self.x.shape[0], 1)),
                             vars=np.concatenate((self.h[n,:], self.x[:,n], self.x[:,n+1], self.u[:,n], self.l[:,n+1]), axis=0),
-                            description="dynamics")        
-            
+                            description="dynamics")  
+           
     def _add_contact_constraints(self):
         """ Add complementarity constraints for contact to the optimization problem"""
         # At each knot point, add constraints for normal distance, sliding velocity, and friction cone
@@ -181,8 +181,8 @@ class ContactImplicitDirectTranscription():
         ind = np.cumsum([self.h.shape[1], self.x.shape[0], self.x.shape[0], self.u.shape[0]])
         h, x1, x2, u, l = np.split(z, ind)
         # Split configuration and velocity from state
-        q1, v1 = np.split(x1,2)
-        q2, v2 = np.split(x2,2)
+        q1, v1 = np.split(x1,[plant.multibody.num_positions()])
+        q2, v2 = np.split(x2,[plant.multibody.num_positions()])
         # Discretize generalized acceleration
         dv = (v2 - v1)/h
         # Update the context
@@ -195,7 +195,7 @@ class ContactImplicitDirectTranscription():
         # Gravity
         forces[:] = forces[:] + plant.multibody.CalcGravityGeneralizedForces(context)
         # Joint limits
-        if self.jl:
+        if self.Jl is not None:
             l, jl = np.split(l, [self.l.shape[0]])
             forces[:] = forces[:] + self.Jl.dot(jl)
         # Ground reaction forces
@@ -255,7 +255,7 @@ class ContactImplicitDirectTranscription():
 
         Arguments:
             The decision variable list is stored as :
-                z = [state,normal_forces, friction_forces]
+                vars = [state,normal_forces, friction_forces]
         """
         plant, context, _ = self._autodiff_or_float(vars)
         ind = np.cumsum([self.x.shape[0], self.numN])
@@ -267,26 +267,24 @@ class ContactImplicitDirectTranscription():
         return mu.dot(fN) - self._e.dot(fT)
 
     # Joint Limit Constraints
-    def _joint_limit_constraint(self, z):
+    def _joint_limit(self, vars):
         """
         Complementarity constraint between the position variables and the joint limit forces
 
         Arguments:
             Decision variable list:
-                z = [state, joint_limit_forces]
+                vars = state
         """
-        plant, _ = self._autodiff_or_float(z)
+        plant, _ = self._autodiff_or_float(vars)
         # Get configuration and joint limit forces
-        x, jl = np.split(z, [self.x.shape[0]])
-        q = x[0:plant.multibody.num_positions()]
+        q = vars[0:plant.multibody.num_positions()]
         # Calculate distance from limits
         qmax = plant.multibody.GetPositionUpperLimits()
         qmin = plant.multibody.GetPositionLowerLimits()
         q_valid = np.isfinite(qmax)
-        qdiff = np.concatenate((q[q_valid] - qmax[q_valid],
+        return np.concatenate((q[q_valid] - qmax[q_valid],
                                 qmin[q_valid] - q[q_valid]),
                                 axis=0)
-        return np.concatenate([qdiff, jl, jl*qdiff], axis=0)
      
     def _autodiff_or_float(self, z):
         """Returns the autodiff or float implementation of model and context based on the dtype of the decision variables"""
@@ -473,7 +471,8 @@ def integrate_quaternion(q, w, dt):
     nw = w/speed
     # Calculate the rotation quaternion
     Dq = np.zeros((4,))
-    Dq[1:] = np.cos(speed*dt/2) + nw * np.sin(speed*dt/2)
+    Dq[0] = np.cos(speed*dt/2)
+    Dq[1:] = nw * np.sin(speed*dt/2)
     # Do the rotation
     return quaternion_product(Dq, q)
 
@@ -487,7 +486,7 @@ def quaternion_product(q1, q2):
     """
     qprod = np.zeros((4,), dtype=type(q1))
     # Scalar part
-    qprod[0] = q1[0]*q2[0] - np.dot(q1[1:], q2[:])
+    qprod[0] = q1[0]*q2[0] - np.dot(q1[1:], q2[1:])
     # Vector part
     qprod[1:] = q1[0]*q2[1:] + q2[0]*q1[1:] - np.cross(q1[1:], q2[1:])
     # Return

@@ -192,7 +192,7 @@ class A1(TimeSteppingMultibodyPlant):
     def plot_force_trajectory(self, ftraj, show=True):
         """ Plot reaction force trajectories"""
         t, f = GetKnotsFromTrajectory(ftraj)
-        f = self.resolve_forces(f)  #TODO: Write Resolve_Forces into timestepping
+        f = self.resolve_forces(f)  
         _, axs = plt.subplot(3,1)
         legs = ['FR', 'FL', 'BR', 'BL']
         labels = ['Normal', 'Friction-1', 'Friction-2']
@@ -205,10 +205,6 @@ class A1(TimeSteppingMultibodyPlant):
         axs[0].legend()
         if show:
             plt.show()
-
-    def resolve_forces(self, f):
-        """ Resolve discretized forces into three-component forces """
-        return f
 
     def plot_limit_trajectory(self, jltraj, show=True):
         """

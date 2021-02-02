@@ -47,7 +47,7 @@ trajopt.add_quadratic_running_cost(Q, xf, vars=[trajopt.x], name='StateCost')
 # Create the initial guess
 u_init = np.zeros(trajopt.u.shape)
 l_init = np.zeros(trajopt.l.shape)
-x_init = np.linspace(x0, xf, 101)
+x_init = np.linspace(x0, xf, 101).transpose()
 trajopt.set_initial_guess(x_init, u_init, l_init)
 
 # Create the final program
@@ -75,12 +75,3 @@ utils.printProgramReport(result, prog)
 xtraj, utraj, ltraj, jltraj = trajopt.reconstruct_all_trajectories(result)
 a1.plot_trajectories(xtraj, utraj,ltraj, jltraj)
 a1.visualize(xtraj)
-
-# Checking for floating base bodies
-floating = a1.multibody.GetFloatingBaseBodies()
-while len(floating) > 0:
-    body = a1.multibody.get_body(floating.pop())
-    body.has_quaternion_dofs()
-    # Get the indices in the state vector when floating positions and velocities begin
-    pos_idx = body.floating_positions_start()
-    vel_idx = body.floating_velocities_start()

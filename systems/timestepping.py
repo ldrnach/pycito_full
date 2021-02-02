@@ -97,11 +97,12 @@ class TimeSteppingMultibodyPlant():
             (Jn, Jt): the tuple of contact Jacobians. Jn represents the normal components and Jt the tangential components
         """
         qtype = self.multibody.GetPositions(context).dtype
-        nCollision = len(self.collision_frames)
+        numN = self.num_contacts()
+        numT = int(self.num_friction()/numN)
         D = self.friction_discretization_matrix().transpose()
-        Jn = np.zeros((nCollision, self.multibody.num_positions()),dtype=qtype)
-        Jt = np.zeros((nCollision * 4 * (self._dlevel), self.multibody.num_positions()),dtype=qtype)
-        for n in range(0, nCollision):
+        Jn = np.zeros((numN, self.multibody.num_velocities()), dtype=qtype)
+        Jt = np.zeros((numN * numT, self.multibody.num_velocities()), dtype=qtype)
+        for n in range(0, numN):
             # Transform collision frames to world coordinates
             collision_pt = self.multibody.CalcPointsPositions(context,
                                         self.collision_frames[n],
@@ -113,17 +114,17 @@ class TimeSteppingMultibodyPlant():
             terrain_frame = self.terrain.local_frame(terrain_pt)
             normal, tangent = np.split(terrain_frame, [1], axis=0)
             # Discretize to the chosen level 
-            Dtangent = D[:, 2*n:2*(n+1)].dot(tangent)
+            Dtangent = D.dot(tangent)
             # Get the contact point Jacobian
             J = self.multibody.CalcJacobianTranslationalVelocity(context,
-                 JacobianWrtVariable.kQDot,
+                 JacobianWrtVariable.kV,
                  self.collision_frames[n],
                  self.collision_poses[n].translation(),
                  self.multibody.world_frame(),
                  self.multibody.world_frame())
             # Calc contact Jacobians
             Jn[n,:] = normal.dot(J)
-            Jt[n*4*(self._dlevel) : (n+1)*4*(self._dlevel), :] = Dtangent.dot(J)
+            Jt[n*numT: (n+1)*numT, :] = Dtangent.dot(J)
         # Return the Jacobians as a tuple of np arrays
         return (Jn, Jt)    
 
@@ -355,9 +356,13 @@ class TimeSteppingMultibodyPlant():
                 body = self.multibody.get_body(floating.pop())
                 if body.has_quaternion_dofs():
                     floating_pos.append(body.floating_positions_start())
-            low_inf = np.delete(floating_pos)
+            # Remove entries corresponding to the extra dof from quaternions
+            low_inf = np.delete(low_inf, floating_pos)
             low_inf = np.squeeze(low_inf)
+            # Zero-out the entries that don't correspond to joint limits
             I[low_inf, low_inf] = 0
+            # Remove the columns that don't correspond to joint limits
+            I = np.delete(I, low_inf, axis=1)
             return np.concatenate([I, -I], axis=1)
         else:
             return None
@@ -392,14 +397,9 @@ class TimeSteppingMultibodyPlant():
 
     def friction_discretization_matrix(self):
         """ Make a matrix for converting discretized friction into a single vector"""
-        n = 4 * self._dlevel
+        n = 4 * self.dlevel
         theta = np.linspace(0,n-1,n) * 2 * np.pi / n
-        _D = np.vstack((np.cos(theta), np.sin(theta)))
-        # Repeat the matrix for every contact point
-        numN = self.num_contacts()
-        D = np.zeros((2*numN, n*numN))
-        for k in range(numN):
-            D[2*k:2*k+2, k*n:(k+1)*n] = _D
+        D = np.vstack((np.cos(theta), np.sin(theta)))
         # Threshold out small values
         D[np.abs(D)<1e-10] = 0
         return D
@@ -409,7 +409,11 @@ class TimeSteppingMultibodyPlant():
         numN = self.num_contacts()
         fN = forces[0:numN, :]
         fT = forces[numN:, :]
-        D = self.friction_discretization_matrix()
+        D_ = self.friction_discretization_matrix()
+        n = 4*self.dlevel
+        D = np.zeros((2*numN, n*numN))
+        for k in range(numN):
+            D[2*k:k+2, k*n:(k+1)*n] = D_
         ff = D.dot(fT)
         return np.concatenate((fN, ff), axis=0)
 
