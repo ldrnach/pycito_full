@@ -210,7 +210,7 @@ class ContactImplicitDirectTranscription():
         # Check for floating bodies / quaternion variables
         if len(self.floating_pos) > 0:
             for pidx, vidx in zip(self.floating_pos, self.floating_vel):
-                fq[pidx:pidx+4] = q2[pidx:pidx+4] - integrate_quaternion(x1[pidx:pidx+4],x1[vidx:vidx+3],h)
+                fq[pidx:pidx+4] = q2[pidx:pidx+4] - integrate_quaternion(x1[pidx:pidx+4],x1[vidx:vidx+3],h.item())
         # Return dynamics defects
         return np.concatenate((fq, fv), axis=0)
     
@@ -275,7 +275,7 @@ class ContactImplicitDirectTranscription():
             Decision variable list:
                 vars = state
         """
-        plant, _ = self._autodiff_or_float(vars)
+        plant, _, _ = self._autodiff_or_float(vars)
         # Get configuration and joint limit forces
         q = vars[0:plant.multibody.num_positions()]
         # Calculate distance from limits
@@ -470,7 +470,7 @@ def integrate_quaternion(q, w, dt):
     speed = np.linalg.norm(w)
     nw = w/speed
     # Calculate the rotation quaternion
-    Dq = np.zeros((4,))
+    Dq = np.zeros((4,),dtype=w.dtype)
     Dq[0] = np.cos(speed*dt/2)
     Dq[1:] = nw * np.sin(speed*dt/2)
     # Do the rotation

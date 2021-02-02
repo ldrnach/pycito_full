@@ -75,14 +75,14 @@ def CheckProgram(prog):
         try:
             xs = [1.]*len(cost.variables())
             cost.evaluator().Eval(xs)
-        except RuntimeError:
+        except RuntimeError as err:
             status = False
             print(f"Evaluating {cost.evaluator().get_description()} with floats produces a RuntimeError")
         # Evaluate with AutoDiff arrays
         try:
             xd = [AutoDiffXd(1.)] * len(cost.variables())
             cost.evaluator().Eval(xd)
-        except RuntimeError:
+        except RuntimeError as err:
             status = False
             print(f"Evaluating {cost.evaluator().get_description()} with AutoDiffs produces a RuntimeError")
     # Check that the outputs of all constraints are vectors
@@ -91,19 +91,21 @@ def CheckProgram(prog):
         try:
             xs = [1.]*len(cstr.variables())
             cstr.evaluator().Eval(xs)
-        except RuntimeError:
+        except RuntimeError as err:
             status = False
             print(f"Evaluating {cstr.evaluator().get_description()} with floats produces a RuntimeError")
-        except ValueError:
+        except ValueError as err:
             status = False
-            print(f"Evaluating {cstr.evaluator().get_description()} resulted in a ValueError")
+            print(f"Evaluating {cstr.evaluator().get_description()} with floats resulted in a ValueError")
         # Evaluate constraint with AutoDiffXd
         try:
             xd = [AutoDiffXd(1.)] * len(cstr.variables())
             cstr.evaluator().Eval(xd)
-        except RuntimeError:
+        except RuntimeError as err:
             status = False
             print(f"Evaluating {cstr.evaluator().get_description()} with AutoDiffs produces a RuntimeError")
+        except ValueError as err:
+            print(f"Evaluating {cstr.evaluator().get_description()} with AutoDiffs produces a ValueError")
     # Return the status flag
     return status
 
