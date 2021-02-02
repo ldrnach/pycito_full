@@ -83,29 +83,25 @@ class ContactImplicitDirectTranscription():
         nU = self.plant_ad.multibody.num_actuators()
         self.u = self.prog.NewContinuousVariables(rows=nU, cols=self.num_time_samples, name='u')
         # Add reaction force variables to the program
-        Jn, Jt = self.plant_ad.GetContactJacobians(self.context_ad)
-        self.numN = Jn.shape[0]
-        self.numT = Jt.shape[0]
+        self.numN = self.plant_f.num_contacts()
+        self.numT = self.plant_ad.num_friction()
         self.l = self.prog.NewContinuousVariables(rows=2*self.numN+self.numT, cols=self.num_time_samples, name='l')
         # store a matrix for organizing the friction forces
-        self._e = np.zeros((self.numN, self.numT))
-        nD = int(self.numT / self.numN)
-        for n in range(0, self.numN):
-            self._e[n, n*nD:(n+1)*nD] = 1
+        self._e = self.plant_ad.duplicator_matrix()
+
         # And joint limit variables to the program
         qhigh = self.plant_ad.multibody.GetPositionUpperLimits()
         qlow = self.plant_ad.multibody.GetPositionLowerLimits()
         # Assume that the joint limits be two-sided
-        low_inf = np.isinf(qlow)
-        high_inf = np.isinf(qhigh)
-        assert all(low_inf == high_inf), "Joint limits must be two-sided"
-        if not all(low_inf):
-            nJL = sum(low_inf)
-            self.jl = self.NewContinuousVariables(rows=2*nJL, cols=self.num_time_samples, name='jl')
-            self._Jl = np.concatenate([np.eye(nJL), -np.eye(nJL)], axis=0)
-            self._liminds = not low_inf
+        self.Jl = self.plant_ad.joint_limit_jacobian()
+        if self.Jl is not None:
+            qlow = self.plant_ad.multibody.GetPositionLowerLimits()
+            self._liminds = not np.isinf(qlow)
+            nJL = sum(self._liminds)
+            self.jl = self.prog.NewContinuousVariables(rows = 2*nJL, cols=self.num_time_samples, name="jl")
         else:
             self.jl = False
+        
         
     def _add_dynamic_constraints(self):
         """Add constraints to enforce rigid body dynamics and joint limits"""
@@ -201,7 +197,7 @@ class ContactImplicitDirectTranscription():
         # Joint limits
         if self.jl:
             l, jl = np.split(l, [self.l.shape[0]])
-            forces[:] = forces[:] + self._Jl.dot(jl)
+            forces[:] = forces[:] + self.Jl.dot(jl)
         # Ground reaction forces
         Jn, Jt = plant.GetContactJacobians(context)
         J = np.concatenate((Jn, Jt), axis=0)
@@ -282,7 +278,7 @@ class ContactImplicitDirectTranscription():
         plant, _ = self._autodiff_or_float(z)
         # Get configuration and joint limit forces
         x, jl = np.split(z, [self.x.shape[0]])
-        q, _ = np.split(x, 2)
+        q = x[0:plant.multibody.num_positions()]
         # Calculate distance from limits
         qmax = plant.multibody.GetPositionUpperLimits()
         qmin = plant.multibody.GetPositionLowerLimits()

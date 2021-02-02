@@ -50,6 +50,14 @@ class TimeSteppingMultibodyPlant():
         # Idenify and store collision geometries
         self.__store_collision_geometries()
 
+    def num_contacts(self):
+        """ returns the number of contact points"""
+        return len(self.collision_frames)
+
+    def num_friction(self):
+        """ returns the number of friction components"""
+        return 4*self.dlevel*self.num_contacts()
+
     def GetNormalDistances(self, context):   
         """
         Returns an array of signed distances between the contact geometries and the terrain, given the current system context
@@ -201,7 +209,7 @@ class TimeSteppingMultibodyPlant():
                 else:
                     self.collision_radius.append(0.)
 
-    def discretize_friction(self, normal, tangent):
+    def __discretize_friction(self, normal, tangent):
         """
         Rotates the terrain tangent vectors to discretize the friction cone
         
@@ -210,6 +218,8 @@ class TimeSteppingMultibodyPlant():
             tangent:  The terrain tangent directions, (2x3) numpy array
         Return Values:
             all_tangents: The discretized friction vectors, (2nx3) numpy array
+
+        This method is now deprecated
         """
         # Reflect the current friction basis
         tangent = np.concatenate((tangent, -tangent), axis=0)
@@ -348,7 +358,6 @@ class TimeSteppingMultibodyPlant():
             low_inf = np.delete(floating_pos)
             low_inf = np.squeeze(low_inf)
             I[low_inf, low_inf] = 0
-            #TODO: Check for floating base velocities
             return np.concatenate([I, -I], axis=1)
         else:
             return None
@@ -373,8 +382,8 @@ class TimeSteppingMultibodyPlant():
 
     def duplicator_matrix(self):
         """Returns a matrix of 1s and 0s for combining friction forces or duplicating sliding velocities"""
-        numN = len(self.collision_frames)
-        numT = 4*self._dlevel*numN
+        numN = self.num_contacts()
+        numT = self.num_friction()
         w = np.zeros((numN, numT))
         nD = int(numT / numN)
         for n in range(numN):
@@ -387,7 +396,7 @@ class TimeSteppingMultibodyPlant():
         theta = np.linspace(0,n-1,n) * 2 * np.pi / n
         _D = np.vstack((np.cos(theta), np.sin(theta)))
         # Repeat the matrix for every contact point
-        numN = len(self.collision_frames)
+        numN = self.num_contacts()
         D = np.zeros((2*numN, n*numN))
         for k in range(numN):
             D[2*k:2*k+2, k*n:(k+1)*n] = _D
@@ -397,7 +406,7 @@ class TimeSteppingMultibodyPlant():
 
     def resolve_forces(self, forces):
         """ Convert discretized friction & normal forces into a non-discretized 3-vector"""
-        numN = len(self.collision_frames)
+        numN = self.num_contacts()
         fN = forces[0:numN, :]
         fT = forces[numN:, :]
         D = self.friction_discretization_matrix()
