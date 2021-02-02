@@ -241,13 +241,12 @@ class ContactImplicitDirectTranscription():
         # Split variables from the decision list
         x, gam = np.split(vars, [self.x.shape[0]])
         # Get the velocity, and convert to qdot
-        _, v = np.split(x, 2)
+        _, v = np.split(x, [plant.multibody.num_positions()])
         plant.multibody.SetPositionsAndVelocities(context, x)
-        dq = plant.multibody.MapVelocityToQDot(context, v)
         # Get the contact Jacobian
         _, Jt = plant.GetContactJacobians(context)
         # Match sliding slacks to sliding velocities
-        return self._e.transpose().dot(gam) + Jt.dot(dq)
+        return self._e.transpose().dot(gam) + Jt.dot(v)
 
     def _friction_cone(self, vars):
         """
