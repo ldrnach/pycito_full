@@ -410,9 +410,9 @@ class ContactImplicitDirectTranscription():
     
     def reconstruct_limit_force_trajectory(self, soln):
         """Returns the joint limit force trajectory from the solution"""
-        if self.jl:
+        if self.Jl is not None:
             t = self.get_solution_times(soln)
-            return PiecewisePolynomial(t, soln.GetSolution(self.jl))
+            return PiecewisePolynomial.FirstOrderHold(t, soln.GetSolution(self.jl))
         else:
             return None
 
