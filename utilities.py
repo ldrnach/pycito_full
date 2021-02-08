@@ -146,9 +146,9 @@ def quat2rpy(quat):
         rpy: a (3,n) numpy array of roll-pitch-yaw values
     """
     rpy = np.zeros((3, quat.shape[1]))
-    rpy[0,:] = np.atan2(2*(quat[0,:]*quat[1,:] + quat[2,:]*quat[3,:]),
+    rpy[0,:] = np.arctan2(2*(quat[0,:]*quat[1,:] + quat[2,:]*quat[3,:]),
                          1-2*(quat[1,:]**2 + quat[2,:]**2))
-    rpy[1,:] = np.asin(2*(quat[0,:]*quat[2,:]-quat[3,:]*quat[1,:]))
-    rpy[2,:] = np.atan2(2*(quat[0,:]*quat[3,:]+quat[1,:]*quat[2,:]),
+    rpy[1,:] = np.arcsin(2*(quat[0,:]*quat[2,:]-quat[3,:]*quat[1,:]))
+    rpy[2,:] = np.arctan2(2*(quat[0,:]*quat[3,:]+quat[1,:]*quat[2,:]),
                         1-2*(quat[2,:]**2 + quat[3,:]**2))
     return rpy
