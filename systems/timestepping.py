@@ -411,7 +411,6 @@ class TimeSteppingMultibodyPlant():
         fN = forces[0:numN, :]
         fT = forces[numN:numN*(n+1), :]
         D_ = self.friction_discretization_matrix()
-        
         D = np.zeros((2*numN, n*numN))
         for k in range(numN):
             D[2*k:2*k+2, k*n:(k+1)*n] = D_
