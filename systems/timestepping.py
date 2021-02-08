@@ -378,7 +378,7 @@ class TimeSteppingMultibodyPlant():
             (n, m) numpy array
         """
         JL = self.joint_limit_jacobian()
-        has_limits = (np.diag(JL) != 0)
+        has_limits = np.sum(abs(JL), axis=1)>0
         f_jl = JL.dot(jl_forces)
         if f_jl.ndim > 1:
             return f_jl[has_limits,:]
