@@ -407,13 +407,14 @@ class TimeSteppingMultibodyPlant():
     def resolve_forces(self, forces):
         """ Convert discretized friction & normal forces into a non-discretized 3-vector"""
         numN = self.num_contacts()
-        fN = forces[0:numN, :]
-        fT = forces[numN:, :]
-        D_ = self.friction_discretization_matrix()
         n = 4*self.dlevel
+        fN = forces[0:numN, :]
+        fT = forces[numN:numN*(n+1), :]
+        D_ = self.friction_discretization_matrix()
+        
         D = np.zeros((2*numN, n*numN))
         for k in range(numN):
-            D[2*k:k+2, k*n:(k+1)*n] = D_
+            D[2*k:2*k+2, k*n:(k+1)*n] = D_
         ff = D.dot(fT)
         return np.concatenate((fN, ff), axis=0)
 
