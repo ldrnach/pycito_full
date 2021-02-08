@@ -465,15 +465,23 @@ def integrate_quaternion(q, w, dt):
     Return Values
         (4,) numpy array specifying the next step unit quaternion
     """
-    # normalize the velocity vector
-    speed = np.linalg.norm(w)
-    nw = w/speed
-    # Calculate the rotation quaternion
+    # Initialize rotation quaternion
     Dq = np.zeros((4,),dtype=w.dtype)
-    Dq[0] = np.cos(speed*dt/2)
-    Dq[1:] = nw * np.sin(speed*dt/2)
-    # Do the rotation
-    return quaternion_product(Dq, q)
+    # Multiply velocity by time
+    v = w * dt / 2.
+    # Check for the case of v = 0
+    if np.count_nonzero(v) == 0:
+        Dq[0] = 1.
+        Dq[1:] = v  #Still 0, but set to v for AutoDiff
+    else:
+    # normalize the velocity vector
+        speed = np.linalg.norm(w)
+        nw = w/speed
+        # Calculate the rotation quaternion
+        Dq[0] = np.cos(speed)
+        Dq[1:] = nw * np.sin(speed)
+    # Do the rotation for body-fixed angular rate
+    return quaternion_product(q, Dq)
 
 def quaternion_product(q1, q2):
     """
