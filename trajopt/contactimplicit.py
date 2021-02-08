@@ -470,7 +470,7 @@ def integrate_quaternion(q, w, dt):
     # Multiply velocity by time
     v = w * dt / 2.
     # Check for the case of v = 0
-    if np.count_nonzero(v) == 0:
+    if all(v == 0):
         Dq[0] = 1.
         Dq[1:] = v  #Still 0, but set to v for AutoDiff
     else:
