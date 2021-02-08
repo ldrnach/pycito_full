@@ -139,7 +139,7 @@ class A1(TimeSteppingMultibodyPlant):
         paxs[-1].set_xlabel('Time (s)')
         paxs[0].set_title("COM Configuration")
         #Plot COM orientation rate and translational velocity
-        _, axs = plt.subplots()
+        _, axs = plt.subplots(2,1)
         for n in range(2):
             for k in range(3):
                 axs[n].plot(t, v[3*n + k,:], linewidth=1.5, label=labels[n][k])
@@ -193,7 +193,7 @@ class A1(TimeSteppingMultibodyPlant):
         """ Plot reaction force trajectories"""
         t, f = GetKnotsFromTrajectory(ftraj)
         f = self.resolve_forces(f)  
-        _, axs = plt.subplot(3,1)
+        _, axs = plt.subplots(3,1)
         legs = ['FR', 'FL', 'BR', 'BL']
         labels = ['Normal', 'Friction-1', 'Friction-2']
         for k in range(3):
