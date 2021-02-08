@@ -8,7 +8,7 @@ November 10, 2020
 import numpy as np
 import matplotlib.pyplot as plt
 from pydrake.all import MathematicalProgram, MultibodyForces, Solve
-
+from utilities import plot_complementarity
 #TODO: Write GaussianProcessTerrain with Update methods. Test on actual data
 
 class ResidualTerrainEstimator():
@@ -374,28 +374,3 @@ def append_dict(source, target):
         else:
             # If the key doesn't exist or is empty, copy the data over
             target[key] = [source[key]]
-        
-def plot_complementarity(ax, y1, y2, label1, label2):
-    x = range(0, len(y1))
-    color = "tab:red"
-    ax.set_ylabel(label1, color = color)
-    ax.plot(x, y1, color=color, linewidth=1.5)
-
-    # Create the second axis 
-    ax2 = ax.twinx()
-    color = "tab:blue"
-    ax2.set_ylabel(label2, color=color)
-    ax2.plot(x, y2, color=color, linewidth=1.5)
-    # Align the axes at zero
-    align_axes(ax,ax2)
-
-def align_axes(ax, ax2):
-    lims = np.array([ax.get_ylim(), ax2.get_ylim()])
-    # Pad the limits to make sure there is some range
-    lims += np.array([[-1,1],[-1,1]])
-    lim_range = lims[:,1] - lims[:,0]
-    lim_frac = lims.transpose() / lim_range
-    lim_frac = lim_frac.transpose()
-    new_frac = np.array([min(lim_frac[:,0]), max(lim_frac[:,1])])
-    ax.set_ylim(lim_range[0]*new_frac)
-    ax2.set_ylim(lim_range[1]*new_frac)

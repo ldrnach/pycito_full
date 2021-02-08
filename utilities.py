@@ -114,7 +114,6 @@ def GetKnotsFromTrajectory(trajectory):
     values = trajectory.vector_values(breaks)
     return (breaks, values)
 
-
 def printProgramReport(result, prog=None, filename=None):
     """print out information about the result of the mathematical program """
     # Print out general information
@@ -153,3 +152,44 @@ def quat2rpy(quat):
     rpy[2,:] = np.arctan2(2*(quat[0,:]*quat[3,:]+quat[1,:]*quat[2,:]),
                         1-2*(quat[2,:]**2 + quat[3,:]**2))
     return rpy
+
+def plot_complementarity(ax, y1, y2, label1, label2):
+    """
+        Plots two traces in the same axes using different y-axes. Aligns the y-axes at zero
+
+        Arguments:
+            ax: The axis on which to plot
+            y1: The first sequence to plot
+            y2: The second sequence to plot
+            label1: The y-axis label for the first sequence, y1
+            label2: The y-axis label for the second sequence, y2
+    """
+    x = range(0, len(y1))
+    color = "tab:red"
+    ax.set_ylabel(label1, color = color)
+    ax.plot(x, y1, color=color, linewidth=1.5)
+    # Create the second axis 
+    ax2 = ax.twinx()
+    color = "tab:blue"
+    ax2.set_ylabel(label2, color=color)
+    ax2.plot(x, y2, color=color, linewidth=1.5)
+    # Align the axes at zero
+    align_axes(ax,ax2)
+
+def align_axes(ax, ax2):
+    """
+        For a plot with two y-axes, aligns the two y-axes at 0
+
+        Arguments:
+            ax: Reference to the first of the two y-axes
+            ax2: Reference to the second of the two y-axes
+    """
+    lims = np.array([ax.get_ylim(), ax2.get_ylim()])
+    # Pad the limits to make sure there is some range
+    lims += np.array([[-1,1],[-1,1]])
+    lim_range = lims[:,1] - lims[:,0]
+    lim_frac = lims.transpose() / lim_range
+    lim_frac = lim_frac.transpose()
+    new_frac = np.array([min(lim_frac[:,0]), max(lim_frac[:,1])])
+    ax.set_ylim(lim_range[0]*new_frac)
+    ax2.set_ylim(lim_range[1]*new_frac)
