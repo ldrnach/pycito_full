@@ -281,8 +281,8 @@ class ContactImplicitDirectTranscription():
         qmax = plant.multibody.GetPositionUpperLimits()
         qmin = plant.multibody.GetPositionLowerLimits()
         q_valid = np.isfinite(qmax)
-        return np.concatenate((q[q_valid] - qmax[q_valid],
-                                qmin[q_valid] - q[q_valid]),
+        return np.concatenate((qmax[q_valid] - q[q_valid],
+                                q[q_valid] - qmin[q_valid]),
                                 axis=0)
      
     def _autodiff_or_float(self, z):
@@ -356,10 +356,19 @@ class ContactImplicitDirectTranscription():
             value (numpy.array): an array of constraint values
             subset_index: optional list of indices specifying which state variables are subject to constraint
         """
-        #TODO Check the inputs
-        A = np.eye(value.shape[0])
         if subset_index is None:
-            subset_index = range(0, self.x.shape[0])       
+            subset_index = np.array(range(0, self.x.shape[0]))  
+        # Check that the input is within the joint limits
+        qmin = self.plant_f.multibody.GetPositionLowerLimits()
+        qmax = self.plant_f.multibody.GetPositionUpperLimits()
+        q_subset = subset_index[subset_index < self.plant_f.multibody.num_positions()]
+        q = value[subset_index < self.plant_f.multibody.num_positions()]
+        if any(q < qmin[q_subset]):
+            raise ValueError("State constraint violates position lower limits")
+        if any(q > qmax[q_subset]):
+            raise ValueError("State constraint violates position upper limits")
+        # Create the constraint
+        A = np.eye(value.shape[0])   
         self.prog.AddLinearEqualityConstraint(Aeq=A, beq=value, vars=self.x[subset_index, knotpoint]).evaluator().set_description("StateConstraint")
             
     def add_control_limits(self, umin, umax):
