@@ -281,8 +281,8 @@ class ContactImplicitDirectTranscription():
         qmax = plant.multibody.GetPositionUpperLimits()
         qmin = plant.multibody.GetPositionLowerLimits()
         q_valid = np.isfinite(qmax)
-        return np.concatenate((qmax[q_valid] - q[q_valid],
-                                q[q_valid] - qmin[q_valid]),
+        return np.concatenate((q[q_valid] - qmin[q_valid],
+                                qmax[q_valid] - q[q_valid]),
                                 axis=0)
      
     def _autodiff_or_float(self, z):
