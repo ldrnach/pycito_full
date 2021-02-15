@@ -10,6 +10,7 @@ import numpy as np
 from pydrake.all import MathematicalProgram, PiecewisePolynomial
 from pydrake.autodiffutils import AutoDiffXd
 from pydrake.multibody.tree import MultibodyForces_
+from utilities import MathProgIterationPrinter
 
 class ContactImplicitDirectTranscription():
     """
@@ -109,7 +110,7 @@ class ContactImplicitDirectTranscription():
             self.joint_limit_cstr = NonlinearComplementarityFcn(self._joint_limit, xdim=self.x.shape[0], zdim=self.jl.shape[0], slack=0)
             for n in range(0, self.num_time_samples-1):
                 # Add timestep constraints
-                self.prog.AddBoundingBoxConstraint(self.minimum_timestep, self.maximum_timestep, self.h[n,:])
+                self.prog.AddBoundingBoxConstraint(self.minimum_timestep, self.maximum_timestep, self.h[n,:]).evaluator().set_description('TimestepConstraint')
                 # Add dynamics constraints
                 self.prog.AddConstraint(self._backward_dynamics, 
                             lb=np.zeros(shape=(self.x.shape[0], 1)),
@@ -125,7 +126,7 @@ class ContactImplicitDirectTranscription():
         else:
             for n in range(0, self.num_time_samples-1):
                 # Add timestep constraints
-                self.prog.AddBoundingBoxConstraint(self.minimum_timestep, self.maximum_timestep, self.h[n,:])
+                self.prog.AddBoundingBoxConstraint(self.minimum_timestep, self.maximum_timestep, self.h[n,:]).evaluator().set_description('TimestepConstraint')
                 # Add dynamics as constraints 
                 self.prog.AddConstraint(self._backward_dynamics, 
                             lb=np.zeros(shape=(self.x.shape[0], 1)),
@@ -461,6 +462,19 @@ class ContactImplicitDirectTranscription():
         self.distance_cstr.set_slack(val)
         self.sliding_cstr.set_slack(val)
         self.friccone_cstr.set_slack(val)
+
+    def enable_cost_display(self, display='terminal'):
+        """
+        Add a visualization callback to print/show the cost values and constraint violations at each iteration
+
+        Parameters:
+            display: "terminal" prints the costs and constraints to the terminal
+                     "figure" prints the costs and constraints to a figure window
+                     "all"    prints the costs and constraints to the terminal and to a figure window
+        """
+        printer = MathProgIterationPrinter(prog=self.prog, display=display)
+        all_vars = self.prog.decision_variables()
+        self.prog.AddVisualizationCallback(printer, all_vars)
 
 def integrate_quaternion(q, w, dt):
     """

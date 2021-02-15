@@ -1,6 +1,7 @@
 import os
 from sys import exit
 from pydrake.autodiffutils import AutoDiffXd
+from matplotlib import pyplot as plt
 import pickle
 import numpy as np
 
@@ -40,6 +41,175 @@ SNOPT_DECODER = {
     141: "wrong number of basic variables",
     142: "error in basis package"
 }
+
+class MathProgIterationPrinter():
+    def __init__(self, prog = None, display='terminal'):
+        """
+            display options:
+                "terminal" prints costs and constraints into the terminal
+                "figure" creates a matplotlib window and plots all costs and constraints in subplots
+                "all" prints to the terminal and creates a figure
+        """
+        self._prog = prog
+        self.iteration = 0
+        self.display_func = self._get_display_func(display)
+        self.title_iter = 50 #Print titles to terminal every title_iter iterations
+
+    def __call__(self, x):
+        costs = self.calc_costs(x)
+        cstrs = self.calc_constraints(x)
+        self.iteration += 1
+        self.display_func(costs, cstrs)
+
+    def _get_display_func(self, display):
+        """ Returns the appropriate display method """
+        if display.lower() == 'terminal':
+            return self.print_to_terminal
+        elif display.lower() == 'figure':
+            self.figure_setup()
+            return self.print_to_figure
+        elif display.lower() == 'all':
+            self.figure_setup()
+            return self.print_to_terminal_and_figure
+        else:
+            raise ValueError(f"Display {display} is not a supported option. Choose 'terminal', 'figure', or 'all'")
+
+    def calc_costs(self, x):
+        """ 
+        Calculate and return all cost function values from the mathematical program
+        
+        Arguments:
+            x: array of all program decision variables, in order.
+        """
+        costs = self._prog.GetAllCosts()
+        cost_vals = {}
+        for cost in costs:
+            dvars = cost.variables()
+            # Filter out the necessary variables
+            dvals = x[self._prog.FindDecisionVariableIndices(dvars)]
+            # Evaluate the cost
+            val = cost.evaluator().Eval(dvals)
+            # Add to the cost dictionary
+            name = cost.evaluator().get_description()
+            if name in cost_vals:
+                cost_vals[name] += val[0]   # Unwrap the array
+            else:
+                cost_vals[name] = val[0]
+        return cost_vals
+
+    def calc_constraints(self, x):
+        """ 
+        Calculate and return all constraint violations from the mathematical program
+        
+        Arguments:
+            x: array of all program decision variables, in order
+        """
+        cstrs = self._prog.GetAllConstraints()
+        cstr_vals = {}
+        for cstr in cstrs:
+            dvars = cstr.variables()
+            # Filter out necessary variables
+            dvals = x[self._prog.FindDecisionVariableIndices(dvars)]
+            # Evaluate the cost
+            val = cstr.evaluator().Eval(dvals)
+            # Get absolute constraint violations
+            lb = cstr.evaluator().lower_bound()
+            ub = cstr.evaluator().upper_bound()
+            lb_viol = np.minimum(val - lb, np.zeros((lb.shape)))
+            lb_viol[np.isinf(lb)] = 0.
+            ub_viol = np.maximum(val - ub, np.zeros((ub.shape)))
+            ub_viol[np.isinf(ub)] = 0.
+            viol = sum(abs(lb_viol)) + sum(abs(ub_viol))
+            # Add to constraint dictionary
+            name = cstr.evaluator().get_description()
+            if name in cstr_vals:
+                cstr_vals[name] += viol
+            else:
+                cstr_vals[name] = viol
+        return cstr_vals
+
+    def print_to_terminal(self, costs, cstrs):
+        """ Print costs and constraints to the terminal"""
+
+        # Create the title and value strings
+        title_str = '{1:<{0}s}'.format(15, 'Iteration')
+        value_str = '{1:<{0}f}'.format(15, self.iteration)
+        for name, value in costs.items():
+            #  Make sure the names and values line up and have spaces between them
+            width = max(len(name) + 5, 15)
+            title_str += '{1:<{0}s}'.format(width, name)
+            value_str += '{1:<{0}.8E}'.format(width, value)
+
+        for name, value in cstrs.items():
+            width = max(len(name) + 5, 15)
+            title_str += '{1:<{0}s}'.format(width, name)
+            value_str += '{1:<{0}.8E}'.format(width, value)
+
+        # Print the names of the costs and constraints
+        if self.iteration % self.title_iter == 1:
+            print(title_str)
+        # Print the values of the costs and constraints
+        print(value_str)
+
+    def print_to_figure(self, costs, cstrs):
+        """ Print costs and constraints to a figure window"""
+
+        # Note: Initialize the lines
+        if self.iteration == 1:
+            for name, value in costs.items():
+                self.cost_lines[name] = self.axs[0].semilogy([self.iteration], [value], linewidth=1.5, label=name)[0]
+            for name, value in cstrs.items():
+                self.cstr_lines[name] = self.axs[1].semilogy([self.iteration], [value], linewidth=1.5, label=name)[0]
+            self.axs[0].legend()
+            self.axs[1].legend()
+        else:
+            ymax = self.axs[0].get_ylim()[1]
+            for name, value in costs.items():
+                x = np.append(self.cost_lines[name].get_xdata(), self.iteration)
+                y = np.append(self.cost_lines[name].get_ydata(), value)
+                self.cost_lines[name].set_data((x, y))
+                ymax = max(value, ymax)
+            #Set new axis limits
+            self.axs[0].set_xlim([1, self.iteration])
+            self.axs[0].set_ylim([0, ymax])
+
+            ymax = self.axs[1].get_ylim()[1]
+            for name, value in cstrs.items():
+                x = np.append(self.cstr_lines[name].get_xdata(), self.iteration)
+                y = np.append(self.cstr_lines[name].get_ydata(), value)
+                self.cstr_lines[name].set_data((x, y))
+                ymax = max(value, ymax)
+            # Set new axis limits
+            self.axs[1].set_xlim([1,self.iteration])
+            self.axs[1].set_ylim([0, ymax])
+        # Draw the figure
+        self.fig.canvas.draw()
+        self.fig.canvas.flush_events()
+        # Pause to let the figure show
+        plt.pause(0.01)
+
+    def figure_setup(self):
+        self.fig, self.axs = plt.subplots(2,1)
+        self.axs[0].set_ylabel('Cost')
+        self.axs[1].set_ylabel('Constraint Violation')
+        self.axs[1].set_xlabel('Iteration')
+        self.cost_lines = {}
+        self.cstr_lines = {}
+
+    def print_to_terminal_and_figure(self, costs, cstrs):
+        self.print_to_terminal(costs, cstrs)
+        self.print_to_figure(costs, cstrs)
+
+    @property
+    def title_iter(self):
+        return self._title_iter
+    
+    @title_iter.setter
+    def title_iter(self, val):
+        if type(val) is int and val > 0:
+            self._title_iter = val
+        else:
+            raise ValueError(f"title_iter must be a nonnegative integer")
 
 def save(filename, data):
     """ pickle data in the specified filename """
@@ -193,3 +363,4 @@ def align_axes(ax, ax2):
     new_frac = np.array([min(lim_frac[:,0]), max(lim_frac[:,1])])
     ax.set_ylim(lim_range[0]*new_frac)
     ax2.set_ylim(lim_range[1]*new_frac)
+

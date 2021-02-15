@@ -59,6 +59,8 @@ prog.SetSolverOption(SnoptSolver().solver_id(), "Major Feasibility Tolerance", 1
 prog.SetSolverOption(SnoptSolver().solver_id(), "Major Optimality Tolerance", 1e-6)
 prog.SetSolverOption(SnoptSolver().solver_id(), "Scale Option", 2)
 solver = SnoptSolver()
+# Enable a visualization callback
+trajopt.enable_cost_display(display='all')
 # Check the problem for bugs in the constraints
 if not utils.CheckProgram(prog):
     quit()

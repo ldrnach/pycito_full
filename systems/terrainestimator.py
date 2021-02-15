@@ -10,6 +10,168 @@ import matplotlib.pyplot as plt
 from pydrake.all import MathematicalProgram, MultibodyForces, Solve
 from utilities import plot_complementarity
 #TODO: Write GaussianProcessTerrain with Update methods. Test on actual data
+#TODO: Implement generic terrain estimation
+#TODO: Implement terrain estimation subclass with forces given
+#TODO: Implement terrain estimation subclass for single parameter
+#TODO: Implement terrain estimation subclass for pointwise estimates
+#TODO: Implement terrain estimation subclass for orientation
+
+class TerrainEstimator():
+    """
+    Base class for estimating terrain parameters
+
+    Terrain estimator assumes the complete solution to the dynamics is given (the kinematics and kinetics)
+    Kinetics / reaction forces must be given in terms of positive-only coefficients
+    TerrainEstimator solves for the errors in the friction coefficient and normal distance, given the forces
+    """
+    def __init__(self, timesteppingplant=None):
+        """ 
+        Create a TerrainEstimator. 
+        Initialization stores a reference to the plant and creates a Mathematical Program
+        """
+        self.plant = timesteppingplant
+        self.mbf = MultibodyForces(self.plant.multibody)
+        self.context = self.plant.multibody.CreateDefaultContext()
+        self.prog = MathematicalProgram()
+        self._create_decision_variables()
+
+    def _create_decision_variables(self):
+        """Create the decision variables for the terrain estimation program """
+        # Assume linear error in distance and friction 
+        self.dist_err = self.prog.NewContinuousVariables(self.plant.num_contacts())
+        self.fric_err = self.prog.NewContinuousVariables(self.plant.num_contacts())
+        # Create slack variable
+        self.compl_slack = self.prog.NewContinuousVariables(1)
+
+    def _add_costs(self):
+        """
+            Add costs to the program
+            Currently only adds a cost on the feasibility / complementarity slack parameter
+        """
+        Q = np.eye(self.compl_slack.shape[0])
+        b = np.zeros((self.compl_slack.shape[0]))
+        self.slack_cost = self.prog.AddQuadraticErrorCost(Q, b, vars=self.compl_slack).evaluator().set_description("Feasibility Cost")
+
+    def _add_constraints(self):
+        """
+            Add constraints to the program
+
+            Added constraints include:
+                Dynamics
+                Normal Distance
+                Sliding Velocity
+                Friction Cone
+                Friction Coefficient Nonnegativity
+        """
+        pass
+
+    def _normal_distance(self):
+        pass
+
+    def _sliding_velocity(self):
+        pass
+
+    def _friction_cone(self):
+        pass
+
+    def add_distance_error_cost(self):
+        """ Adds a quadratic cost on the distance error """
+        Q = np.eye(self.dist_err.shape[0])
+        b = np.zeros((self.dist_err.shape[0],))
+        self.dist_cost = self.prog.AddQuadraticErrorCost(Q, b, vars=self.dist_err).evaluator().set_description("Distance Error Cost")
+
+    def add_friction_error_cost(self):
+        """ Adds a quadratic cost on the friction error"""
+        Q = np.eye(self.fric_err.shape[0])
+        b = np.zeros((self.fric_err.shape[0],))
+        self.fric_cost = self.prog.AddQuadraticErrorCost(Q, b, vars=self.fric_err).evaluator().set_description("Friction Error Cost")
+
+    def set_distance_cost_weight(self, weights=None):
+        """ Set the weight the distance error cost"""
+        if weights is not None:
+            return
+
+    def set_friction_cost_weight(self, weights=None):
+        """ Set the weight in the friction error cost"""
+        if weights is None:
+            return
+
+    def set_slack_cost_weight(self, weights=None):
+        """ Set the weight in the feasibility cost"""
+        if weights is None:
+            return
+
+
+    def estimate_terrain(self):
+        pass
+
+class KinematicsTerrainEstimator(TerrainEstimator):
+    """
+        KinematicsTerrainEstimator assumes only the state sequence (the kinematics) and control inputs are given.
+        Reaction forces are not assumed given and are estimated as part of the solution procedure
+    """
+    def __init__(self, timesteppingplant=None):
+        super(KinematicsTerrainEstimator, self).__init__(timesteppingplant)
+
+    def _create_decision_variables(self):
+        """ 
+            Creates decision variables
+
+            In KinematicsTerrainEstimator, create_decision_variables adds variables for reaction forces
+        """
+        # Create the usual variables
+        super(KinematicsTerrainEstimator, self)._create_decision_variables()
+        # Assume forces are unknown
+        self.normal_force = self.prog.NewContinuousVariables(self.plant.num_contacts())
+        self.sliding_vel = self.prog.NewContinuousVariables(self.plant.num_contacts())
+        self.friction_force = self.prog.NewContinuousVariables(self.plant.num_friction())
+        
+    def _inverse_dynamics(self, x1, x2, u, h):
+        """ 
+        Calculates the generalized force required to achieve the next state
+        
+        Arguments:
+            x1: State vector at time k
+            x2: State vector at time k+1
+            u:  Input vector
+            h:  Timestep between times k and k+1
+
+        Return values:
+            tau: Vector of generalized forces required to achieve state x2 from state x1
+        """
+        # Split configuration and velocity
+        _, v1 = np.split(x1,[self.plant.multibody.num_positions()])
+        _, v2 = np.split(x2,[self.plant.multibody.num_positions()])
+        dv = (v2 - v1)/h
+        # Set the state as the future state
+        context = self.plant.multibody.CreateDefaultContext()
+        self.plant.multibody.SetPositionsAndVelocities(context, x2)
+         # Calculate generalized forces
+        B = self.plant.multibody.MakeActuationMatrix()
+        forces = B.dot(u) + self.plant.multibody.CalcGravityGeneralizedForces(context)
+        # Do inverse dynamics
+        self.mbf.SetZero()
+        tau = self.plant.multibody.CalcInverseDynamics(context, dv, self.mbf) - forces
+        # Return the inverse dynamics force vector
+        return tau
+
+    def add_force_costs(self):
+        """ Add a cost term of the reaction force magnitude """
+        pass
+
+    def set_force_cost_weights(self, weights=None):
+        if weights is None:
+            return
+
+class TerrainEstimatorWithOrientation(TerrainEstimator):
+    def __init__(self, timesteppingplant=None):
+        super(TerrainEstimatorWithOrientation, self).__init__(timesteppingplant)
+
+    def _normal_distance(self):
+        pass
+
+    def _sliding_velocity(self):
+        pass
 
 class ResidualTerrainEstimator():
     def __init__(self, timestepping_plant):
@@ -187,7 +349,7 @@ class ResidualTerrainEstimator():
                 "infeasible": result.GetInfeasibleConstraintNames(self.prog)
         }
         return soln
- 
+
 class NormalDistanceConstraint():
     def __init__(self, phi):
         self.phi = phi
