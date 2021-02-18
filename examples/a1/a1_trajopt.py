@@ -3,17 +3,143 @@ Trajectory optimization for A1
 
 Base code for running trajectory optimization with A1.
 
-
+Luke Drnach
+February 2021
 """
 #Library imports
 import numpy as np
 import timeit 
 from pydrake.solvers.snopt import SnoptSolver
-
 # Project imports
 from systems.A1.a1 import A1 
 from trajopt.contactimplicit import ContactImplicitDirectTranscription
 import utilities as utils
+
+def run_a1_trajopt():
+    """ Run trajectory optimization for A1 quadruped"""
+    # Create A1 plant and trajectory optimization
+    trajopt, a1 = setup_a1_trajopt()
+    # Create and set boundary states for A1
+    x0, xf = get_a1_boundary_conditions(a1)
+    set_a1_boundary_conditions(trajopt, x0, xf)
+    # Add running costs
+    add_control_cost(trajopt, uref=np.zeros((a1.multibody.num_actuators,)))
+    add_state_cost(trajopt, xref=xf)
+    # Create and set the initial guess
+    guess = create_linear_guess(trajopt, x0, xf)
+    set_initial_guess(trajopt, guess)
+    # Set SNOPT Tolerances and options
+    set_default_snopt_options(trajopt)
+    # Check the program
+    if not utils.CheckProgram(trajopt.prog):
+        quit()
+    # Solve the problem
+    slacks = [10., 1., 0.1, 0.01, 0.001, 0.0001, 0.]
+    for slack in slacks:
+        # Set the slack variable
+        trajopt.set_slack(slack)
+        # Solve the optimization
+        print(f"NCC Slack = {slack}")
+        result = solve_a1_trajopt(trajopt)
+        # Get the solution as a dictionary
+        soln = trajopt.result_to_dict(result)
+        # Initialize to new trajectory
+        set_initial_guess(trajopt, soln)
+        # Save the results
+        save_a1_results(soln, name=f'a1_trajopt_slack_{slack:.0e}.pkl')
+
+def setup_a1_trajopt():
+    """Create an A1 Plant and associated trajectory optimization"""
+    a1 = A1()
+    a1.Finalize()
+    context = a1.multibody.CreateDefaultContext()
+    trajopt = ContactImplicitDirectTranscription(a1, context,
+                                    num_time_samples=101,
+                                    minimum_timestep=0.01,
+                                    maximum_timestep=0.03)
+    return trajopt, a1
+
+def get_a1_boundary_conditions(a1):
+    """ Boundary states for A1 trajectory optimization"""
+    pose = a1.standing_pose()
+    no_vel = np.zeros((a1.multibody.num_velocities(), ))
+    x0 = np.concatenate((pose, no_vel), axis=0)
+    xf = x0.copy()
+    # Set the final pose 1m in front of the starting pose
+    xf[4] += 1.
+    return x0, xf
+
+def set_a1_boundary_conditions(trajopt, x0, xf):
+    """ Set the boundary conditions in the trajopt"""
+    trajopt.add_state_constraint(knotpoint=0, value=x0)
+    trajopt.add_state_constraint(knotpoint=trajopt.num_time_samples-1, value=xf)
+
+def add_control_cost(trajopt, uref=None):
+    """ Add a quadratic running cost on the control effort"""
+    #TODO: Implement uref as a standing torque
+    # Create and add a running cost
+    numU = a1.multibody.num_actuators()
+    R = 0.1*np.eye(numU)
+    if uref is None:
+        uref = np.zeros((numU,))
+    # Running costs on state and control effort
+    trajopt.add_quadratic_running_cost(R, uref, vars=[trajopt.u], name='ControlCost')
+
+def add_state_cost(trajopt, xref=None):
+    """Add a quadratic running cost on the state """
+    #TODO: Implement only for joint angles and velocities
+    # Create and add a running cost
+    numX = trajopt.plant_f.multibody.num_positions() + trajopt.plant_f.multibody.num_velocities()
+    Q = np.eye(numX)
+    if xref is None:
+        xref = np.zeros((numX, ))
+    # Running costs on state and control effort
+    trajopt.add_quadratic_running_cost(Q, xref, vars=[trajopt.x], name='StateCost')
+
+def create_linear_guess(trajopt, x0, xf):
+    """Create a linear guess for the initial condition"""
+    return {
+        'control': np.zeros(trajopt.u.shape),
+        'force': np.zeros(trajopt.l.shape),
+        'state': np.linspace(x0, xf, trajopt.num_time_samples).transpose(),
+        'jointlimit': np.zeros(trajopt.jl.shape)
+    }
+
+def set_initial_guess(trajopt, guess):
+    """Set the initial trajectory guess from a dictionary of values """
+    trajopt.set_initial_guess(x_init=guess['state'], 
+                            u_init=guess['control'],
+                            l_init=guess['force'],
+                            jl_init=guess['jointlimit'])
+
+def set_default_snopt_options(trajopt):
+    trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Iterations Limit", 10000)
+    trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Major Feasibility Tolerance", 1e-6)
+    trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Major Optimality Tolerance", 1e-6)
+    trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Scale Option", 2)
+
+def solve_a1_trajopt(trajopt):
+    solver = SnoptSolver()
+    prog = trajopt.get_program()
+    # Check for bugs in the problem setup
+    if not utils.CheckProgram(prog):
+        quit()
+    # Solve the problem
+    print("Solving trajectory optimization")
+    start = timeit.default_timer()
+    result = solver.Solve(prog)
+    stop = timeit.default_timer()
+    print(f"Elapsed time: {stop-start}")
+    # Print details of solution
+    utils.printProgramReport(result, prog)
+    return result
+
+def save_a1_results(soln, name='a1_trajopt.pkl'):
+    file = "data/a1/" + name
+    utils.save(file, soln)
+
+if __name__ == "__main__":
+    run_a1_trajopt()
 
 # Create the plant
 a1 = A1()
@@ -59,8 +185,6 @@ prog.SetSolverOption(SnoptSolver().solver_id(), "Major Optimality Tolerance", 1e
 prog.SetSolverOption(SnoptSolver().solver_id(), "Scale Option", 2)
 solver = SnoptSolver()
 # Check for bugs in the problem setup
-if not utils.CheckProgram(prog):
-    quit()
 
 # Solve the problem
 print("Solving trajectory optimization")
@@ -73,5 +197,5 @@ utils.printProgramReport(result, prog)
 
 # Get the solution trajectories
 xtraj, utraj, ltraj, jltraj = trajopt.reconstruct_all_trajectories(result)
-a1.plot_trajectories(xtraj, utraj,ltraj, jltraj)
+a1.plot_trajectories(xtraj, utraj, ltraj, jltraj)
 a1.visualize(xtraj)
