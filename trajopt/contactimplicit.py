@@ -316,6 +316,27 @@ class ContactImplicitDirectTranscription():
             new_vars.insert(0, self.h[n,:])
             self.prog.AddCost(integrated_cost, np.concatenate(new_vars,axis=0), description=name)
 
+    def add_tracking_cost(self, Q, traj, vars=None, name="TrackingCost"):
+        """ 
+        Add a quadratic running cost penalizing the difference from another trajectory
+        
+        Adds a running cost of the form:
+            (z[k] - z0[k])^T Q (z[k] - z0[k])
+        where z is the decision variable, z0 is the reference value, and Q is the positive-semidefinite weighting matrix
+        
+        Arguments:
+            Q: an (N, N) numpy array of weights
+            traj: an (N, M) array of reference values
+            vars: a subset of the decision variables
+            name (optional): a string describing the tracking cost
+        """
+        #TODO: Implement for tracking a trajectory / with variable timesteps
+        for n in range(0, self.num_time_samples):
+            integrated_cost = lambda z: z[0]*(z[:1] - traj[:,n]).dot(Q.dot(z[1:] - traj[:,n]))
+            new_vars = [var[:,n] for var in vars]
+            new_vars.insert(0, self.h[n,:])
+            self.prog.AddCost(integrated_cost, np.concatenate(new_vars, axis=0), description=name)
+
     def add_final_cost(self, cost_func, vars=None, name="FinalCost"):
         """Add a final cost to the program"""
         if vars is not None:
