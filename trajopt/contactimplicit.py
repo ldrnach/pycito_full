@@ -331,7 +331,7 @@ class ContactImplicitDirectTranscription():
             name (optional): a string describing the tracking cost
         """
         #TODO: Implement for tracking a trajectory / with variable timesteps
-        for n in range(0, self.num_time_samples):
+        for n in range(0, self.num_time_samples-1):
             integrated_cost = lambda z: z[0]*(z[:1] - traj[:,n]).dot(Q.dot(z[1:] - traj[:,n]))
             new_vars = [var[:,n] for var in vars]
             new_vars.insert(0, self.h[n,:])
