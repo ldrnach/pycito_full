@@ -238,6 +238,10 @@ if __name__ == "__main__":
     print(f"A1 has lower joint limits {qmin} and upper joint limits {qmax}")
     print(f"A1 has actuation matrix:")
     print(a1.multibody.MakeActuationMatrix())
+    # Construct standing controller for A1 static pose
+    pose = a1.standing_pose()
+    u, f = a1.static_controller(pose, verbose=True)
+    print('Complete')
     #a1.configuration_sweep()
     # a1.print_frames()
     # pos = a1.standing_pose()

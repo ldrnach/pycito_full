@@ -16,7 +16,7 @@ from pydrake.all import MultibodyPlant, DiagramBuilder, SceneGraph,AddMultibodyP
 from pydrake.geometry import Role, Sphere
 from pydrake.multibody.parsing import Parser
 from systems.terrain import FlatTerrain
-from utilities import FindResource
+from utilities import FindResource, printProgramReport
 #TODO: Implemet toAutoDiffXd method to convert to autodiff class
 
 class TimeSteppingMultibodyPlant():
@@ -416,6 +416,62 @@ class TimeSteppingMultibodyPlant():
             D[2*k:2*k+2, k*n:(k+1)*n] = D_
         ff = D.dot(fT)
         return np.concatenate((fN, ff), axis=0)
+
+    def static_controller(self, qref, verbose=False):
+        """ 
+        Generates a controller to maintain a static pose
+        
+        Arguments:
+            qref: (N,) numpy array, the static pose to be maintained
+
+        Return Values:
+            u: (M,) numpy array, actuations to best achieve static pose
+            f: (C,) numpy array, associated normal reaction forces
+
+        static_controller generates the actuations and reaction forces assuming the velocity and accelerations are zero. Thus, the equation to solve is:
+            N(q) = B*u + J*f
+        where N is a vector of gravitational and conservative generalized forces, B is the actuation selection matrix, and J is the contact-Jacobian transpose.
+
+        Currently, static_controller only considers the effects of the normal forces. Frictional forces are not yet supported
+        """
+        #TODO: Solve for friction forces as well
+
+        # Check inputs
+        if qref.ndim > 1 or qref.shape[0] != self.multibody.num_positions():
+            raise ValueError(f"Reference position mut be ({self.multibody.num_positions(),},) array")
+        # Set the context
+        context = self.multibody.CreateDefaultContext()
+        self.multibody.SetPositions(context, qref)
+        # Get the necessary properties
+        G = self.multibody.CalcGravityGeneralizedForces(context)
+        Jn, _ = self.GetContactJacobians(context)
+        phi = self.GetNormalDistances(context)
+        B = self.multibody.MakeActuationMatrix()
+        #Collect terms
+        A = np.concatenate([B, Jn.transpose()], axis=1)
+        # Create the mathematical program
+        prog = MathematicalProgram()
+        l_var = prog.NewContinuousVariables(self.num_contacts(), name="forces")
+        u_var = prog.NewContinuousVariables(self.multibody.num_actuators(), name="controls")
+        # Ensure dynamics approximately satisfied
+        prog.AddL2NormCost(A = A, b = -G, vars=np.concatenate([u_var, l_var], axis=0))
+        # Enforce normal complementarity
+        prog.AddBoundingBoxConstraint(np.zeros(l_var.shape), np.full(l_var.shape, np.inf), l_var)
+        prog.AddConstraint(phi.dot(l_var) == 0)
+        # Solve
+        result = Solve(prog)
+        # Check for a solution
+        if result.is_success():
+            u = result.GetSolution(u_var)
+            f = result.GetSolution(l_var)
+            if verbose:
+                printProgramReport(result, prog)
+            return (u, f)
+        else:
+            print(f"Optimization failed. Returning zeros")
+            if verbose:
+                printProgramReport(result,prog)
+            return (np.zeros(u_var.shape), np.zeros(l_var.shape))
 
     @property
     def dlevel(self):
