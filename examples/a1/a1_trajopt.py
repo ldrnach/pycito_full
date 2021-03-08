@@ -26,10 +26,10 @@ def run_a1_trajopt():
     guess = create_linear_guess(trajopt, x0, xf)
     set_initial_guess(trajopt, guess)
     # Add running costs
-    u0, _ = a1.static_controller(qref=x0[0:a1.multibody.num_positions()])
-    add_control_cost(trajopt, uref=u0)
-    add_state_cost(trajopt, xref=xf)
-    add_base_tracking_cost(trajopt, guess['state'])
+    # u0, _ = a1.static_controller(qref=x0[0:a1.multibody.num_positions()])
+    # add_control_cost(trajopt, uref=u0)
+    # add_state_cost(trajopt, xref=xf)
+    # add_base_tracking_cost(trajopt, guess['state'])
     # Set SNOPT Tolerances and options
     set_default_snopt_options(trajopt)
     # Check the program
@@ -126,6 +126,8 @@ def set_default_snopt_options(trajopt):
     trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Major Feasibility Tolerance", 1e-6)
     trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Major Optimality Tolerance", 1e-6)
     trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Scale Option", 2)
+    trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Elastic Weight", 10^5)
+    trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Superbasics Limit",10000)
 
 def solve_a1_trajopt(trajopt):
     solver = SnoptSolver()

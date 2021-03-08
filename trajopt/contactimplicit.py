@@ -497,6 +497,22 @@ class ContactImplicitDirectTranscription():
         all_vars = self.prog.decision_variables()
         self.prog.AddVisualizationCallback(printer, all_vars)
 
+class CentroidalContactTranscription():
+    def __init__(self, plant, context ):
+        pass
+
+    def _backward_dynamics(self):
+        pass
+
+    def _get_total_mass(self):
+        mass = 0.
+        body_inds = self.plant.GetBodyIndices(self.model_index)
+        for ind in body_inds:
+            mass += self.plant.get_body(ind).get_mass()
+        return mass
+
+    
+
 def integrate_quaternion(q, w, dt):
     """
     Integrate the unit quaternion q given it's associated angular velocity w
