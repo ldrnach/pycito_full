@@ -367,6 +367,35 @@ class TimeSteppingMultibodyPlant():
         else:
             return None
 
+    def get_contact_points(self, context):
+        """
+            Returns a list of positions of contact points expressed in world coordinates given the system context.
+        """
+        contact_pts = []
+        for frame, pose in zip(self.collision_frames, self.collision_poses):
+            contact_pts.append(self.multibody.CalcPointsPositions(context, frame, pose.translation(), self.multibody.world_frame())) 
+        return contact_pts
+    
+    def resolve_contact_forces_in_world(self, context, forces):
+        """
+            Transform non-negative discretized force components used in complementarity constraints into 3-vectors in world coordinates
+
+            Returns a list of (3,) numpy arrays
+        """
+        # First remove the discretization
+        forces = self.resolve_forces(forces)
+        # Reorganize forces from (Normal, Tangential) to a list
+        force_list = []
+        for n in range(0, self.num_contacts()):
+            force_list.append(forces[[n, self.num_contacts() + 2*n, self.num_contacts()+2*n + 1]])
+        # Transform the forces into world coordinates using the terrain frames
+        _, frames = self.getTerrainPointsAndFrames(context)
+        world_forces = []
+        for force, frame in zip(force_list, frames):
+            world_forces.append(frame.dot(force))
+        # Return a list of forces in world coordinates
+        return world_forces
+
     def resolve_limit_forces(self, jl_forces):
         """ 
         Combine positive and negative components of joint limit torques

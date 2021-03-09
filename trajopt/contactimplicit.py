@@ -185,7 +185,6 @@ class ContactImplicitDirectTranscription():
             sliding_vars.add(self.slacks[-1,:])
             friccone_vars.add(self.slacks[-1,:])
         # At each knot point, add constraints for normal distance, sliding velocity, and friction cone
-
         for n in range(0, self.num_time_samples):
             # Add complementarity constraints for contact
             self.prog.AddConstraint(self.distance_cstr, 
@@ -602,6 +601,20 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
         else:
             self.slacks = []
 
+    def _add_dynamic_constraints(self):
+        """
+            Add in the centroidal dynamics and associated constraints to the problem
+        """
+        for n in range(0, self.num_time_samples-1):
+                # Add timestep constraints
+                self.prog.AddBoundingBoxConstraint(self.minimum_timestep, self.maximum_timestep, self.h[n,:]).evaluator().set_description('TimestepConstraint')
+                # Add dynamics as constraints 
+                self.prog.AddConstraint(self._backward_dynamics, 
+                            lb=np.zeros(shape=(self.x.shape[0], 1)),
+                            ub=np.zeros(shape=(self.x.shape[0], 1)),
+                            vars=np.concatenate((self.h[n,:], self.x[:,n], self.x[:,n+1], self.com[:,n],self.com[:,n+1], self.l[:,n+1]), axis=0),
+                            description="dynamics")  
+
     def _backward_dynamics(self, dvars):
         """
 
@@ -612,6 +625,8 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
         # Get the individual variables from the decision variable list
         inds = [self.h.shape[0], self.x.shape[0], self.x.shape[0], self.com.shape[0], self.com.shape[0]]
         timestep, x1, x2, com1, com2, forces = np.split(dvars, np.cumsum(inds))
+        rcom1, vcom1 = np.split(com1, 1)
+        rcom2, vcom2 = np.split(com2, 1)
         # Calculate the center of mass position and momentum
         plant.SetPositionsAndVelocities(context, x1)
         com_pos_1 = plant.CalcCenterOfMassPositionInWorld(context)
@@ -620,18 +635,31 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
         com_pos_2 = plant.CalcCenterOfMassPositionInWorld(context)
         momentum2 = plant.CalcSpatialMomentumInWorldAboutPoint(context, com_pos_2).rotational()
         # Resolve the contact force variables into 3-vectors in world coordinates
-        r_contact = plant.get_contact_points(context)   #TODO: Implement get_contact_points in TimeStepping
-        world_forces = plant.resolve_contact_forces_in_world(context, forces) #TODO: Implement in TimeStepping
-        # Linear COM dynamics
-
-        # Angular COM dynamics
-
+        contact_pts = plant.get_contact_points(context)  
+        world_forces = plant.resolve_contact_forces_in_world(context, forces) 
+        # COM Dynamics
+        total_mass = self._get_total_mass()
+        com_err = vcom2 - vcom1
+        com_err[-1] -=  timestep*9.81/total_mass
+        momentum_err = momentum2 - momentum1
+        for contact_pt, world_force in zip(contact_pts, world_forces):
+            com_err -= timestep * world_force/total_mass
+            momentum_err -= timestep * np.cross(contact_pt - rcom2, world_force)
         # CoM Position defects
-        dcom = np.concatenate([com1[0:3] - com_pos_1, com2[0:3] - com_pos_2], axis=0)
-        # CoM velocity defects
-
+        pos_err = np.concatenate([com1[0:3] - com_pos_1, com2[0:3] - com_pos_2], axis=0)
+        # COM Velocity defects
+        vel_err = rcom2 - rcom1 - timestep * (vcom2 + vcom1)/2
         # Generalize coordinate defects
-        
+        q1, _ = np.split(x1,[plant.multibody.num_positions()])
+        q2, v2 = np.split(x2,[plant.multibody.num_positions()])
+        dq2 = plant.multibody.MapVelocityToQDot(context, v2)
+        fq = q2 - q1 - timestep*dq2
+        # Check for quaternion variables
+        if len(self.floating_pos) > 0:
+            for pidx, vidx in zip(self.floating_pos, self.floating_vel):
+                fq[pidx:pidx+4] = q2[pidx:pidx+4] - integrate_quaternion(x1[pidx:pidx+4],x1[vidx:vidx+3],h.item())
+        # Concatenate all the defects together
+        return np.concatenate([fq, com_err, momentum_err, vel_err, pos_err], axis=0)
 
     def _get_total_mass(self):
         mass = 0.
@@ -639,29 +667,6 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
         for ind in body_inds:
             mass += self.plant.get_body(ind).get_mass()
         return mass
-
-    def centroidal_dynamics(self, gen_state, com_state, contact_force):
-        """
-            Calculate the center of mass derivaties
-
-            Arguments:
-            gen_state: (N, 1) numpy array, the generalized positions and velocities
-            com_state: (6, 1) numpy array, the center of mass positions and velocity variables
-            contact_force: (M, 1) numpy array, the contact reaction forces
-        """
-        plant, context, _ = self._audodiff_or_float(gen_state)
-        plant.SetPositionsAndVelocities(context, gen_state)
-        # Resolve the contact forces into world coordinates
-        F = plant.resolve_forces_in_world(context, contact_force)
-        # Calculate the linear COM dynamics
-        m = self._get_total_mass()
-        g = np.array([0,0,9.81])
-        ddr = F/m + g
-        # Calculate the rotational COM dynamics
-        dH = np.cross(c - com_state[0:3], F)
-        # 
-        pass
-
     
 def integrate_quaternion(q, w, dt):
     """
