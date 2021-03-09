@@ -570,11 +570,68 @@ class ContactImplicitDirectTranscription():
         self.prog.AddVisualizationCallback(printer, all_vars)
 
 class CentroidalContactTranscription(ContactImplicitDirectTranscription):
-    def __init__(self, plant, context ):
-        pass
+    def _add_decision_variables(self):
+        """
+            adds the decision variables for timesteps, states, controls, reaction forces,
+            and joint limits to the mathematical program, but does not initialize the 
+            values of the decision variables. Store decision variable lists
 
-    def _backward_dynamics(self):
-        pass
+            addDecisionVariables is called during object construction
+        """
+        # Add time variables to the program
+        self.h = self.prog.NewContinuousVariables(rows=self.num_time_samples-1, cols=1, name='h')
+        # Add state variables to the program
+        nX = self.plant_ad.multibody.num_positions() + self.plant_ad.multibody.num_velocities()
+        self.x = self.prog.NewContinuousVariables(rows=nX, cols=self.num_time_samples, name='x')
+        # Add COM variables to the program
+        self.com = self.prog.NewContinuousVariables(rows=6, cols=self.num_time_samples, name="com")
+        # Add reaction force variables to the program
+        self.numN = self.plant_f.num_contacts()
+        self.numT = self.plant_ad.num_friction()
+        self.l = self.prog.NewContinuousVariables(rows=2*self.numN+self.numT, cols=self.num_time_samples, name='l')
+        # store a matrix for organizing the friction forces
+        self._e = self.plant_ad.duplicator_matrix()
+        # Add slack variables for complementarity problems
+        if self.options.ncc_implementation == NCCImplementation.LINEAR_EQUALITY: 
+            if self.options.slacktype == NCCSlackType.VARIABLE_SLACK:
+                self.slacks = self.prog.NewContinuousVariables(rows = 1 + 2*self.numN + self.numT, cols=self.num_time_sampels, name='slacks')
+            else: 
+                self.slacks = self.prog.NewContinuousVariables(rows=2*self.numN + self.numT, cols=self.num_time_samples, name='slacks')
+        elif self.options.ncc_implementation == NCCImplementation.NONLINEAR and self.options.slacktype == NCCSlackType.VARIABLE_SLACK:
+            self.slacks = self.prog.NewContinuousVariables(rows=1,cols=self.num_time_samples, name='slacks')
+        else:
+            self.slacks = []
+
+    def _backward_dynamics(self, dvars):
+        """
+
+        Variable decision list:
+            [h, x1, x2, com1, com2, forces]
+        """
+        plant, context, _ = self._autodiff_or_float(dvars)
+        # Get the individual variables from the decision variable list
+        inds = [self.h.shape[0], self.x.shape[0], self.x.shape[0], self.com.shape[0], self.com.shape[0]]
+        timestep, x1, x2, com1, com2, forces = np.split(dvars, np.cumsum(inds))
+        # Calculate the center of mass position and momentum
+        plant.SetPositionsAndVelocities(context, x1)
+        com_pos_1 = plant.CalcCenterOfMassPositionInWorld(context)
+        momentum1 = plant.CalcSpatialMomentumInWorldAboutPoint(context, com_pos_1).rotational()
+        plant.SetPositionsAndVelocities(context, x2)
+        com_pos_2 = plant.CalcCenterOfMassPositionInWorld(context)
+        momentum2 = plant.CalcSpatialMomentumInWorldAboutPoint(context, com_pos_2).rotational()
+        # Resolve the contact force variables into 3-vectors in world coordinates
+        r_contact = plant.get_contact_points(context)   #TODO: Implement get_contact_points in TimeStepping
+        world_forces = plant.resolve_contact_forces_in_world(context, forces) #TODO: Implement in TimeStepping
+        # Linear COM dynamics
+
+        # Angular COM dynamics
+
+        # CoM Position defects
+        dcom = np.concatenate([com1[0:3] - com_pos_1, com2[0:3] - com_pos_2], axis=0)
+        # CoM velocity defects
+
+        # Generalize coordinate defects
+        
 
     def _get_total_mass(self):
         mass = 0.
@@ -582,6 +639,28 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
         for ind in body_inds:
             mass += self.plant.get_body(ind).get_mass()
         return mass
+
+    def centroidal_dynamics(self, gen_state, com_state, contact_force):
+        """
+            Calculate the center of mass derivaties
+
+            Arguments:
+            gen_state: (N, 1) numpy array, the generalized positions and velocities
+            com_state: (6, 1) numpy array, the center of mass positions and velocity variables
+            contact_force: (M, 1) numpy array, the contact reaction forces
+        """
+        plant, context, _ = self._audodiff_or_float(gen_state)
+        plant.SetPositionsAndVelocities(context, gen_state)
+        # Resolve the contact forces into world coordinates
+        F = plant.resolve_forces_in_world(context, contact_force)
+        # Calculate the linear COM dynamics
+        m = self._get_total_mass()
+        g = np.array([0,0,9.81])
+        ddr = F/m + g
+        # Calculate the rotational COM dynamics
+        dH = np.cross(c - com_state[0:3], F)
+        # 
+        pass
 
     
 def integrate_quaternion(q, w, dt):
