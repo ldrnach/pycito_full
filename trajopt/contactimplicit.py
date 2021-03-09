@@ -20,6 +20,17 @@ class OptimizationOptions:
     slacktype: NCCSlackType = NCCSlackType.CONSTANT_SLACK
     ncc_implementation: NCCImplementation = NCCImplementation.NONLINEAR
 
+class DecisionVariableList():
+    """Helper class for adding a list of decision variables to a cost/constraint"""
+    def __init__(self, varlist = []):
+        self.var_list = varlist
+
+    def add(self, new_vars):
+        self.append(new_vars)
+
+    def get(self, n):
+        return np.concatenate([var[:,n] for var in self.var_list], axis=0)
+
 class ContactImplicitDirectTranscription():
     """
     Implements contact-implicit trajectory optimization using Direct Transcription
@@ -155,41 +166,54 @@ class ContactImplicitDirectTranscription():
            
     def _add_contact_constraints(self):
         """ Add complementarity constraints for contact to the optimization problem"""
+        # Create the constraint according to the implementation and slacktype options
         factory = ComplementarityFactory(self.options.ncc_implementation, self.options.slacktype)
-        
-        
+        self.distance_cstr = factory.create(self._normal_distance, xdim=self.x.shape[0], zdim=self.numN)
+        self.sliding_cstr = factory.create(self._sliding_velocity, xdim = self.x.shape[0] + self.numN, zdim=self.numT)
+        self.friccone_cstr = factory.create(self._friction_cone, self.x.shape[0] + self.numN + self.numT, self.numN)
+        # Determine the variables according to implementation and slacktype options
+        distance_vars = DecisionVariableList([self.x, self.l[0:self.numN,:]])
+        sliding_vars = DecisionVariableList([self.x, self.l[self.numN+self.numT:,:], self.l[self.numN:self.numN+self.numT,:]])
+        friccone_vars = DecisionVariableList([self.x, self.l])
+        # Check and add slack variables
+        if self.options.ncc_implementation == NCCImplementation.LINEAR_EQUALITY:
+            distance_vars.add(self.slacks[0:self.numN,:])
+            sliding_vars.add(self.slacks[self.numN:self.numN+self.numT,:])
+            friccone_vars.add(self.slacks[self.numN+self.numT:2*self.numN+self.numT,:])
+        if self.options.ncc_implementation != NCCImplementation.COST and self.options.slacktype == NCCSlackType.VARIABLE_SLACK:
+            distance_vars.add(self.slacks[-1,:])
+            sliding_vars.add(self.slacks[-1,:])
+            friccone_vars.add(self.slacks[-1,:])
         # At each knot point, add constraints for normal distance, sliding velocity, and friction cone
-        self.distance_cstr = NonlinearComplementarityFcn(self._normal_distance,
-                                                    xdim = self.x.shape[0],
-                                                    zdim = self.numN,
-                                                    slack = 0.)
-        self.sliding_cstr = NonlinearComplementarityFcn(self._sliding_velocity,
-                                                    xdim = self.x.shape[0] + self.numN,
-                                                    zdim = self.numT,
-                                                    slack = 0.)
-        self.friccone_cstr = NonlinearComplementarityFcn(self._friction_cone, 
-                                                    xdim = self.x.shape[0] + self.numN + self.numT,
-                                                    zdim = self.numN,
-                                                    slack = 0.)
+
         for n in range(0, self.num_time_samples):
             # Add complementarity constraints for contact
             self.prog.AddConstraint(self.distance_cstr, 
                         lb=self.distance_cstr.lower_bound(),
                         ub=self.distance_cstr.upper_bound(),
-                        vars=np.concatenate((self.x[:,n], self.l[0:self.numN,n]), axis=0),
+                        vars=distance_vars.get(n),
                         description="normal_distance")
             # Sliding velocity constraint 
             self.prog.AddConstraint(self.sliding_cstr,
                         lb=self.sliding_cstr.lower_bound(),
                         ub=self.sliding_cstr.upper_bound(),
-                        vars=np.concatenate((self.x[:,n], self.l[self.numN+self.numT:,n], self.l[self.numN:self.numN+self.numT,n]), axis=0),
+                        vars=sliding_vars.get(n),
                         description="sliding_velocity")
             # Friction cone constraint
             self.prog.AddConstraint(self.friccone_cstr, 
                         lb=self.friccone_cstr.lower_bound(),
                         ub=self.friccone_cstr.upper_bound(),
-                        vars=np.concatenate((self.x[:,n], self.l[:,n]), axis=0),
+                        vars=friccone_vars.get(n),
                         description="friction_cone")
+        # Check for the case of cost-relaxed complementarity
+        if self.options.ncc_implementation == NCCImplementation.COST:
+            for n in range(0, self.num_time_samples-1):
+                # Normal distance cost
+                self.prog.AddCost(self.distance_cstr.product_cost, vars=distance_vars.get(n), description = "DistanceProductCost")
+                # Sliding velocity cost
+                self.prog.AddCost(self.sliding_cstr.product_cost, vars=sliding_vars.get(n), description = "VelocityProductCost")
+                # Friction cone cost
+                self.prog.AddCost(self.friccone_cstr.product_cost, vars=friccone_vars.get(n), description = "FricConeProductCost")
 
     def _backward_dynamics(self, z):  
         """
@@ -518,6 +542,19 @@ class ContactImplicitDirectTranscription():
                 cstr.UpdateUpperBound(self.friccone_cstr.upper_bound())
             else:
                 continue
+    
+    def set_complementarity_cost_penalty(self, weight):
+        """
+        Sets the penalty parameter for the complementarity cost
+        
+        Requires options.ncc_implementation == NCCImplementation.COST
+        """
+        if self.options.ncc_implementation == NCCImplementation.COST:
+            self.distance_cstr.cost_weight = weight
+            self.sliding_cstr.cost_weight = weight
+            self.friccone_cstr.cost_weight = weight
+        else:
+            raise NotImplementedError("Setting cost penalty is only implemented for option NCCImplementation.COST")
 
     def enable_cost_display(self, display='terminal'):
         """
