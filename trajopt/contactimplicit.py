@@ -7,17 +7,24 @@ Luke Drnach
 October 5, 2020
 """
 import numpy as np 
+from dataclasses import dataclass
 from pydrake.all import MathematicalProgram, PiecewisePolynomial
 from pydrake.autodiffutils import AutoDiffXd
 from pydrake.multibody.tree import MultibodyForces_
 from utilities import MathProgIterationPrinter
-from trajopt.constraints import NonlinearComplementarityFcn
+from trajopt.constraints import NonlinearComplementarityFcn, ComplementarityFactory, NCCImplementation, NCCSlackType
+
+@dataclass
+class OptimizationOptions:
+    """ Keeps track of optional settings for Contact Implicit Trajectory Optimization"""
+    slacktype: NCCSlackType = NCCSlackType.CONSTANT_SLACK
+    ncc_implementation: NCCImplementation = NCCImplementation.NONLINEAR
 
 class ContactImplicitDirectTranscription():
     """
     Implements contact-implicit trajectory optimization using Direct Transcription
     """
-    def __init__(self, plant, context, num_time_samples, minimum_timestep, maximum_timestep):
+    def __init__(self, plant, context, num_time_samples, minimum_timestep, maximum_timestep, options=OptimizationOptions):
         """
         Create MathematicalProgram with decision variables and add constraints for the rigid body dynamics, contact conditions, and joint limit constraints
 
@@ -38,6 +45,7 @@ class ContactImplicitDirectTranscription():
         self.plant_f.multibody.SetDefaultContext(context)
         self.plant_ad = self.plant_f.toAutoDiffXd()       
         self.context_ad = self.plant_ad.multibody.CreateDefaultContext()
+        self.options = options
         # Create MultibodyForces
         MBF = MultibodyForces_[float]
         self.mbf_f = MBF(self.plant_f.multibody)
@@ -102,6 +110,16 @@ class ContactImplicitDirectTranscription():
             self.jl = self.prog.NewContinuousVariables(rows = 2*nJL, cols=self.num_time_samples, name="jl")
         else:
             self.jl = False
+        # Add slack variables for complementarity problems
+        if self.options.ncc_implementation == NCCImplementation.LINEAR_EQUALITY: 
+            if self.options.slacktype == NCCSlackType.VARIABLE_SLACK:
+                self.slacks = self.prog.NewContinuousVariables(rows = 1 + 2*self.numN + self.numT, cols=self.num_time_sampels, name='slacks')
+            else: 
+                self.slacks = self.prog.NewContinuousVariables(rows=2*self.numN + self.numT, cols=self.num_time_samples, name='slacks')
+        elif self.options.ncc_implementation == NCCImplementation.NONLINEAR and self.options.slacktype == NCCSlackType.VARIABLE_SLACK:
+            self.slacks = self.prog.NewContinuousVariables(rows=1,cols=self.num_time_samples, name='slacks')
+        else:
+            self.slacks = []
             
     def _add_dynamic_constraints(self):
         """Add constraints to enforce rigid body dynamics and joint limits"""
@@ -137,6 +155,9 @@ class ContactImplicitDirectTranscription():
            
     def _add_contact_constraints(self):
         """ Add complementarity constraints for contact to the optimization problem"""
+        factory = ComplementarityFactory(self.options.ncc_implementation, self.options.slacktype)
+        
+        
         # At each knot point, add constraints for normal distance, sliding velocity, and friction cone
         self.distance_cstr = NonlinearComplementarityFcn(self._normal_distance,
                                                     xdim = self.x.shape[0],
@@ -481,9 +502,22 @@ class ContactImplicitDirectTranscription():
         return soln_dict
 
     def set_slack(self, val):
-        self.distance_cstr.set_slack(val)
-        self.sliding_cstr.set_slack(val)
-        self.friccone_cstr.set_slack(val)
+        """ Update the slack variables in the nonlinear complementarity constraints"""
+        # Set the slack in the constraint classes
+        self.distance_cstr.slack = val
+        self.sliding_cstr.slack = val
+        self.friccone_cstr.slack = val
+        # Update the bounds for the program constraints
+        cstrs = self.prog.GetAllConstraints()
+        for cstr in cstrs:
+            if cstr.evaluator().get_description() == "normal_distance":
+                cstr.UpdateUpperBound(self.distance_cstr.upper_bound())
+            elif cstr.evaluator().get_description() == "sliding_velocity":
+                cstr.UpdateUpperBound(self.sliding_cstr.upper_bound())
+            elif cstr.evaluator().get_description() == "friction_cone":
+                cstr.UpdateUpperBound(self.friccone_cstr.upper_bound())
+            else:
+                continue
 
     def enable_cost_display(self, display='terminal'):
         """
@@ -498,7 +532,7 @@ class ContactImplicitDirectTranscription():
         all_vars = self.prog.decision_variables()
         self.prog.AddVisualizationCallback(printer, all_vars)
 
-class CentroidalContactTranscription():
+class CentroidalContactTranscription(ContactImplicitDirectTranscription):
     def __init__(self, plant, context ):
         pass
 
@@ -513,7 +547,6 @@ class CentroidalContactTranscription():
         return mass
 
     
-
 def integrate_quaternion(q, w, dt):
     """
     Integrate the unit quaternion q given it's associated angular velocity w
