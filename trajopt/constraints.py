@@ -96,7 +96,7 @@ class ComplementarityFunction(ABC):
     
     def __call__(self, vars):
         """Evaluate the constraint"""
-        self.eval(vars)
+        return self.eval(vars)
 
     @abstractmethod
     def eval(self, vars):
@@ -116,7 +116,7 @@ class ComplementarityFunction(ABC):
 
     @slack.setter
     def slack(self, val):
-        if (type(val) == 'int' or type(val) == 'float') and val >= 0.:
+        if (type(val) is int or type(val) is float) and val >= 0.:
             self.__slack = val
         else:
             raise ValueError("slack must be a nonnegative numeric value")
@@ -290,7 +290,7 @@ class NonlinearComplementarityFcn():
     By default s = 0 (strict complementarity)
     """
     def __init__(self, fcn, xdim=0, zdim=1, 
-                        slacktype=NCCSlackType.STRICT, 
+                        slacktype=NCCSlackType.CONSTANT_SLACK, 
                         ncc_impl=NCCImplementation.NONLINEAR):
         self.fcn = fcn
         self.xdim = xdim

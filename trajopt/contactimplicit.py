@@ -7,18 +7,16 @@ Luke Drnach
 October 5, 2020
 """
 import numpy as np 
-from dataclasses import dataclass
 from pydrake.all import MathematicalProgram, PiecewisePolynomial
 from pydrake.autodiffutils import AutoDiffXd
 from pydrake.multibody.tree import MultibodyForces_
 from utilities import MathProgIterationPrinter
 from trajopt.constraints import NonlinearComplementarityFcn, ComplementarityFactory, NCCImplementation, NCCSlackType
 
-@dataclass
 class OptimizationOptions:
     """ Keeps track of optional settings for Contact Implicit Trajectory Optimization"""
-    slacktype: NCCSlackType = NCCSlackType.CONSTANT_SLACK
-    ncc_implementation: NCCImplementation = NCCImplementation.NONLINEAR
+    slacktype = NCCSlackType.CONSTANT_SLACK
+    ncc_implementation = NCCImplementation.NONLINEAR
 
 class DecisionVariableList():
     """Helper class for adding a list of decision variables to a cost/constraint"""
