@@ -24,7 +24,7 @@ class DecisionVariableList():
         self.var_list = varlist
 
     def add(self, new_vars):
-        self.append(new_vars)
+        self.var_list.append(new_vars)
 
     def get(self, n):
         return np.concatenate([var[:,n] for var in self.var_list], axis=0)

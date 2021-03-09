@@ -9,8 +9,5 @@
         "ms-python.python",
         "ms-python.vscode-pylance",
         "smilerobotics.urdf"
-    ],
-    // "containerEnv":{
-    //     "DISPLAY": "172.28.224.1:0.0"
-    // }
+    ]
 }

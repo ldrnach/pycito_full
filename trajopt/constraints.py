@@ -216,7 +216,7 @@ class VariableSlackNonlinearComplementarity(ComplementarityFunction):
         
         The argument must be a numpy array of decision variables [x, z, s]
         """
-        x, z, s = np.split(vars, [self.xdim, self.zdim])
+        x, z, s = np.split(vars, np.cumsum([self.xdim, self.zdim]))
         fcn_val = self.fcn(x)
         return np.concatenate([fcn_val, z, fcn_val*z -s], axis=0)
 
@@ -242,7 +242,7 @@ class ConstantSlackLinearEqualityComplementarity(ComplementarityFunction):
         
         The argument must be a numpy array of decision variables ordered as [x, z, r]
         """
-        x, z, r = self.split_vars(vars, [self.xdim, self.zdim])
+        x, z, r = np.split(vars, np.cumsum([self.xdim, self.zdim]))
         fcn_val = self.fcn(x)
         return np.concatenate((r-fcn_val, r, z, r*z), axis=0)
 
@@ -268,7 +268,7 @@ class VariableSlackLinearEqualityComplementarity(ComplementarityFunction):
         The arguments must be a numpy array of decision variables including:
             [x, z, r, s]
         """
-        x, z, r, s = self.split_vars(vars, [self.xdim, self.zdim])
+        x, z, r, s = np.split(vars, np.cumsum([self.xdim, self.zdim]))
         fcn_val = self.fcn(x)
         return np.concatenate((r-fcn_val, r, z, r*z - s), axis=0)
 
