@@ -657,7 +657,7 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
         # Check for quaternion variables
         if len(self.floating_pos) > 0:
             for pidx, vidx in zip(self.floating_pos, self.floating_vel):
-                fq[pidx:pidx+4] = q2[pidx:pidx+4] - integrate_quaternion(x1[pidx:pidx+4],x1[vidx:vidx+3],h.item())
+                fq[pidx:pidx+4] = q2[pidx:pidx+4] - integrate_quaternion(x1[pidx:pidx+4],x1[vidx:vidx+3],timestep.item())
         # Concatenate all the defects together
         return np.concatenate([fq, com_err, momentum_err, vel_err, pos_err], axis=0)
 
