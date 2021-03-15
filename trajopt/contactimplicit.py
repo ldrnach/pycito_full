@@ -7,11 +7,12 @@ Luke Drnach
 October 5, 2020
 """
 import numpy as np 
+from matplotlib import pyplot as plt
 from pydrake.all import MathematicalProgram, PiecewisePolynomial
 from pydrake.autodiffutils import AutoDiffXd
 from pydrake.multibody.tree import MultibodyForces_
-from utilities import MathProgIterationPrinter
-from trajopt.constraints import NonlinearComplementarityFcn, ComplementarityFactory, NCCImplementation, NCCSlackType
+from utilities import MathProgIterationPrinter, plot_complementarity
+from trajopt.constraints import ConstantSlackNonlinearComplementarity, ComplementarityFactory, NCCImplementation, NCCSlackType
 
 class OptimizationOptions:
     """ Keeps track of optional settings for Contact Implicit Trajectory Optimization"""
@@ -135,7 +136,7 @@ class ContactImplicitDirectTranscription():
         # Check for joint limits first
         if self.Jl is not None:
             # Create the joint limit constraint
-            self.joint_limit_cstr = NonlinearComplementarityFcn(self._joint_limit, xdim=self.x.shape[0], zdim=self.jl.shape[0], slack=0)
+            self.joint_limit_cstr = ConstantSlackNonlinearComplementarity(self._joint_limit, xdim=self.x.shape[0], zdim=self.jl.shape[0])
             for n in range(0, self.num_time_samples-1):
                 # Add timestep constraints
                 self.prog.AddBoundingBoxConstraint(self.minimum_timestep, self.maximum_timestep, self.h[n,:]).evaluator().set_description('TimestepConstraint')
@@ -211,6 +212,12 @@ class ContactImplicitDirectTranscription():
                 self.prog.AddCost(self.sliding_cstr.product_cost, vars=sliding_vars.get(n), description = "VelocityProductCost")
                 # Friction cone cost
                 self.prog.AddCost(self.friccone_cstr.product_cost, vars=friccone_vars.get(n), description = "FricConeProductCost")
+            self.slack_cost = []
+        elif self.options.slacktype == NCCSlackType.VARIABLE_SLACK:
+            a = np.ones(self.slacks.shape[1],)
+            self.slack_cost = self.prog.AddLinearCost(a=a, vars=self.slacks[-1,:], description="SlackCost")
+        else:
+            self.slack_cost = []
 
     def _backward_dynamics(self, z):  
         """
@@ -254,7 +261,7 @@ class ContactImplicitDirectTranscription():
         # Check for floating bodies / quaternion variables
         if len(self.floating_pos) > 0:
             for pidx, vidx in zip(self.floating_pos, self.floating_vel):
-                fq[pidx:pidx+4] = q2[pidx:pidx+4] - integrate_quaternion(x1[pidx:pidx+4],x1[vidx:vidx+3],h.item())
+                fq[pidx:pidx+4] = q2[pidx:pidx+4] - integrate_quaternion(x1[pidx:pidx+4],x2[vidx:vidx+3],h.item())
         # Return dynamics defects
         return np.concatenate((fq, fv), axis=0)
     
@@ -532,14 +539,28 @@ class ContactImplicitDirectTranscription():
         cstrs = self.prog.GetAllConstraints()
         for cstr in cstrs:
             if cstr.evaluator().get_description() == "normal_distance":
-                cstr.UpdateUpperBound(self.distance_cstr.upper_bound())
+                cstr.evaluator().UpdateUpperBound(self.distance_cstr.upper_bound())
             elif cstr.evaluator().get_description() == "sliding_velocity":
-                cstr.UpdateUpperBound(self.sliding_cstr.upper_bound())
+                cstr.evaluator().UpdateUpperBound(self.sliding_cstr.upper_bound())
             elif cstr.evaluator().get_description() == "friction_cone":
-                cstr.UpdateUpperBound(self.friccone_cstr.upper_bound())
+                cstr.evaluator().UpdateUpperBound(self.friccone_cstr.upper_bound())
             else:
                 continue
     
+    def set_slack_cost_weight(self, val):
+        """
+            Set the weight scalar for the slack cost. 
+
+            This method can only be called when options.slacktype is NCCSlackType.VARIABLE_SLACK and options.ncc_implementation is not NCCImplementation.COST. Otherwise, the method throws an exception.
+        """
+        if self.options.slacktype == NCCSlackType.VARIABLE_SLACK and self.options.ncc_implementation != NCCImplementation.COST:
+            if (type(val) == int or type(val) == float) and val >= 0: 
+                self.slack_cost.evaluator().UpdateCoefficients(new_a = val*np.ones(self.slacks.shape[1],))
+            else:
+                raise ValueError("slack cost weight must be a nonnegative numeric value")
+        else:
+            raise NotImplementedError("Setting the slack cost weight is only implemented when the NCC implementation is not COST and the SlackType option is VARIABLE_SLACK")
+
     def set_complementarity_cost_penalty(self, weight):
         """
         Sets the penalty parameter for the complementarity cost
@@ -665,7 +686,105 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
         for ind in body_inds:
             mass += self.plant.get_body(ind).get_mass()
         return mass
-    
+
+class ContactConstraintViewer():
+    def __init__(self, trajopt, result):
+        self.trajopt = trajopt
+        self.result = result
+
+    def plot_constraints(self):
+        cstr_vals = self.calc_constraint_values()
+        self.plot_dynamic_defects(cstr_vals['dynamics'])
+        if self.trajopt.options.ncc_implementation == NCCImplementation.LINEAR_EQUALITY:
+            self.plot_complementarity_linear(cstr_vals['normal_distance'], cstr_vals['sliding_velocity'], cstr_vals['friction_cone'])
+        else:
+            self.plot_complementarity_nonlinear(cstr_vals['normal_distance'], cstr_vals['sliding_velocity'], cstr_vals['friction_cone'])
+        # Show the plot
+        plt.show()
+
+    def calc_constraint_values(self):
+        """Return a dictionary of all constraint values"""
+        # First get the values of the decision variables
+        x = self.result.get_x_val()
+        all_cstr = {}
+        for cstr in self.trajopt.prog.GetAllConstraints():
+            # Get the variables for the constraint
+            dvars = cstr.variables()
+            dvals = x[self.trajopt.prog.FindDecisionVariableIndices(dvars)]
+            # Evaluate the constraint
+            cval = cstr.evaluator().Eval(dvals)
+            # Sort by constraint name
+            cname = cstr.evaluator().get_description()
+            if cname in all_cstr.keys():
+                all_cstr[cname].append(cval)
+            else:
+                all_cstr[cname] = [cval]
+        # Convert each of the constraint violations into a numpy array
+        for key in all_cstr.keys():
+            all_cstr[key] = np.vstack(all_cstr[key]).transpose()
+        return all_cstr
+
+    def plot_dynamic_defects(self, cstr_vals):
+        fig, axs = plt.subplots(2,1)
+        fq = cstr_vals[0:self.trajopt.plant_f.multibody.num_positions(),:]
+        fv = cstr_vals[self.trajopt.plant_f.multibody.num_positions():,:]
+        time = np.cumsum(self.result.GetSolution(self.trajopt.h))
+        axs[0].plot(time, fq.transpose(), linewidth=1.5)
+        axs[0].set_ylabel('Position')
+        axs[1].plot(time, fv.transpose(), linewidth=1.5)
+        axs[1].set_ylabel('Velocity')
+        axs[1].set_xlabel('Time (s)')
+        axs[0].set_title('Dynamics Constraint Defects')
+
+    def plot_complementarity_linear(self, distance, velocity, friction):
+        # Split the slack variable defects from the results
+        Nslack, distance = np.split(distance, [self.trajopt.numN])
+        Tslack, velocity = np.split(velocity, [self.trajopt.numT])
+        Fslack, friction = np.split(friction, [self.trajopt.numN])
+        # Plot the remaining variables using the nonlinear plotter
+        normal_axs, tangent_axs = self.plot_complementarity_nonlinear(distance, velocity, friction)
+        # Add in the slack variables
+        time = np.cumsum(self.result.GetSolution(self.trajopt.h))
+        color = 'tab:green'
+        for n in range(0, self.trajopt.numN):
+            normal_axs[2*n].plot(time, Nslack[n,1:], linewidth=1.5, color=color)
+            normal_axs[2*n+1].plot(time, Fslack[n,1:], linewidth=1.5, color=color)
+            for k in range(0, 4*self.trajopt.plant_f.dlevel):
+                tangent_axs[n*4*self.trajopt.plant_f.dlevel + k].plot(time, Tslack[n*4*self.trajopt.plant_f.dlevel + k,1:], linewidth=1.5, color=color)
+        
+    def plot_complementarity_nonlinear(self, distance, velocity, friction):
+        # Get the variables
+        norm_dist = distance[0:self.trajopt.numN,1:]
+        norm_force = distance[self.trajopt.numN:2*self.trajopt.numN,1:]
+        slide_vel = velocity[0:self.trajopt.numT,1:]
+        fric_force = velocity[self.trajopt.numT:2*self.trajopt.numT,1:]
+        fric_cone = friction[0:self.trajopt.numN,1:]
+        vel_slack = friction[self.trajopt.numN:2*self.trajopt.numN,1:]
+        # Get the time axis
+        time = np.cumsum(self.result.GetSolution(self.trajopt.h))
+        # Plot the complementarity variables
+        # Total number of plots per figure
+        normal_axs = []
+        tangent_axs = []
+        for n in range(0,self.trajopt.numN):            
+            _, naxs = plt.subplots(2,1)
+            _, taxs = plt.subplots(4*self.trajopt.plant_f.dlevel,1)
+            # Normal distance complementarity
+            plot_complementarity(naxs[0], time,norm_dist[n,:], norm_force[n,:], 'distance','normal force')
+            # Friction force complementarity
+            for k in range(0, 4*self.trajopt.plant_f.dlevel):
+                plot_complementarity(taxs[k], time, fric_force[n*4*self.trajopt.plant_f.dlevel + k,:], slide_vel[n*4*self.trajopt.plant_f.dlevel + k,:], 'Friction force','Tangent velocity')
+            taxs[0].set_title(f"Contact point {n}")
+            taxs[-1].set_xlabel('Time (s)')
+            # Friction cone complementarity
+            plot_complementarity(naxs[1], time,fric_cone[n,:], vel_slack[n,:], 'friction cone','sliding velocity')
+            naxs[1].set_xlabel('Time (s)')
+            naxs[0].set_title(f"Contact point {n}")
+            #Collect the axes
+            normal_axs.append(naxs)
+            tangent_axs.append(taxs)
+        return np.concatenate(normal_axs, axis=0), np.concatenate(tangent_axs, axis=0)
+
 def integrate_quaternion(q, w, dt):
     """
     Integrate the unit quaternion q given it's associated angular velocity w

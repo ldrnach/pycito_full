@@ -323,7 +323,7 @@ def quat2rpy(quat):
                         1-2*(quat[2,:]**2 + quat[3,:]**2))
     return rpy
 
-def plot_complementarity(ax, y1, y2, label1, label2):
+def plot_complementarity(ax, x, y1, y2, label1, label2):
     """
         Plots two traces in the same axes using different y-axes. Aligns the y-axes at zero
 
@@ -334,7 +334,8 @@ def plot_complementarity(ax, y1, y2, label1, label2):
             label1: The y-axis label for the first sequence, y1
             label2: The y-axis label for the second sequence, y2
     """
-    x = range(0, len(y1))
+    if x is None:
+        x = range(0, len(y1))
     color = "tab:red"
     ax.set_ylabel(label1, color = color)
     ax.plot(x, y1, color=color, linewidth=1.5)

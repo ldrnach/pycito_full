@@ -36,6 +36,7 @@ def run_a1_trajopt():
     if not utils.CheckProgram(trajopt.prog):
         quit()
     # Solve the problem
+    trajopt.enable_cost_display()
     slacks = [10., 1., 0.1, 0.01, 0.001, 0.0001, 0.]
     for slack in slacks:
         # Set the slack variable
@@ -126,15 +127,12 @@ def set_default_snopt_options(trajopt):
     trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Major Feasibility Tolerance", 1e-6)
     trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Major Optimality Tolerance", 1e-6)
     trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Scale Option", 2)
-    trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Elastic Weight", 10^5)
+    trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Elastic Weight", 10e5)
     trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Superbasics Limit",10000)
 
 def solve_a1_trajopt(trajopt):
     solver = SnoptSolver()
     prog = trajopt.get_program()
-    # Check for bugs in the problem setup
-    if not utils.CheckProgram(prog):
-        quit()
     # Solve the problem
     print("Solving trajectory optimization")
     start = timeit.default_timer()

@@ -12,7 +12,7 @@ October 15, 2020
 import timeit
 import numpy as np
 import matplotlib.pyplot as plt
-from trajopt.contactimplicit import ContactImplicitDirectTranscription, OptimizationOptions
+from trajopt.contactimplicit import ContactImplicitDirectTranscription, OptimizationOptions, ContactConstraintViewer
 from trajopt.constraints import NCCImplementation
 from systems.block.block import Block
 from pydrake.solvers.snopt import SnoptSolver
@@ -39,6 +39,7 @@ def run_block_trajopt():
         quit()
     # Solve the problem
     result = solve_block_trajopt(trajopt)
+
     soln = trajopt.result_to_dict(result)
     # Plot results
     plot_block_trajectories(trajopt, result)

@@ -98,7 +98,6 @@ class Block(TimeSteppingMultibodyPlant):
             plt.show()
         return (fig, axs)
 
-
     @staticmethod
     def visualize(trajectory=None):
         vis = Visualizer("systems/block/urdf/sliding_block.urdf")
@@ -108,6 +107,11 @@ class Block(TimeSteppingMultibodyPlant):
         vis.plant.WeldFrames(vis.plant.world_frame(), base_frame, RigidTransform())
         # Make the visualization
         vis.visualize_trajectory(trajectory)
+
+class FreeFloatingBlock(TimeSteppingMultibodyPlant):
+    def __init__(self):
+        pass
+
 
 class BlockPyPlotAnimator(animation.TimedAnimation):
     #TODO: Calculate viewing limits from trajectory

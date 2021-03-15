@@ -170,7 +170,7 @@ class CostRelaxedNonlinearComplementarity(ComplementarityFunction):
 
     @cost_weight.setter
     def cost_weight(self, val):
-        if (type(val) == 'int' or type(val) == 'float') and val >= 0.:
+        if (type(val) == int or type(val) == float) and val >= 0.:
             self.__cost_weight = val
         else:
             raise ValueError("cost_weight must be a nonnegative numeric value")       
@@ -289,16 +289,11 @@ class NonlinearComplementarityFcn():
     where f is the function, x and z are decision variables, and s is a slack parameter.
     By default s = 0 (strict complementarity)
     """
-    def __init__(self, fcn, xdim=0, zdim=1, 
-                        slacktype=NCCSlackType.CONSTANT_SLACK, 
-                        ncc_impl=NCCImplementation.NONLINEAR):
+    def __init__(self, fcn, xdim=0, zdim=1):
         self.fcn = fcn
         self.xdim = xdim
         self.zdim = zdim
         self.slack = 0.
-        self._eval = self._get_eval_function(ncc_impl)
-        self._split_variables = self._get_variable_splitter(slacktype)
-        self.cost_weight = 1.
     
     def __call__(self, vars):
         """Evaluate the complementarity constraint """
@@ -318,7 +313,7 @@ class NonlinearComplementarityFcn():
 
     @slack.setter
     def slack(self, val):
-        if (type(val) == 'int' or type(val) == 'float') and val >= 0.:
+        if (type(val) == int or type(val) == float) and val >= 0.:
             self.__slack = val
         else:
             raise ValueError("slack must be a nonnegative numeric value")
