@@ -8,7 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pydrake.all import RigidTransform, PiecewisePolynomial
 # Project-specific imports
-from utilities import FindResource, GetKnotsFromTrajectory
+from utilities import FindResource, GetKnotsFromTrajectory, quat2rpy
 from systems.timestepping import TimeSteppingMultibodyPlant
 from systems.visualization import Visualizer
 from systems.terrain import FlatTerrain
@@ -108,10 +108,82 @@ class Block(TimeSteppingMultibodyPlant):
         # Make the visualization
         vis.visualize_trajectory(trajectory)
 
+#TODO: Implement a multibody pass through for the free floating block
 class FreeFloatingBlock(TimeSteppingMultibodyPlant):
-    def __init__(self):
-        pass
+    def __init__(self, urdf_file="systems/block/urdf/free_block.urdf", terrain=FlatTerrain()):
+        # Initialize the time-stepping multibody plant
+        super(FreeFloatingBlock, self).__init__(file=FindResource(urdf_file), terrain=terrain)
 
+    @staticmethod
+    def visualize(trajectory):
+        # Create a visualizer
+        vis = Visualizer("systems/block/urdf/free_block.urdf")
+        # Make the visualization
+        vis.visualize_trajectory(trajectory)
+
+    @staticmethod
+    def plot_control_trajectory(utraj, show=True):
+        t, u = GetKnotsFromTrajectory(utraj)
+        fig, axs = plt.subplots(2,1)
+        axs[0].plot(t, u[0,:], linewidth=1.5)
+        axs[0].set_ylabel('Control Force-X (N)')
+        axs[1].set_ylabel('Control Force-Y (N)')
+        axs[1].set_xlabel('Time (s)')
+        if show:
+            plt.show()
+        return (fig, axs)
+
+    def plot_state_trajectory(self, xtraj):
+        t, x = GetKnotsFromTrajectory(xtraj)
+        nq = self.multibody.num_positions()
+        q, v = np.split(x, [nq])
+        # Get orientation from quaternion
+        q[1:4] = quat2rpy(q[0:4,:])
+        # Plot Orientation and Position
+        _, paxs = plt.subplots(2,1)
+        labels=[["Roll", "Pitch", "Yaw"],["X", "Y", "Z"]]
+        ylabels = ["Orientation","Position"]
+        for n in range(2):
+            for k in range(3):
+                paxs[n].plot(t, q[1 + 3*n + k,:], linewidth=1.5, label=labels[n][k])
+            paxs[n].set_ylabel(ylabels[n])
+            paxs[n].legend()
+        paxs[-1].set_xlabel('Time (s)')
+        paxs[0].set_title("COM Configuration")
+        #Plot COM orientation rate and translational velocity
+        _, axs = plt.subplots(2,1)
+        for n in range(2):
+            for k in range(3):
+                axs[n].plot(t, v[3*n + k,:], linewidth=1.5, label=labels[n][k])
+            axs[n].set_ylabel(ylabels[n] + " Rate")
+            axs[n].legend()
+        axs[-1].set_xlabel('Time (s)')
+        axs[0].set_title("COM Velocities")
+    
+    @staticmethod
+    def plot_force_trajectory(ftraj, show=True):
+        return Block.plot_force_trajectory(ftraj, show)
+
+    def plot_trajectories(self, xtraj=None, utraj=None, ftraj=None):
+        """
+        plot the state, control, and force trajectories for the Block
+        
+        Arguments:
+            xtraj, utraj, and ftraj should be pyDrake PiecewisePolynomials
+        """
+        #TODO: generalize for multiple contact points, generalize for free rotation
+        # Plot the State trajectories
+        if xtraj is not None:
+            self.plot_state_trajectory(xtraj, show=False)
+        # Plot the controls
+        if utraj is not None:
+            self.plot_control_trajectory(utraj, show=False)
+        # Plot the reaction forces
+        if ftraj is not None:
+            self.plot_force_trajectory(ftraj, show=False)
+        # Show the plots only when one of the inputs is not None
+        if xtraj is not None or utraj is not None or ftraj is not None:
+            plt.show()
 
 class BlockPyPlotAnimator(animation.TimedAnimation):
     #TODO: Calculate viewing limits from trajectory

@@ -13,7 +13,7 @@ from pydrake.autodiffutils import AutoDiffXd
 from pydrake.multibody.tree import MultibodyForces_
 from utilities import MathProgIterationPrinter, plot_complementarity
 from trajopt.constraints import ConstantSlackNonlinearComplementarity, ComplementarityFactory, NCCImplementation, NCCSlackType
-
+#TODO: ENFORCE UNIT QUATERNION CONSTRAINT - CHECK IF UNIT QUATERNION IS VIOLATED
 class OptimizationOptions:
     """ Keeps track of optional settings for Contact Implicit Trajectory Optimization"""
     slacktype = NCCSlackType.CONSTANT_SLACK
@@ -69,6 +69,9 @@ class ContactImplicitDirectTranscription():
         self._add_decision_variables()
         # Add dynamic constraints 
         self._add_dynamic_constraints()
+        # If there are floating variables, add the quaternion constraints
+        if self._has_quaternion_states():
+            self._add_quaternion_constraints()
         # Add contact constraints
         self._add_contact_constraints()
         # Initialize the timesteps
@@ -80,12 +83,15 @@ class ContactImplicitDirectTranscription():
         floating = self.plant_f.multibody.GetFloatingBaseBodies()
         self.floating_pos = []
         self.floating_vel = []
+        self.floating_mag = []
+        num_states = self.plant_f.multibody.num_positions() + self.plant_f.multibody.num_velocities()
         while len(floating) > 0:
             body = self.plant_f.multibody.get_body(floating.pop())
             if body.has_quaternion_dofs():
                 self.floating_pos.append(body.floating_positions_start())
                 self.floating_vel.append(body.floating_velocities_start())
-    
+                self.floating_mag.append(num_states)
+                num_states += 1
     def _has_quaternion_states(self):
         return len(self.plant_f.multibody.GetFloatingBaseBodies()) > 0
 
@@ -140,11 +146,12 @@ class ContactImplicitDirectTranscription():
             
     def _add_dynamic_constraints(self):
         """Add constraints to enforce rigid body dynamics and joint limits"""
-        # create dynamics bounds
-        dynamics_bound = np.zeros(shape=(self.x.shape[0], 1))
         if self._has_quaternion_states():
-            nX = self.plant_ad.multibody.num_positions() + self.plant_ad.multibody.num_velocities()
-            dynamics_bound[nX:] = 1
+            nX = self.x.shape[0]
+            num_quat = len(self.floating_pos)
+            dynamics_bound = np.zeros((nX - 5*num_quat, 1))
+        else:
+            dynamics_bound = np.zeros(shape=(self.x.shape[0], 1))
         # Check for joint limits first
         if self.Jl is not None:
             # Create the joint limit constraint
@@ -238,6 +245,7 @@ class ContactImplicitDirectTranscription():
             z = [h, x1, x2, u, l, jl]
         Returns the dynamics defect, evaluated using Backward Euler Integration. 
         """
+        #TODO: Re-write and eliminate division
         #NOTE: Cannot use MultibodyForces.mutable_generalized_forces with AutodiffXd. Numpy throws an exception
         plant, context, mbf = self._autodiff_or_float(z)
         # Split the variables from the decision variables
@@ -270,36 +278,60 @@ class ContactImplicitDirectTranscription():
         # Calc position residual from velocity
         dq2 = plant.multibody.MapVelocityToQDot(context, v2)
         fq = q2 - q1 - h*dq2
-        # Check for floating bodies / quaternion variables
-        if len(self.floating_pos) > 0:
-            k = 0
-            nx = plant.multibody.num_positions() + plant.multibody.num_velocities()
-            mag_err = np.zeros((len(self.floating_pos,)), dtype=x1.dtype)
-            for pidx, vidx in zip(self.floating_pos, self.floating_vel):
-                fq[pidx:pidx+4] = q2[pidx:pidx+4] - integrate_quaternion(x1[pidx:pidx+4],x2[vidx:vidx+3],x2[nx+k],h.item())
-                mag_err[k] = x2[vidx:vidx+3].dot(x2[vidx:vidx+3])
-                k += 1
-            fv = np.concatenate([fv,mag_err], axis=0)  
+        # Eliminate the quaternion variables from the output
+        if self._has_quaternion_states():
+            quat_idx = [k for pidx in self.floating_pos for k in range(pidx, pidx+4)]
+            fq = np.delete(fq, quat_idx)
         # Return dynamics defects
         return np.concatenate((fq, fv), axis=0)
+
+    def _add_quaternion_constraints(self):
+        """
+        Enforce unit norm and integration constraint for floating base quaternion variables
+        """
+        for pidx, vidx, midx in zip(self.floating_pos, self.floating_vel, self.floating_mag):
+            # Get the quaternion variables
+            q = self.x[pidx:pidx+4,:]
+            v_axis = self.x[vidx:vidx+3,:]
+            v_mag = np.expand_dims(self.x[midx], axis=1)    
+            # Add the constraints
+            for k in range(self.num_time_samples):
+                # Enforce unit quaternion constraint
+                self.prog.AddConstraint(lambda q: [q @ q], lb=[1.0], ub=[1.0], vars=q[:,k], description=
+                "Unit quaternion constraint")
+                # Enforce unit velocity axis constraint
+                self.prog.AddConstraint(lambda v: [v @ v], lb=[1.0], ub=[1.0], vars=v_axis[:,k], description="Unit velocity axis constraint")
+            # Enforce quaternion dynamics
+            for k in range(self.num_time_samples-1):
+                self.prog.AddConstraint(self._quaternion_dynamics, 
+                                        lb=np.zeros((4,)),
+                                        ub=np.zeros((4,)),
+                                        vars=np.concatenate((q[:,k], q[:,k+1], v_axis[:,k+1], v_mag[k+1], self.h[k,:]), axis=0),
+                                        description="quaternion dynamics")
+
+    def _quaternion_dynamics(self, z):
+        """
+        Constraint for enforcing quaternion dynamics
+
+        Arguments: a list of decision variables
+            z = [q(k), q(k+1), v_axis(k+1), v_mag(k+1), h(k)]
+            where q are quaternions, 
+                v_axis is the axis of rotation,
+                v_mag is the magnitude of rotational velocity
+                h is the timestep
+        """
+        q, q_next, v_axis, v_mag, h = np.split(z,[4,8,11,12])
+        return q_next - integrate_quaternion(q, v_axis, v_mag, h)
 
     def _split_states(self, x):
         if self._has_quaternion_states():
             # Get the magnitudes from the augmented state vector
-            x, m = np.split(x, [self.plant_f.multibody.num_positions() + self.plant_f.multibody.num_velocities()])
-            k = 0
-            for vidx in self.floating_vel:
-                x[vidx:vidx+3] *= m[k]
-                k += 1
-            return np.split(x, [self.plant_f.multibody.num_positions()])
+            for vidx, midx in zip(self.floating_vel, self.floating_mag):
+                x[vidx:vidx+3] *= x[midx]
+            x2 = np.delete(x, self.floating_mag)
+            return np.split(x2, [self.plant_f.multibody.num_positions()])
         else:
             return np.split(x, [self.plant_f.multibody.num_positions()])
-
-    def _get_quaternion_states(self, x):
-        q = 0
-        w = 0
-        w_mag = 0
-        return (q, w, w_mag)
 
     # Complementarity Constraint functions for Contact
     def _normal_distance(self, state):
@@ -625,6 +657,25 @@ class ContactImplicitDirectTranscription():
         all_vars = self.prog.decision_variables()
         self.prog.AddVisualizationCallback(printer, all_vars)
 
+    def enable_iteration_visualizer(self):
+        """
+        Add a visualization callback to make a meshcat visualization after each iteration
+        """
+        self.prog.AddVisualizationCallback(self._visualize_iteration, self.prog.decision_variables())
+
+    def _visualize_iteration(self, dvars):
+        """
+        Visualize the result using MeshCat
+        """
+        x = np.zeros(self.x.shape)
+        for n in range(x.shape[0]):
+            x[n,:] = dvars[self.prog.FindDecisionVariableIndices(self.x[n,:])]
+        h = dvars[self.prog.FindDecisionVariableIndices(self.h)]
+        t = np.cumsum(np.hstack([0.,h]))
+        x = x[:, 0:self.plant_ad.multibody.num_positions() + self.plant_ad.multibody.num_velocities()]
+        xtraj = PiecewisePolynomial.FirstOrderHold(t, x)
+        self.plant_f.visualize(xtraj)
+
 class CentroidalContactTranscription(ContactImplicitDirectTranscription):
     def _add_decision_variables(self):
         """
@@ -823,7 +874,7 @@ class ContactConstraintViewer():
             tangent_axs.append(taxs)
         return np.concatenate(normal_axs, axis=0), np.concatenate(tangent_axs, axis=0)
 
-def integrate_quaternion(q, w, w_mag, dt):
+def integrate_quaternion(q, w_axis, w_mag, dt):
     """
     Integrate the unit quaternion q given it's associated angular velocity w
 
@@ -836,15 +887,10 @@ def integrate_quaternion(q, w, w_mag, dt):
     Return Values
         (4,) numpy array specifying the next step unit quaternion
     """
-    # Initialize rotation quaternion
-    Dq = np.zeros((4,),dtype=w.dtype)
-    # Multiply velocity by time
-    v = w_mag * dt / 2.
-    # Calculate the rotation quaternion
-    Dq[0] = np.cos(v)
-    Dq[1:] = w * np.sin(v)
+    # Exponential map of angular velocity
+    delta_q = np.hstack([np.cos(w_mag * dt / 2.), w_axis * np.sin(w_mag * dt /2.)])
     # Do the rotation for body-fixed angular rate
-    return quaternion_product(q, Dq)
+    return quaternion_product(q, delta_q)
 
 def quaternion_product(q1, q2):
     """
@@ -854,11 +900,15 @@ def quaternion_product(q1, q2):
         q1: (4,) numpy array
         q2: (4,) numpy array
     """
-    qprod = np.zeros((4,), dtype=type(q1))
-    # Scalar part
-    qprod[0] = q1[0]*q2[0] - np.dot(q1[1:], q2[1:])
-    # Vector part
-    qprod[1:] = q1[0]*q2[1:] + q2[0]*q1[1:] - np.cross(q1[1:], q2[1:])
-    # Return
-    return qprod
+    return np.hstack([
+        q1[0]*q2[0] - np.dot(q1[1:], q2[1:]),
+        q1[0] * q2[1:] + q2[0]*q1[1:] - np.cross(q1[1:], q2[1:])
+    ])
+    # qprod = np.zeros((4,), dtype=type(q1))
+    # # Scalar part
+    # qprod[0] = q1[0]*q2[0] - np.dot(q1[1:], q2[1:])
+    # # Vector part
+    # qprod[1:] = q1[0]*q2[1:] + q2[0]*q1[1:] - np.cross(q1[1:], q2[1:])
+    # # Return
+    # return qprod
 

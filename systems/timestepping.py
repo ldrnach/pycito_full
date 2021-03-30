@@ -83,7 +83,7 @@ class TimeSteppingMultibodyPlant():
             # Calc normal distance to terrain   
             terrain_frame = self.terrain.local_frame(terrain_pt)  
             normal = terrain_frame[0,:]
-            distances[n] = normal.dot(collision_pt - terrain_pt)
+            distances[n] = normal.dot(collision_pt - terrain_pt) - self.collision_radius[n]
         # Return the distances as a single array
         return distances
 
