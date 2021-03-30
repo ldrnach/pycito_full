@@ -32,7 +32,8 @@ class Visualizer():
         self.builder.AddSystem(self.scenegraph)
 
     def _finalize_plant(self):
-        self.plant.Finalize()
+        if not self.plant.is_finalized():
+            self.plant.Finalize()
 
     def _add_trajectory_source(self, traj):
         # Create the trajectory source

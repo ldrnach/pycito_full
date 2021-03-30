@@ -1,5 +1,8 @@
 <?xml version="1.0"?>
 <robot name = "sliding_block">
+    <material name="silver">
+        <color rgba="0.913725490196 0.913725490196 0.847058823529 1.0"/>
+    </material>
     <link name = "xtrans"/>
     <link name = "ztrans"/>
     <link name = "box">
@@ -8,6 +11,7 @@
             <geometry>
                 <box size="1 1 1"/>
             </geometry>
+            <material name = "silver"/>
         </visual>
         <inertial>
             <origin xyz="0 0 0"/>
