@@ -16,7 +16,7 @@ from trajopt.constraints import ConstantSlackNonlinearComplementarity, Complemen
 
 #TODO: Eliminate division in dynamics
 #TODO: Re-make decision variables to ease code understanding
-#TODO[test]: Implement slack on dynamics
+#TODO[test]: Implement slack on d
 
 class OptimizationOptions:
     """ Keeps track of optional settings for Contact Implicit Trajectory Optimization"""
@@ -264,9 +264,8 @@ class ContactImplicitDirectTranscription():
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate((q2,v2), axis=0))
         # Set mutlibodyForces to zero
         mbf.SetZero()
-        # Get manipulator dynamics matrices
+        # calculate generalized forces
         B = plant.multibody.MakeActuationMatrix()
-        G = plant.multibody.CalcGravityGeneralizedForces(context)
         forces = B.dot(u)
         # Gravity
         forces[:] = forces[:] + plant.multibody.CalcGravityGeneralizedForces(context)
@@ -573,7 +572,7 @@ class ContactImplicitDirectTranscription():
             return None
 
     def reconstruct_slack_trajectory(self, soln):
-        if self.slacks is not None:
+        if self.slacks:
             t = self.get_solution_times(soln)
             return PiecewisePolynomial.FirstOrderHold(t, soln.GetSolution(self.slacks))
         else:

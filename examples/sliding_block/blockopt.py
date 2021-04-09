@@ -44,11 +44,12 @@ def run_block_trajopt():
     # Plot results
     plot_block_trajectories(trajopt, result)
     # Save
-    #save_block_trajectories(soln, 'block_trajopt.pkl')
+    save_block_trajectories(soln, 'block_trajopt_2.pkl')
     # Tighten snopt options
     set_tight_snopt_options(trajopt)
     initialize_from_previous(trajopt, soln)
     # Run optimization
+    trajopt.enable_cost_display('terminal')
     result = solve_block_trajopt(trajopt)
     soln = trajopt.result_to_dict(result)
     # Plot results
@@ -141,7 +142,7 @@ def solve_block_trajopt(trajopt):
     return result
 
 def plot_block_trajectories(trajopt, result):
-    xtraj, utraj, ftraj, _ = trajopt.reconstruct_all_trajectories(result)
+    xtraj, utraj, ftraj, _, _ = trajopt.reconstruct_all_trajectories(result)
     trajopt.plant_f.plot_trajectories(xtraj, utraj, ftraj)
 
 def save_block_trajectories(soln, name="block_trajopt.pkl"):
