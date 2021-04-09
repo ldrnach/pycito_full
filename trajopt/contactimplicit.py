@@ -13,7 +13,11 @@ from pydrake.autodiffutils import AutoDiffXd
 from pydrake.multibody.tree import MultibodyForces_
 from utilities import MathProgIterationPrinter, plot_complementarity
 from trajopt.constraints import ConstantSlackNonlinearComplementarity, ComplementarityFactory, NCCImplementation, NCCSlackType
-#TODO: ENFORCE UNIT QUATERNION CONSTRAINT - CHECK IF UNIT QUATERNION IS VIOLATED
+
+#TODO: Eliminate division in dynamics
+#TODO: Re-make decision variables to ease code understanding
+#TODO[test]: Implement slack on dynamics
+
 class OptimizationOptions:
     """ Keeps track of optional settings for Contact Implicit Trajectory Optimization"""
     slacktype = NCCSlackType.CONSTANT_SLACK
@@ -260,8 +264,9 @@ class ContactImplicitDirectTranscription():
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate((q2,v2), axis=0))
         # Set mutlibodyForces to zero
         mbf.SetZero()
-        # calculate generalized forces
+        # Get manipulator dynamics matrices
         B = plant.multibody.MakeActuationMatrix()
+        G = plant.multibody.CalcGravityGeneralizedForces(context)
         forces = B.dot(u)
         # Gravity
         forces[:] = forces[:] + plant.multibody.CalcGravityGeneralizedForces(context)
@@ -298,16 +303,16 @@ class ContactImplicitDirectTranscription():
             for k in range(self.num_time_samples):
                 # Enforce unit quaternion constraint
                 self.prog.AddConstraint(lambda q: [q @ q], lb=[1.0], ub=[1.0], vars=q[:,k], description=
-                "Unit quaternion constraint")
+                "unit_quaternion")
                 # Enforce unit velocity axis constraint
-                self.prog.AddConstraint(lambda v: [v @ v], lb=[1.0], ub=[1.0], vars=v_axis[:,k], description="Unit velocity axis constraint")
+                self.prog.AddConstraint(lambda v: [v @ v], lb=[1.0], ub=[1.0], vars=v_axis[:,k], description="unit_velocity_axis")
             # Enforce quaternion dynamics
             for k in range(self.num_time_samples-1):
                 self.prog.AddConstraint(self._quaternion_dynamics, 
                                         lb=np.zeros((4,)),
                                         ub=np.zeros((4,)),
                                         vars=np.concatenate((q[:,k], q[:,k+1], v_axis[:,k+1], v_mag[k+1], self.h[k,:]), axis=0),
-                                        description="quaternion dynamics")
+                                        description="quaternion_dynamics")
 
     def _quaternion_dynamics(self, z):
         """
@@ -567,13 +572,21 @@ class ContactImplicitDirectTranscription():
         else:
             return None
 
+    def reconstruct_slack_trajectory(self, soln):
+        if self.slacks is not None:
+            t = self.get_solution_times(soln)
+            return PiecewisePolynomial.FirstOrderHold(t, soln.GetSolution(self.slacks))
+        else:
+            return None
+
     def reconstruct_all_trajectories(self, soln):
         """Returns state, input, reaction force, and joint limit force trajectories from the solution"""
         state = self.reconstruct_state_trajectory(soln)
         input = self.reconstruct_input_trajectory(soln)
         lforce = self.reconstruct_reaction_force_trajectory(soln)
         jlforce = self.reconstruct_limit_force_trajectory(soln)
-        return (state, input, lforce, jlforce)
+        slacks = self.reconstruct_slack_trajectory(soln)
+        return (state, input, lforce, jlforce, slacks)
 
     def get_solution_times(self, soln):
         """Returns a vector of times for the knotpoints in the solution"""
@@ -584,14 +597,17 @@ class ContactImplicitDirectTranscription():
     def result_to_dict(self, soln):
         """ unpack the trajectories from the program result and store in a dictionary"""
         t = self.get_solution_times(soln)
-        x, u, f, jl = self.reconstruct_all_trajectories(soln)
+        x, u, f, jl, s = self.reconstruct_all_trajectories(soln)
         if jl is not None:
             jl = jl.vector_values(t)
+        if s is not None:
+            s = s.vector_values(t)
         soln_dict = {"time": t,
                     "state": x.vector_values(t),
                     "control": u.vector_values(t), 
                     "force": f.vector_values(t),
                     "jointlimit": jl,
+                    "slacks": s,
                     "solver": soln.get_solver_id().name(),
                     "success": soln.is_success(),
                     "exit_code": soln.get_solver_details().info,
@@ -675,6 +691,10 @@ class ContactImplicitDirectTranscription():
         x = x[:, 0:self.plant_ad.multibody.num_positions() + self.plant_ad.multibody.num_velocities()]
         xtraj = PiecewisePolynomial.FirstOrderHold(t, x)
         self.plant_f.visualize(xtraj)
+
+    def initialize_from_previous(self, result):
+        """ Initialize the program from a previous solution to the same program """
+        dvars = self.prog.decision_variables()
 
 class CentroidalContactTranscription(ContactImplicitDirectTranscription):
     def _add_decision_variables(self):
@@ -777,29 +797,50 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
         return mass
 
 class ContactConstraintViewer():
-    def __init__(self, trajopt, result):
+    def __init__(self, trajopt, result_dict):
         self.trajopt = trajopt
-        self.result = result
+        self._store_results(result_dict)
+
+    def _store_results(self, result_dict):
+        self.all_vals = np.zeros((self.trajopt.prog.num_vars(),))
+        Finder = self.trajopt.prog.FindDecisionVariableIndices
+        # Add in time variables
+        self.all_vals[Finder(self.trajopt.h.flatten())] = np.diff(result_dict['time']).flatten()
+        # Add in state variables
+        self.all_vals[Finder(self.trajopt.x.flatten())] = result_dict['state'].flatten()
+        # Add in control variables
+        self.all_vals[Finder(self.trajopt.u.flatten())] = result_dict['control'].flatten()
+        # Add in force variables
+        self.all_vals[Finder(self.trajopt.l.flatten())] = result_dict['force'].flatten()
+        # Add in limit variables (if any)
+        if 'jointlimit' in result_dict and result_dict['jointlimit'] is not None:
+            self.all_vals[Finder(self.trajopt.jl.flatten())] = result_dict['jointlimit'].flatten()
+        # Add in slack variables (if any)
+        if 'slacks' in result_dict and result_dict['slacks'] is not None:
+            self.all_vals[Finder(self.trajopt.slacks.flatten())] = result_dict['slacks'].flatten()
 
     def plot_constraints(self):
         cstr_vals = self.calc_constraint_values()
-        self.plot_dynamic_defects(cstr_vals['dynamics'])
+        h_idx = self.trajopt.prog.FindDecisionVariableIndices(self.trajopt.h.flatten()) 
+        time = np.cumsum(np.hstack((0, self.all_vals[h_idx])))
+        self.plot_dynamic_defects(time, cstr_vals['dynamics'])
         if self.trajopt.options.ncc_implementation == NCCImplementation.LINEAR_EQUALITY:
-            self.plot_complementarity_linear(cstr_vals['normal_distance'], cstr_vals['sliding_velocity'], cstr_vals['friction_cone'])
+            self.plot_complementarity_linear(time, cstr_vals['normal_distance'], cstr_vals['sliding_velocity'], cstr_vals['friction_cone'])
         else:
-            self.plot_complementarity_nonlinear(cstr_vals['normal_distance'], cstr_vals['sliding_velocity'], cstr_vals['friction_cone'])
+            self.plot_complementarity_nonlinear(time, cstr_vals['normal_distance'], cstr_vals['sliding_velocity'], cstr_vals['friction_cone'])
+        if len(self.trajopt.floating_pos) > 0:
+            self.plot_quaternion_constraints(time, cstr_vals['unit_quaternion'], cstr_vals['unit_velocity_axis'], cstr_vals['quaternion_dynamics'])
         # Show the plot
         plt.show()
 
     def calc_constraint_values(self):
         """Return a dictionary of all constraint values"""
         # First get the values of the decision variables
-        x = self.result.get_x_val()
         all_cstr = {}
         for cstr in self.trajopt.prog.GetAllConstraints():
             # Get the variables for the constraint
             dvars = cstr.variables()
-            dvals = x[self.trajopt.prog.FindDecisionVariableIndices(dvars)]
+            dvals = self.all_vals[self.trajopt.prog.FindDecisionVariableIndices(dvars)]
             # Evaluate the constraint
             cval = cstr.evaluator().Eval(dvals)
             # Sort by constraint name
@@ -813,19 +854,29 @@ class ContactConstraintViewer():
             all_cstr[key] = np.vstack(all_cstr[key]).transpose()
         return all_cstr
 
-    def plot_dynamic_defects(self, cstr_vals):
+    def plot_quaternion_constraints(self, time, unit_pos, unit_vel, dynamics):
+        fig, axs = plt.subplots(3,1)
+        axs[0].plot(time, unit_pos.transpose(), linewidth=1.5)
+        axs[0].set_ylabel("Unit quaternion")
+        axs[1].plot(time, unit_vel.transpose(), linewidth=1.5)
+        axs[1].set_ylabel("Unit velocity axis")
+        axs[2].plot(time[1:], dynamics.transpose(), linewidth=1.5)
+        axs[2].set_xlabel("Time (s)")
+        axs[2].set_ylabel("Quaterion Dynamics")
+
+    def plot_dynamic_defects(self, time, cstr_vals):
         fig, axs = plt.subplots(2,1)
-        fq = cstr_vals[0:self.trajopt.plant_f.multibody.num_positions(),:]
-        fv = cstr_vals[self.trajopt.plant_f.multibody.num_positions():,:]
-        time = np.cumsum(self.result.GetSolution(self.trajopt.h))
-        axs[0].plot(time, fq.transpose(), linewidth=1.5)
+        num_pos = self.trajopt.plant_f.multibody.num_positions() - 4*len(self.trajopt.floating_pos)
+        fq = cstr_vals[0:num_pos,:]
+        fv = cstr_vals[num_pos:,:]
+        axs[0].plot(time[1:], fq.transpose(), linewidth=1.5)
         axs[0].set_ylabel('Position')
-        axs[1].plot(time, fv.transpose(), linewidth=1.5)
+        axs[1].plot(time[1:], fv.transpose(), linewidth=1.5)
         axs[1].set_ylabel('Velocity')
         axs[1].set_xlabel('Time (s)')
         axs[0].set_title('Dynamics Constraint Defects')
 
-    def plot_complementarity_linear(self, distance, velocity, friction):
+    def plot_complementarity_linear(self, time, distance, velocity, friction):
         # Split the slack variable defects from the results
         Nslack, distance = np.split(distance, [self.trajopt.numN])
         Tslack, velocity = np.split(velocity, [self.trajopt.numT])
@@ -833,24 +884,21 @@ class ContactConstraintViewer():
         # Plot the remaining variables using the nonlinear plotter
         normal_axs, tangent_axs = self.plot_complementarity_nonlinear(distance, velocity, friction)
         # Add in the slack variables
-        time = np.cumsum(self.result.GetSolution(self.trajopt.h))
         color = 'tab:green'
         for n in range(0, self.trajopt.numN):
-            normal_axs[2*n].plot(time, Nslack[n,1:], linewidth=1.5, color=color)
-            normal_axs[2*n+1].plot(time, Fslack[n,1:], linewidth=1.5, color=color)
+            normal_axs[2*n].plot(time, Nslack[n,:], linewidth=1.5, color=color)
+            normal_axs[2*n+1].plot(time, Fslack[n,:], linewidth=1.5, color=color)
             for k in range(0, 4*self.trajopt.plant_f.dlevel):
-                tangent_axs[n*4*self.trajopt.plant_f.dlevel + k].plot(time, Tslack[n*4*self.trajopt.plant_f.dlevel + k,1:], linewidth=1.5, color=color)
+                tangent_axs[n*4*self.trajopt.plant_f.dlevel + k].plot(time, Tslack[n*4*self.trajopt.plant_f.dlevel + k,:], linewidth=1.5, color=color)
         
-    def plot_complementarity_nonlinear(self, distance, velocity, friction):
+    def plot_complementarity_nonlinear(self,time, distance, velocity, friction):
         # Get the variables
-        norm_dist = distance[0:self.trajopt.numN,1:]
-        norm_force = distance[self.trajopt.numN:2*self.trajopt.numN,1:]
-        slide_vel = velocity[0:self.trajopt.numT,1:]
-        fric_force = velocity[self.trajopt.numT:2*self.trajopt.numT,1:]
-        fric_cone = friction[0:self.trajopt.numN,1:]
-        vel_slack = friction[self.trajopt.numN:2*self.trajopt.numN,1:]
-        # Get the time axis
-        time = np.cumsum(self.result.GetSolution(self.trajopt.h))
+        norm_dist = distance[0:self.trajopt.numN,:]
+        norm_force = distance[self.trajopt.numN:2*self.trajopt.numN,:]
+        slide_vel = velocity[0:self.trajopt.numT,:]
+        fric_force = velocity[self.trajopt.numT:2*self.trajopt.numT,:]
+        fric_cone = friction[0:self.trajopt.numN,:]
+        vel_slack = friction[self.trajopt.numN:2*self.trajopt.numN,:]
         # Plot the complementarity variables
         # Total number of plots per figure
         normal_axs = []
