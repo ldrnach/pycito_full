@@ -38,9 +38,12 @@ def run_block_trajopt():
     if not utils.CheckProgram(trajopt.prog):
         quit()
     # Solve the problem
+    trajopt.enable_cost_display('terminal')
     result = solve_block_trajopt(trajopt)
 
     soln = trajopt.result_to_dict(result)
+    viewer = ContactConstraintViewer(trajopt, soln)
+    viewer.plot_constraints()
     # Plot results
     plot_block_trajectories(trajopt, result)
     # Save
@@ -49,7 +52,7 @@ def run_block_trajopt():
     set_tight_snopt_options(trajopt)
     initialize_from_previous(trajopt, soln)
     # Run optimization
-    trajopt.enable_cost_display('terminal')
+
     result = solve_block_trajopt(trajopt)
     soln = trajopt.result_to_dict(result)
     # Plot results

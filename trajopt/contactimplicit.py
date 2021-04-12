@@ -258,27 +258,27 @@ class ContactImplicitDirectTranscription():
         # Split configuration and velocity from state
         q1, v1 = self._split_states(x1)
         q2, v2 = self._split_states(x2)
-        # Discretize generalized acceleration
-        dv = (v2 - v1)/h
-        # Update the context
+        # Update the context - backward Euler integration
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate((q2,v2), axis=0))
         # Set mutlibodyForces to zero
         mbf.SetZero()
         # calculate generalized forces
+        M = plant.multibody.CalcMassMatrixViaInverseDynamics(context)
+        C = plant.multibody.CalcBiasTerm(context)
+        G = plant.multibody.CalcGravityGeneralizedForces(context)
         B = plant.multibody.MakeActuationMatrix()
-        forces = B.dot(u)
-        # Gravity
-        forces[:] = forces[:] + plant.multibody.CalcGravityGeneralizedForces(context)
+        # Integrated Generalized forces
+        forces = h*(B.dot(u) - C + G)
         # Joint limits
         if self.Jl is not None:
             l, jl = np.split(l, [self.l.shape[0]])
-            forces[:] = forces[:] + self.Jl.dot(jl)
-        # Ground reaction forces
+            forces += self.Jl.dot(jl)
+        # Contact reaction forces
         Jn, Jt = plant.GetContactJacobians(context)
         J = np.concatenate((Jn, Jt), axis=0)
-        forces[:] = forces[:] + J.transpose().dot(l[0:self.numN + self.numT])
+        forces += J.transpose().dot(l[0:self.numN + self.numT])
         # Do inverse dynamics
-        fv = plant.multibody.CalcInverseDynamics(context, dv, mbf) - forces
+        fv = M.dot(v2 - v1) - forces
         # Calc position residual from velocity
         dq2 = plant.multibody.MapVelocityToQDot(context, v2)
         fq = q2 - q1 - h*dq2
