@@ -121,9 +121,9 @@ class ContactImplicitDirectTranscription():
         nU = self.plant_ad.multibody.num_actuators()
         self.u = self.prog.NewContinuousVariables(rows=nU, cols=self.num_time_samples, name='u')
         # Add reaction force variables to the program
-        self.numN = self.plant_f.num_contacts()
-        self.numT = self.plant_ad.num_friction()
-        self.l = self.prog.NewContinuousVariables(rows=2*self.numN+self.numT, cols=self.num_time_samples, name='l')
+        self._normal_forces = self.prog.NewContinuousVariables(rows = self.plant_f.num_contacts(), cols=self.num_time_samples, name="normal_force")
+        self._tangent_forces = self.prog.NewContinuousVariables(rows = self.plant_f.num_friction(), cols=self.num_time_samples, name="tanget_force")
+        self._sliding_vel = self.prog.NewContinuousVariables(rows = self.plant_f.num_contacts(), cols=self.num_time_samples, name="sliding_velocity")
         # store a matrix for organizing the friction forces
         self._e = self.plant_ad.duplicator_matrix()
         # And joint limit variables to the program
@@ -167,7 +167,7 @@ class ContactImplicitDirectTranscription():
                 self.prog.AddConstraint(self._backward_dynamics, 
                             lb=dynamics_bound,
                             ub=dynamics_bound,
-                            vars=np.concatenate((self.h[n,:], self.x[:,n], self.x[:,n+1], self.u[:,n], self.l[:,n+1], self.jl[:,n+1]), axis=0),
+                            vars=np.concatenate((self.h[n,:], self.x[:,n], self.x[:,n+1], self.u[:,n], self._normal_forces[:,n+1], self._tangent_forces[:,n+1], self.jl[:,n+1]), axis=0),
                             description="dynamics")
                 # Add joint limit constraints
                 self.prog.AddConstraint(self.joint_limit_cstr,
@@ -183,20 +183,22 @@ class ContactImplicitDirectTranscription():
                 self.prog.AddConstraint(self._backward_dynamics, 
                             lb=dynamics_bound,
                             ub=dynamics_bound,
-                            vars=np.concatenate((self.h[n,:], self.x[:,n], self.x[:,n+1], self.u[:,n], self.l[:,n+1]), axis=0),
+                            vars=np.concatenate((self.h[n,:], self.x[:,n], self.x[:,n+1], self.u[:,n], self._normal_forces[:,n+1], self._tangent_forces[:,n+1]), axis=0),
                             description="dynamics")  
            
     def _add_contact_constraints(self):
         """ Add complementarity constraints for contact to the optimization problem"""
         # Create the constraint according to the implementation and slacktype options
+        numN = self._normal_forces.shape[0]
+        numT = self._tangent_forces.shape[0]
         factory = ComplementarityFactory(self.options.ncc_implementation, self.options.slacktype)
-        self.distance_cstr = factory.create(self._normal_distance, xdim=self.x.shape[0], zdim=self.numN)
-        self.sliding_cstr = factory.create(self._sliding_velocity, xdim = self.x.shape[0] + self.numN, zdim=self.numT)
-        self.friccone_cstr = factory.create(self._friction_cone, self.x.shape[0] + self.numN + self.numT, self.numN)
+        self.distance_cstr = factory.create(self._normal_distance, xdim=self.x.shape[0], zdim=numN)
+        self.sliding_cstr = factory.create(self._sliding_velocity, xdim = self.x.shape[0] + numN, zdim=numT)
+        self.friccone_cstr = factory.create(self._friction_cone, self.x.shape[0] + numN + numT, numN)
         # Determine the variables according to implementation and slacktype options
-        distance_vars = DecisionVariableList([self.x, self.l[0:self.numN,:]])
-        sliding_vars = DecisionVariableList([self.x, self.l[self.numN+self.numT:,:], self.l[self.numN:self.numN+self.numT,:]])
-        friccone_vars = DecisionVariableList([self.x, self.l])
+        distance_vars = DecisionVariableList([self.x, self._normal_forces])
+        sliding_vars = DecisionVariableList([self.x, self._tangent_forces, self._sliding_vel])
+        friccone_vars = DecisionVariableList([self.x, self._normal_forces, self._tangent_forces, self._sliding_vel])
         # Check and add slack variables
         if self.options.ncc_implementation == NCCImplementation.LINEAR_EQUALITY:
             distance_vars.add(self.slacks[0:self.numN,:])
@@ -253,8 +255,8 @@ class ContactImplicitDirectTranscription():
         #NOTE: Cannot use MultibodyForces.mutable_generalized_forces with AutodiffXd. Numpy throws an exception
         plant, context, mbf = self._autodiff_or_float(z)
         # Split the variables from the decision variables
-        ind = np.cumsum([self.h.shape[1], self.x.shape[0], self.x.shape[0], self.u.shape[0]])
-        h, x1, x2, u, l = np.split(z, ind)
+        ind = np.cumsum([self.h.shape[1], self.x.shape[0], self.x.shape[0], self.u.shape[0], self._normal_forces.shape[0]])
+        h, x1, x2, u, fN, fT = np.split(z, ind)
         # Split configuration and velocity from state
         q1, v1 = self._split_states(x1)
         q2, v2 = self._split_states(x2)
@@ -271,12 +273,11 @@ class ContactImplicitDirectTranscription():
         forces = h*(B.dot(u) - C + G)
         # Joint limits
         if self.Jl is not None:
-            l, jl = np.split(l, [self.l.shape[0]])
+            fT, jl = np.split(fT, [self._tangent_forces.shape[0]])
             forces += self.Jl.dot(jl)
         # Contact reaction forces
         Jn, Jt = plant.GetContactJacobians(context)
-        J = np.concatenate((Jn, Jt), axis=0)
-        forces += J.transpose().dot(l[0:self.numN + self.numT])
+        forces += Jn.transpose().dot(fN) + Jt.transpose().dot(fT)
         # Do inverse dynamics
         fv = M.dot(v2 - v1) - forces
         # Calc position residual from velocity
@@ -694,6 +695,13 @@ class ContactImplicitDirectTranscription():
     def initialize_from_previous(self, result):
         """ Initialize the program from a previous solution to the same program """
         dvars = self.prog.decision_variables()
+
+    @property
+    def l(self):
+        """Legacy property definition for backwards compatibility """
+        return np.concatenate([self._normal_force, self._tangent_force, self._sliding_vel], axis=0)
+    
+    
 
 class CentroidalContactTranscription(ContactImplicitDirectTranscription):
     def _add_decision_variables(self):
