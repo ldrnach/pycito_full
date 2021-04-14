@@ -121,9 +121,11 @@ class ContactImplicitDirectTranscription():
         nU = self.plant_ad.multibody.num_actuators()
         self.u = self.prog.NewContinuousVariables(rows=nU, cols=self.num_time_samples, name='u')
         # Add reaction force variables to the program
-        self._normal_forces = self.prog.NewContinuousVariables(rows = self.plant_f.num_contacts(), cols=self.num_time_samples, name="normal_force")
-        self._tangent_forces = self.prog.NewContinuousVariables(rows = self.plant_f.num_friction(), cols=self.num_time_samples, name="tanget_force")
-        self._sliding_vel = self.prog.NewContinuousVariables(rows = self.plant_f.num_contacts(), cols=self.num_time_samples, name="sliding_velocity")
+        numN = self.plant_f.num_contacts()
+        numT = self.plant_f.num_friction()
+        self._normal_forces = self.prog.NewContinuousVariables(rows = numN, cols=self.num_time_samples, name="normal_force")
+        self._tangent_forces = self.prog.NewContinuousVariables(rows = numT, cols=self.num_time_samples, name="tanget_force")
+        self._sliding_vel = self.prog.NewContinuousVariables(rows = numN, cols=self.num_time_samples, name="sliding_velocity")
         # store a matrix for organizing the friction forces
         self._e = self.plant_ad.duplicator_matrix()
         # And joint limit variables to the program
@@ -140,9 +142,9 @@ class ContactImplicitDirectTranscription():
         # Add slack variables for complementarity problems
         if self.options.ncc_implementation == NCCImplementation.LINEAR_EQUALITY: 
             if self.options.slacktype == NCCSlackType.VARIABLE_SLACK:
-                self.slacks = self.prog.NewContinuousVariables(rows = 1 + 2*self.numN + self.numT, cols=self.num_time_sampels, name='slacks')
+                self.slacks = self.prog.NewContinuousVariables(rows = 1 + 2*numN + numT, cols=self.num_time_sampels, name='slacks')
             else: 
-                self.slacks = self.prog.NewContinuousVariables(rows=2*self.numN + self.numT, cols=self.num_time_samples, name='slacks')
+                self.slacks = self.prog.NewContinuousVariables(rows=2*numN + numT, cols=self.num_time_samples, name='slacks')
         elif self.options.ncc_implementation == NCCImplementation.NONLINEAR and self.options.slacktype == NCCSlackType.VARIABLE_SLACK:
             self.slacks = self.prog.NewContinuousVariables(rows=1,cols=self.num_time_samples, name='slacks')
         else:
@@ -201,9 +203,9 @@ class ContactImplicitDirectTranscription():
         friccone_vars = DecisionVariableList([self.x, self._normal_forces, self._tangent_forces, self._sliding_vel])
         # Check and add slack variables
         if self.options.ncc_implementation == NCCImplementation.LINEAR_EQUALITY:
-            distance_vars.add(self.slacks[0:self.numN,:])
-            sliding_vars.add(self.slacks[self.numN:self.numN+self.numT,:])
-            friccone_vars.add(self.slacks[self.numN+self.numT:2*self.numN+self.numT,:])
+            distance_vars.add(self.slacks[0:numN,:])
+            sliding_vars.add(self.slacks[numN:numN+numT,:])
+            friccone_vars.add(self.slacks[numN+numT:2*numN+numT,:])
         if self.options.ncc_implementation != NCCImplementation.COST and self.options.slacktype == NCCSlackType.VARIABLE_SLACK:
             distance_vars.add(self.slacks[-1,:])
             sliding_vars.add(self.slacks[-1,:])
@@ -354,6 +356,28 @@ class ContactImplicitDirectTranscription():
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate((q,v), axis=0))    
         return plant.GetNormalDistances(context)
 
+    def enforceNormalDissipation(self):
+        """
+        Add the constraints on the normal dissipation
+        """
+        for n in range(self.num_time_samples):
+            self.prog.AddConstraint(self._normal_dissipation, 
+                                lb = np.full((self.numN,), -np.inf), 
+                                ub = np.zeros((self.numN,)),
+                                vars=np.concatenate([self.x[:,n], self._normal_forces[:,n]], axis=0),
+                                description="NormalDissipationConstraint")
+
+    def _normal_dissipation(self, vars):
+        """
+        Condition on the normal force being dissipative
+        """
+        state, force = np.split(vars, [self.x.shape[0]])
+        plant, context, _ = self._autodiff_or_float(state)
+        q, v = self._split_states(state)
+        plant.multibody.SetPositionsAndVelocities(context, np.concatenate((q,v), axis=0))
+        Jn, _ = plant.GetContactJacobian(context)
+        return Jn.dot(v) * force
+
     def _sliding_velocity(self, vars):
         """
         Complementarity constraint between the relative sliding velocity and the tangential reaction forces
@@ -382,7 +406,7 @@ class ContactImplicitDirectTranscription():
                 vars = [state,normal_forces, friction_forces]
         """
         plant, context, _ = self._autodiff_or_float(vars)
-        ind = np.cumsum([self.x.shape[0], self.numN])
+        ind = np.cumsum([self.x.shape[0], self._normal_forces.shape[0]])
         x, fN, fT = np.split(vars, ind)
         q, v = self._split_states(x)
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate((q,v), axis=0))
@@ -699,8 +723,15 @@ class ContactImplicitDirectTranscription():
     @property
     def l(self):
         """Legacy property definition for backwards compatibility """
-        return np.concatenate([self._normal_force, self._tangent_force, self._sliding_vel], axis=0)
+        return np.concatenate([self._normal_forces, self._tangent_forces, self._sliding_vel], axis=0)
     
+    @property
+    def numN(self):
+        return self._normal_forces.shape[0]
+
+    @property
+    def numT(self):
+        return self._tangent_forces.shape[0]
     
 
 class CentroidalContactTranscription(ContactImplicitDirectTranscription):
