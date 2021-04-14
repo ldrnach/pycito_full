@@ -170,7 +170,7 @@ class ContactImplicitDirectTranscription():
         elif self.options.ncc_implementation == NCCImplementation.NONLINEAR and self.options.slacktype == NCCSlackType.VARIABLE_SLACK:
             self.slacks = self.prog.NewContinuousVariables(rows=1,cols=self.num_time_samples, name='slacks')
         else:
-            self.slacks = []
+            self.slacks = None
             
     def _add_dynamic_constraints(self):
         """Add constraints to enforce rigid body dynamics and joint limits"""
@@ -397,7 +397,7 @@ class ContactImplicitDirectTranscription():
         plant, context, _ = self._autodiff_or_float(state)
         q, v = self._split_states(state)
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate((q,v), axis=0))
-        Jn, _ = plant.GetContactJacobian(context)
+        Jn, _ = plant.GetContactJacobians(context)
         return Jn.dot(v) * force
 
     def _sliding_velocity(self, vars):
@@ -619,7 +619,7 @@ class ContactImplicitDirectTranscription():
             return None
 
     def reconstruct_slack_trajectory(self, soln):
-        if self.slacks:
+        if self.slacks is not None:
             t = self.get_solution_times(soln)
             return PiecewisePolynomial.FirstOrderHold(t, soln.GetSolution(self.slacks))
         else:
@@ -741,7 +741,7 @@ class ContactImplicitDirectTranscription():
     def initialize_from_previous(self, result):
         """ Initialize the program from a previous solution to the same program """
         dvars = self.prog.decision_variables()
-        dvals = result.GetSolution(dvals)
+        dvals = result.GetSolution(dvars)
         self.prog.SetInitialGuess(dvars, dvals)
 
     @property
@@ -757,7 +757,6 @@ class ContactImplicitDirectTranscription():
     def numT(self):
         return self._tangent_forces.shape[0]
     
-
 class CentroidalContactTranscription(ContactImplicitDirectTranscription):
     def _add_decision_variables(self):
         """
