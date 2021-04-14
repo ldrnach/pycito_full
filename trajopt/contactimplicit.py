@@ -18,10 +18,32 @@ from trajopt.constraints import ConstantSlackNonlinearComplementarity, Complemen
 #TODO: Re-make decision variables to ease code understanding
 #TODO[test]: Implement slack on d
 
-class OptimizationOptions:
+class OptimizationOptions():
     """ Keeps track of optional settings for Contact Implicit Trajectory Optimization"""
-    slacktype = NCCSlackType.CONSTANT_SLACK
-    ncc_implementation = NCCImplementation.NONLINEAR
+    def __init__(self):
+        """ Initialize the options to their default values"""
+        self.slacktype = NCCSlackType.CONSTANT_SLACK
+        self.ncc_implementation = NCCImplementation.NONLINEAR
+    
+    def useLinearComplementarity(self):
+        """ Use linear complementarity with equality constraints"""
+        self.ncc_implementation = NCCImplementation.LINEAR_EQUALITY
+
+    def useNonlinearComplementarity(self):
+        """ Use nonlinear complementarity """
+        self.ncc_implementation = NCCImplementation.NONLINEAR
+
+    def useCostComplementarity(self):
+        """ Use nonlinear complementarity but enforce the equality constraint in a cost"""
+        self.ncc_implementation = NCCImplementation.COST
+
+    def useConstantSlack(self):
+        """ Use a constant slack in the complementarity constraints"""
+        self.slacktype = NCCSlackType.CONSTANT_SLACK
+
+    def useVariableSlack(self):
+        """ Use a decision variable for the slack in the complementarity constraints"""
+        self.slacktype = NCCSlackType.VARIABLE_SLACK
 
 class DecisionVariableList():
     """Helper class for adding a list of decision variables to a cost/constraint"""
