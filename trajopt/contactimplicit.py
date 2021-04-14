@@ -719,6 +719,8 @@ class ContactImplicitDirectTranscription():
     def initialize_from_previous(self, result):
         """ Initialize the program from a previous solution to the same program """
         dvars = self.prog.decision_variables()
+        dvals = result.GetSolution(dvals)
+        self.prog.SetInitialGuess(dvars, dvals)
 
     @property
     def l(self):
