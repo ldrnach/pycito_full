@@ -221,7 +221,7 @@ class ContactImplicitDirectTranscription():
         self.friccone_cstr = factory.create(self._friction_cone, self.x.shape[0] + numN + numT, numN)
         # Determine the variables according to implementation and slacktype options
         distance_vars = DecisionVariableList([self.x, self._normal_forces])
-        sliding_vars = DecisionVariableList([self.x, self._tangent_forces, self._sliding_vel])
+        sliding_vars = DecisionVariableList([self.x,  self._sliding_vel, self._tangent_forces])
         friccone_vars = DecisionVariableList([self.x, self._normal_forces, self._tangent_forces, self._sliding_vel])
         # Check and add slack variables
         if self.options.ncc_implementation == NCCImplementation.LINEAR_EQUALITY:
@@ -229,9 +229,9 @@ class ContactImplicitDirectTranscription():
             sliding_vars.add(self.slacks[numN:numN+numT,:])
             friccone_vars.add(self.slacks[numN+numT:2*numN+numT,:])
         if self.options.ncc_implementation != NCCImplementation.COST and self.options.slacktype == NCCSlackType.VARIABLE_SLACK:
-            distance_vars.add(self.slacks[-1,:])
-            sliding_vars.add(self.slacks[-1,:])
-            friccone_vars.add(self.slacks[-1,:])
+            distance_vars.add(self.slacks[-1:,:])
+            sliding_vars.add(self.slacks[-1:,:])
+            friccone_vars.add(self.slacks[-1:,:])
         # At each knot point, add constraints for normal distance, sliding velocity, and friction cone
         for n in range(0, self.num_time_samples):
             # Add complementarity constraints for contact
@@ -264,7 +264,8 @@ class ContactImplicitDirectTranscription():
             self.slack_cost = []
         elif self.options.slacktype == NCCSlackType.VARIABLE_SLACK:
             a = np.ones(self.slacks.shape[1],)
-            self.slack_cost = self.prog.AddLinearCost(a=a, vars=self.slacks[-1,:], description="SlackCost")
+            self.slack_cost = self.prog.AddLinearCost(a=a, b=np.zeros((1,)), vars=self.slacks[-1,:])
+            self.slack_cost.evaluator().set_description("SlackCost")
         else:
             self.slack_cost = []
 
@@ -275,8 +276,6 @@ class ContactImplicitDirectTranscription():
             z = [h, x1, x2, u, l, jl]
         Returns the dynamics defect, evaluated using Backward Euler Integration. 
         """
-        #TODO: Re-write and eliminate division
-        #NOTE: Cannot use MultibodyForces.mutable_generalized_forces with AutodiffXd. Numpy throws an exception
         plant, context, mbf = self._autodiff_or_float(z)
         # Split the variables from the decision variables
         ind = np.cumsum([self.h.shape[1], self.x.shape[0], self.x.shape[0], self.u.shape[0], self._normal_forces.shape[0]])
@@ -294,7 +293,7 @@ class ContactImplicitDirectTranscription():
         G = plant.multibody.CalcGravityGeneralizedForces(context)
         B = plant.multibody.MakeActuationMatrix()
         # Integrated Generalized forces
-        forces = h*(B.dot(u) - C + G)
+        forces = (B.dot(u) - C + G)
         # Joint limits
         if self.Jl is not None:
             fT, jl = np.split(fT, [self._tangent_forces.shape[0]])
@@ -303,7 +302,7 @@ class ContactImplicitDirectTranscription():
         Jn, Jt = plant.GetContactJacobians(context)
         forces += Jn.transpose().dot(fN) + Jt.transpose().dot(fT)
         # Do inverse dynamics
-        fv = M.dot(v2 - v1) - forces
+        fv = M.dot(v2 - v1) - h*forces
         # Calc position residual from velocity
         dq2 = plant.multibody.MapVelocityToQDot(context, v2)
         fq = q2 - q1 - h*dq2
