@@ -716,6 +716,14 @@ class ContactImplicitDirectTranscription():
         return self._tangent_forces.shape[0]
     
 class CentroidalContactTranscription(ContactImplicitDirectTranscription):
+    #TODO: Implement state-to-generalized position
+    #TODO: Implement contact position getter in TimeSteppingMultibodyPlant
+    #TODO: Implement resolve forces in world in TimeSteppingMultibodyPlant (given contact points)
+    #TODO: Remove _backward_dynamics
+    #TODO: Integrate Timestepping changes with Centroidal methods
+    #TODO: Add constraints to mathematical program
+    #TODO: Unit testing for all contact-implicit problems (Block, DoublePendulum, A1)
+
     def _add_decision_variables(self):
         """
             adds the decision variables for timesteps, states, controls, reaction forces,
@@ -727,14 +735,16 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
         # Add time variables to the program
         self.h = self.prog.NewContinuousVariables(rows=self.num_time_samples-1, cols=1, name='h')
         # Add state variables to the program
-        nX = self.plant_ad.multibody.num_positions() + self.plant_ad.multibody.num_velocities()
-        self.x = self.prog.NewContinuousVariables(rows=nX, cols=self.num_time_samples, name='x')
+        self.x = self.prog.NewContinuousVariables(rows=2*self.plant_ad.multibody.num_velocities(), cols=self.num_time_samples, name='x')
         # Add COM variables to the program
         self.com = self.prog.NewContinuousVariables(rows=6, cols=self.num_time_samples, name="com")
         # Add reaction force variables to the program
-        self.numN = self.plant_f.num_contacts()
-        self.numT = self.plant_ad.num_friction()
-        self.l = self.prog.NewContinuousVariables(rows=2*self.numN+self.numT, cols=self.num_time_samples, name='l')
+        numN = self.plant_f.num_contacts()
+        numT = self.plant_ad.num_friction()
+        self._normal_forces = self.prog.NewContinuousVariables(rows = numN, cols=self.num_time_samples, name='normal_forces')
+        self._tangent_forces = self.prog.NewContinuousVariables(rows = numT, cols=self.num_time_samples, name='tangent_forces')
+        self._sliding_vel = self.prog.NewContinuousVariables(rows = numN, cols = self.num_time_samples, name='sliding_vels')
+
         # store a matrix for organizing the friction forces
         self._e = self.plant_ad.duplicator_matrix()
         # Add slack variables for complementarity problems
@@ -762,6 +772,94 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
                             vars=np.concatenate((self.h[n,:], self.x[:,n], self.x[:,n+1], self.com[:,n],self.com[:,n+1], self.l[:,n+1]), axis=0),
                             description="dynamics")  
 
+    def _com_error(self, dvars):
+        """
+            Constraint on center of mass position 
+        
+            Decision variable list: [COM_POSITION, GEN_POSITIONS]
+        """
+
+        # Get the necessary plant
+        plant, context, _ = self._autodiff_or_float(dvars)
+        # Split the variables
+        rCOM, q = np.split(dvars, [3])
+        # TODO: Implement function to calculate generalized position from state variables
+        # Calculate COM position and return the constraint
+        plant.SetPositions(context, q)
+        return rCOM - plant.CalcCenterOfMassPositionInWorld(context)
+
+    def _momentum_error(self, dvars):
+        """
+            Constraint on COM momentum variables
+            Decision variable list: [COM_MOMENTUM, GEN_POSITIONS, GEN_VELOCITIES]
+        """
+        # Get the appropriate plant model
+        plant, context, _ = self._autodiff_or_float(dvars)
+        # Split the variables
+        lCOM, state = np.split(dvars, [3])
+        q, v = self._state_to_coordinates(state)
+        # Update the context
+        plant.SetPositionsAndVelociteis(context, q, v)
+        # Return the momentum error
+        pCOM = plant.CalcCenterOfMassPositionInWorld(context)
+        return lCOM - plant.CalcSpatialMomentumInWorldAboutPoint(context, pCOM).rotational()
+
+    def _contact_position_error(self, dvars):
+        """
+            Constraint for contact position variables
+
+            Decision Variable List: [CONTACT_POINTS, GEN_POSITIONS]
+        """
+        # Get the plant model
+        plant, context, _ = self._autodiff_or_float(dvars)
+        # Split the variables
+        contact, q = np.split(dvars, [3*self.numN])
+        #TODO: Convert position variables to generalized coordinates
+        # Get the contact positions
+        plant.multibody.SetPositions(context, q)
+        kin = plant.calc_contact_positions(context)
+        #TODO: Subtract the forward kinematic solution from the variables
+
+    def _backward_com_dynamics(self, dvars):
+        """
+            Returns the integration error for the COM Linear Dynamics
+
+            Decision Variables: [timestep, CoM(k), CoM(k+1), Forces(k+1)]
+        """
+        # Get the plant
+        plant, _, _ = self._autodiff_or_float(dvars)
+        # Split the variables
+        h, rcom1, vcom1, rcom2, vcom2, forces = np.split(dvars, np.cumsum([1, 3, 3, 3, 3]))
+        # Position error (Midpoint Integration)
+        p_err = rcom2 - rcom1 - h/2.0 * (vcom1 + vcom2)
+        # Velocity error (backward euler integration)
+        # TODO: Resolve forces in world coordinates
+        v_err = vcom2 - vcom1 - h *(forces + self.total_mass() * plant.multibody.gravity_field())
+        return np.concatenate((p_err, v_err), axis=0)
+
+    def _backward_momentum_dynamcis(self, dvars):
+        """
+            Returns the integration error for the COM Momentum Dynamics
+        
+            Decision Variables: [timestep, H(k), H(k+1), ContactPos(k), COM_POS(k), Forces(k)]
+        """
+        # Split the variables
+        h, momentum1, momentum2, contact_pos, com_pos, contact_force = np.split(dvars, np.cumsum([1, 3, 3, self.numN, 3]))
+        # TODO: Resolve the contact force variables into world coordinates, then angularize
+        
+        # Calculate the defect
+        return momentum2 - momentum1 - h * np.zeros((3,))
+
+    def _generalized_position_dynamics(self, dvars):
+        """
+            Returns the integration error for the generalized position dynamics
+
+            Decision Variable List: [timestep, GEN_POS(k), GEN_POS(k+1), GEN_VEL(k+1)]
+        """
+        nV = self.plant_ad.multibody.num_velocities()
+        h, q1, q2, v2 = np.split(dvars, np.cumsum([1, nV, nV]))
+        return q2 - q1 - h*v2
+        
     def _backward_dynamics(self, dvars):
         """
 
@@ -801,11 +899,7 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
         q2, v2 = np.split(x2,[plant.multibody.num_positions()])
         dq2 = plant.multibody.MapVelocityToQDot(context, v2)
         fq = q2 - q1 - timestep*dq2
-        # Check for quaternion variables
-        if len(self.floating_pos) > 0:
-            for pidx, vidx in zip(self.floating_pos, self.floating_vel):
-                fq[pidx:pidx+4] = q2[pidx:pidx+4] - integrate_quaternion(x1[pidx:pidx+4],x1[vidx:vidx+3],timestep.item())
-        # Concatenate all the defects together
+
         return np.concatenate([fq, com_err, momentum_err, vel_err, pos_err], axis=0)
 
     def _get_total_mass(self):
@@ -940,42 +1034,4 @@ class ContactConstraintViewer():
             normal_axs.append(naxs)
             tangent_axs.append(taxs)
         return np.concatenate(normal_axs, axis=0), np.concatenate(tangent_axs, axis=0)
-
-def integrate_quaternion(q, w_axis, w_mag, dt):
-    """
-    Integrate the unit quaternion q given it's associated angular velocity w
-
-    Arguments:
-        q: (4,) numpy array specifying a unit quaternion
-        w: (3,) numpy array specifying an angular velocity, as a unit vector
-        w_mag:(1,) numpy array specifying the magnitude of the angular velocity
-        dt: scalar indicating timestep 
-
-    Return Values
-        (4,) numpy array specifying the next step unit quaternion
-    """
-    # Exponential map of angular velocity
-    delta_q = np.hstack([np.cos(w_mag * dt / 2.), w_axis * np.sin(w_mag * dt /2.)])
-    # Do the rotation for body-fixed angular rate
-    return quaternion_product(q, delta_q)
-
-def quaternion_product(q1, q2):
-    """
-    Returns the quaternion product of two quaternions, q1*q2
-
-    Arguments:
-        q1: (4,) numpy array
-        q2: (4,) numpy array
-    """
-    return np.hstack([
-        q1[0]*q2[0] - np.dot(q1[1:], q2[1:]),
-        q1[0] * q2[1:] + q2[0]*q1[1:] - np.cross(q1[1:], q2[1:])
-    ])
-    # qprod = np.zeros((4,), dtype=type(q1))
-    # # Scalar part
-    # qprod[0] = q1[0]*q2[0] - np.dot(q1[1:], q2[1:])
-    # # Vector part
-    # qprod[1:] = q1[0]*q2[1:] + q2[0]*q1[1:] - np.cross(q1[1:], q2[1:])
-    # # Return
-    # return qprod
 
