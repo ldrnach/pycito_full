@@ -6,7 +6,6 @@ contactimplicit: Implements Contact Implicit Trajectory Optimization using Backw
 Luke Drnach
 October 5, 2020
 """
-#TODO: Do integration with euler angles instead of quaternions
 
 import numpy as np 
 from matplotlib import pyplot as plt
@@ -15,8 +14,7 @@ from pydrake.autodiffutils import AutoDiffXd
 from pydrake.multibody.tree import MultibodyForces_
 from utilities import MathProgIterationPrinter, plot_complementarity
 from trajopt.constraints import ConstantSlackNonlinearComplementarity, ComplementarityFactory, NCCImplementation, NCCSlackType
-
-#TODO: Eliminate division in dynamics
+from trajopt.quatutils import rpy_rates_to_velocity, rpy_to_quaternion
 #TODO: Re-make decision variables to ease code understanding
 #TODO[test]: Implement slack on d
 
@@ -134,13 +132,8 @@ class ContactImplicitDirectTranscription():
         # Add time variables to the program
         self.h = self.prog.NewContinuousVariables(rows=self.num_time_samples-1, cols=1, name='h')
         # Add state variables to the program
-        nX = self.plant_ad.multibody.num_positions() + self.plant_ad.multibody.num_velocities()
-        if self._has_quaternion_states():
-            num_floating = len(self.plant_f.multibody.GetFloatingBaseBodies())
-            # Add extra variables for the magnitudes of the quaternion velocity variables
-            self.x = self.prog.NewContinuousVariables(rows = nX + num_floating, cols=self.num_time_samples, name='x')
-        else:
-            self.x = self.prog.NewContinuousVariables(rows=nX, cols=self.num_time_samples, name='x')
+        nX = 2*self.plant_ad.multibody.num_velocities()
+        self.x = self.prog.NewContinuousVariables(rows=nX, cols=self.num_time_samples, name='x')
         # Add control variables to the program
         nU = self.plant_ad.multibody.num_actuators()
         self.u = self.prog.NewContinuousVariables(rows=nU, cols=self.num_time_samples, name='u')
@@ -176,12 +169,7 @@ class ContactImplicitDirectTranscription():
             
     def _add_dynamic_constraints(self):
         """Add constraints to enforce rigid body dynamics and joint limits"""
-        if self._has_quaternion_states():
-            nX = self.x.shape[0]
-            num_quat = len(self.floating_pos)
-            dynamics_bound = np.zeros((nX - 5*num_quat, 1))
-        else:
-            dynamics_bound = np.zeros(shape=(self.x.shape[0], 1))
+        dynamics_bound = np.zeros((self.x.shape[0],1))
         # Check for joint limits first
         if self.Jl is not None:
             # Create the joint limit constraint
@@ -282,9 +270,13 @@ class ContactImplicitDirectTranscription():
         # Split the variables from the decision variables
         ind = np.cumsum([self.h.shape[1], self.x.shape[0], self.x.shape[0], self.u.shape[0], self._normal_forces.shape[0]])
         h, x1, x2, u, fN, fT = np.split(z, ind)
-        # Split configuration and velocity from state
-        q1, v1 = self._split_states(x1)
-        q2, v2 = self._split_states(x2)
+        # Calculate the position integration error
+        p1, _ = np.split(x1, 2)
+        p2, dp2 = np.split(x2, 2)
+        fp = p2 - p1 - h*dp2
+        # Convert decision variables to Drake coordinates
+        _, v1 = self._state_to_coordinates(x1)
+        q2, v2 = self._state_to_coordinates(x2)
         # Update the context - backward Euler integration
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate((q2,v2), axis=0))
         # Set mutlibodyForces to zero
@@ -303,63 +295,28 @@ class ContactImplicitDirectTranscription():
         # Contact reaction forces
         Jn, Jt = plant.GetContactJacobians(context)
         forces += Jn.transpose().dot(fN) + Jt.transpose().dot(fT)
-        # Do inverse dynamics
+        # Do inverse dynamics - velocity dynamics error
         fv = M.dot(v2 - v1) - h*forces
-        # Calc position residual from velocity
-        dq2 = plant.multibody.MapVelocityToQDot(context, v2)
-        fq = q2 - q1 - h*dq2
-        # Eliminate the quaternion variables from the output
+        return np.concatenate((fp, fv), axis=0)
+
+    def _state_to_coordinates(self, x):
+        """Convert the state vector (decision variables) to generalized coordinates"""
         if self._has_quaternion_states():
-            quat_idx = [k for pidx in self.floating_pos for k in range(pidx, pidx+4)]
-            fq = np.delete(fq, quat_idx)
-        # Return dynamics defects
-        return np.concatenate((fq, fv), axis=0)
-
-    def _add_quaternion_constraints(self):
-        """
-        Enforce unit norm and integration constraint for floating base quaternion variables
-        """
-        for pidx, vidx, midx in zip(self.floating_pos, self.floating_vel, self.floating_mag):
-            # Get the quaternion variables
-            q = self.x[pidx:pidx+4,:]
-            v_axis = self.x[vidx:vidx+3,:]
-            v_mag = np.expand_dims(self.x[midx], axis=1)    
-            # Add the constraints
-            for k in range(self.num_time_samples):
-                # Enforce unit quaternion constraint
-                self.prog.AddConstraint(lambda q: [q @ q], lb=[1.0], ub=[1.0], vars=q[:,k], description=
-                "unit_quaternion")
-                # Enforce unit velocity axis constraint
-                self.prog.AddConstraint(lambda v: [v @ v], lb=[1.0], ub=[1.0], vars=v_axis[:,k], description="unit_velocity_axis")
-            # Enforce quaternion dynamics
-            for k in range(self.num_time_samples-1):
-                self.prog.AddConstraint(self._quaternion_dynamics, 
-                                        lb=np.zeros((4,)),
-                                        ub=np.zeros((4,)),
-                                        vars=np.concatenate((q[:,k], q[:,k+1], v_axis[:,k+1], v_mag[k+1], self.h[k,:]), axis=0),
-                                        description="quaternion_dynamics")
-
-    def _quaternion_dynamics(self, z):
-        """
-        Constraint for enforcing quaternion dynamics
-
-        Arguments: a list of decision variables
-            z = [q(k), q(k+1), v_axis(k+1), v_mag(k+1), h(k)]
-            where q are quaternions, 
-                v_axis is the axis of rotation,
-                v_mag is the magnitude of rotational velocity
-                h is the timestep
-        """
-        q, q_next, v_axis, v_mag, h = np.split(z,[4,8,11,12])
-        return q_next - integrate_quaternion(q, v_axis, v_mag, h)
-
-    def _split_states(self, x):
-        if self._has_quaternion_states():
-            # Get the magnitudes from the augmented state vector
-            for vidx, midx in zip(self.floating_vel, self.floating_mag):
-                x[vidx:vidx+3] *= x[midx]
-            x2 = np.delete(x, self.floating_mag)
-            return np.split(x2, [self.plant_f.multibody.num_positions()])
+            coords = np.zeros((self.plant_f.multibody.num_positions()  + self.plant_f.multibody.num_velocities(),), dtype=x.dtype)
+            coordsmap = np.full(coords.shape, True)
+            xmap = np.full(x.shape, True)
+            for pidx, vidx in zip(self.floating_pos, self.floating_vel):
+                # Convert Euler angles to quaternion
+                coords[pidx:pidx+4] = rpy_to_quaternion(x[pidx:pidx+3])
+                # Convert Euler rates to body velocity
+                coords[vidx:vidx+3] = rpy_rates_to_velocity(x[pidx:pidx+3], x[vidx:vidx+3])
+                # Mask out the orientation states
+                coordsmap[pidx:pidx+4] = False
+                coordsmap[vidx:vidx+3] = False
+                xmap[vidx:vidx+3] = False
+                xmap[pidx:pidx+3] = False
+            # Copy over the remaining states
+            coords[coordsmap] = x[xmap]
         else:
             return np.split(x, [self.plant_f.multibody.num_positions()])
 
@@ -375,7 +332,7 @@ class ContactImplicitDirectTranscription():
         # Check if the decision variables are floats
         plant, context, _ = self._autodiff_or_float(state)
         # Calculate the normal distance
-        q,v = self._split_states(state)
+        q,v = self._dvars_to_coordinates(state)
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate((q,v), axis=0))    
         return plant.GetNormalDistances(context)
 
@@ -396,7 +353,7 @@ class ContactImplicitDirectTranscription():
         """
         state, force = np.split(vars, [self.x.shape[0]])
         plant, context, _ = self._autodiff_or_float(state)
-        q, v = self._split_states(state)
+        q, v = self._dvars_to_coordinates(state)
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate((q,v), axis=0))
         Jn, _ = plant.GetContactJacobians(context)
         return Jn.dot(v) * force
@@ -413,7 +370,7 @@ class ContactImplicitDirectTranscription():
         # Split variables from the decision list
         x, gam = np.split(vars, [self.x.shape[0]])
         # Get the velocity, and convert to qdot
-        q, v = self._split_states(x)
+        q, v = self._dvars_to_coordinates(x)
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate((q,v), axis=0))
         # Get the contact Jacobian
         _, Jt = plant.GetContactJacobians(context)
@@ -431,7 +388,7 @@ class ContactImplicitDirectTranscription():
         plant, context, _ = self._autodiff_or_float(vars)
         ind = np.cumsum([self.x.shape[0], self._normal_forces.shape[0]])
         x, fN, fT = np.split(vars, ind)
-        q, v = self._split_states(x)
+        q, v = self._dvars_to_coordinates(x)
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate((q,v), axis=0))
         mu = plant.GetFrictionCoefficients(context)
         mu = np.diag(mu)
@@ -439,7 +396,7 @@ class ContactImplicitDirectTranscription():
         return mu.dot(fN) - self._e.dot(fT)
 
     # Joint Limit Constraints
-    def _joint_limit(self, vars):
+    def _joint_limit(self, dvars):
         """
         Complementarity constraint between the position variables and the joint limit forces
 
@@ -447,9 +404,9 @@ class ContactImplicitDirectTranscription():
             Decision variable list:
                 vars = state
         """
-        plant, _, _ = self._autodiff_or_float(vars)
+        plant, _, _ = self._autodiff_or_float(dvars)
         # Get configuration and joint limit forces
-        q = vars[0:plant.multibody.num_positions()]
+        q, _ = self._dvars_to_coordinates(dvars)
         # Calculate distance from limits
         qmax = plant.multibody.GetPositionUpperLimits()
         qmin = plant.multibody.GetPositionLowerLimits()
