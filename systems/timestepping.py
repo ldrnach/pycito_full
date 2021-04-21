@@ -376,6 +376,26 @@ class TimeSteppingMultibodyPlant():
             contact_pts.append(self.multibody.CalcPointsPositions(context, frame, pose.translation(), self.multibody.world_frame())) 
         return contact_pts
     
+    def resolve_contact_forces_in_world_at_points(self, forces, contactpts):
+        """
+            Transform the non-negative discretized force components from complementarity constraints into 3d vectors at the given contact points
+        """
+        if type(contactpts) is list:
+            contactpts = np.concatenate(contactpts, axis=0)
+
+        # First remove the discretization
+        forces = self.resolve_forces(forces)
+        # Reorganize from (Normal, Tangential) to a list (Fx1, Fy1, Fz1, Fx2, ...)
+        force_list = []
+        for n in range(self.num_contacts):
+            # Get the terrain frame given the contact point
+            frame = self.terrain.local_frame(contactpts[3*n:3*(n+1)])
+            # Pull (Normal_k, Tangential_k) from (Normal, Tangential)
+            force = forces[[n, self.num_contacts() + 2*n, self.num_contacts() + 2*n +1]]
+            # Transform and append
+            force_list.append(frame.dot(force))
+        return force_list
+
     def resolve_contact_forces_in_world(self, context, forces):
         """
             Transform non-negative discretized force components used in complementarity constraints into 3-vectors in world coordinates

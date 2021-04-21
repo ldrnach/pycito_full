@@ -16,7 +16,7 @@ from utilities import MathProgIterationPrinter, plot_complementarity
 from trajopt.constraints import ConstantSlackNonlinearComplementarity, ComplementarityFactory, NCCImplementation, NCCSlackType
 from trajopt.quatutils import rpy_rates_to_velocity, rpy_to_quaternion
 #TODO: Re-make decision variables to ease code understanding
-#TODO[test]: Implement slack on d
+#TODO: Unit testing for whole-body and centrodial optimizers
 
 class OptimizationOptions():
     """ Keeps track of optional settings for Contact Implicit Trajectory Optimization"""
@@ -317,8 +317,27 @@ class ContactImplicitDirectTranscription():
                 xmap[pidx:pidx+3] = False
             # Copy over the remaining states
             coords[coordsmap] = x[xmap]
+            return coords
         else:
             return np.split(x, [self.plant_f.multibody.num_positions()])
+
+    def _dvar_to_gen_position(self, x):
+        """Convert decision variable position to generalized position"""
+        if self._has_quaternion_states():
+            coords = np.zeros((self.plant_f.multibody.num_positions(),), dtype=x.dtype)
+            coordsmap = np.full(coords.shape, True)
+            xmap = np.full(x.shape, True)
+            for pidx in self.floating_pos:
+                # Convert to quaternion
+                coords[pidx:pidx+4] = rpy_to_quaternion(x[pidx:pidx+3])
+                # Mask out remaining variables
+                coordsmap[pidx:pidx+4] = False
+                xmap[pidx:pidx+3] = False
+            # Map the remaining variables
+            coords[coordsmap] = x[xmap]
+            return coords
+        else:
+            return x
 
     # Complementarity Constraint functions for Contact
     def _normal_distance(self, state):
@@ -716,12 +735,6 @@ class ContactImplicitDirectTranscription():
         return self._tangent_forces.shape[0]
     
 class CentroidalContactTranscription(ContactImplicitDirectTranscription):
-    #TODO: Implement state-to-generalized position
-    #TODO: Implement contact position getter in TimeSteppingMultibodyPlant
-    #TODO: Implement resolve forces in world in TimeSteppingMultibodyPlant (given contact points)
-    #TODO: Remove _backward_dynamics
-    #TODO: Integrate Timestepping changes with Centroidal methods
-    #TODO: Add constraints to mathematical program
     #TODO: Unit testing for all contact-implicit problems (Block, DoublePendulum, A1)
 
     def _add_decision_variables(self):
@@ -738,12 +751,17 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
         self.x = self.prog.NewContinuousVariables(rows=2*self.plant_ad.multibody.num_velocities(), cols=self.num_time_samples, name='x')
         # Add COM variables to the program
         self.com = self.prog.NewContinuousVariables(rows=6, cols=self.num_time_samples, name="com")
+        # Add momentum variables
+        self.momentum = self.prog.NewContinuousVariables(rows=3, cols=self.num_time_samples, name='momentum')
         # Add reaction force variables to the program
         numN = self.plant_f.num_contacts()
         numT = self.plant_ad.num_friction()
         self._normal_forces = self.prog.NewContinuousVariables(rows = numN, cols=self.num_time_samples, name='normal_forces')
         self._tangent_forces = self.prog.NewContinuousVariables(rows = numT, cols=self.num_time_samples, name='tangent_forces')
         self._sliding_vel = self.prog.NewContinuousVariables(rows = numN, cols = self.num_time_samples, name='sliding_vels')
+        # Add contact points
+        self.contactpts = self.prog.NewContinuousVariables(rows = 3*numN, cols=self.num_time_samples, name='contact_pts')
+
 
         # store a matrix for organizing the friction forces
         self._e = self.plant_ad.duplicator_matrix()
@@ -762,15 +780,52 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
         """
             Add in the centroidal dynamics and associated constraints to the problem
         """
+        # Add equality constraints on the centrodial variables
+        self._add_centroidal_constraints()
+        # Add dynamics constraints between successive timepoints
+        num_pos = self.plant_f.multibody.num_velocities()
         for n in range(0, self.num_time_samples-1):
                 # Add timestep constraints
                 self.prog.AddBoundingBoxConstraint(self.minimum_timestep, self.maximum_timestep, self.h[n,:]).evaluator().set_description('TimestepConstraint')
-                # Add dynamics as constraints 
-                self.prog.AddConstraint(self._backward_dynamics, 
-                            lb=np.zeros(shape=(self.x.shape[0], 1)),
-                            ub=np.zeros(shape=(self.x.shape[0], 1)),
-                            vars=np.concatenate((self.h[n,:], self.x[:,n], self.x[:,n+1], self.com[:,n],self.com[:,n+1], self.l[:,n+1]), axis=0),
-                            description="dynamics")  
+                # Add integrator constraints
+                self.prog.AddConstraint(self._backward_com_dynamics, 
+                            lb=np.zeros(shape=(self.com.shape[0], 1)),
+                            ub=np.zeros(shape=(self.com.shape[0], 1)),
+                            vars=np.concatenate((self.h[n,:], self.com[:,n], self.com[:,n+1], self._normal_forces[:,n+1], self._tangent_forces[:,n+1], self.contactpts[:,n+1]), axis=0),
+                            description="com_dynamics")  
+                self.prog.AddConstraint(self._backward_momentum_dynamics,
+                            lb=np.zeros((3,1)),
+                            ub=np.zeros((3,1)),
+                            vars=np.concatenate([self.h[:,n], self.momentum[:,n], self.momentum[:,n+1],self.contactpts[:,n+1], self.com[0:3,n+1], self._normal_forces[:,n+1], self._tangent_forces[:,n+1]], axis=0),
+                            description="momentum_dynamics")
+                self.prog.AddConstraint(self._generalized_position_dynamics,
+                            lb=np.zeros((num_pos,)),
+                            ub=np.zeros((num_pos)),
+                            vars=np.concatenate([self.h[:,n], self.x[0:num_pos,n], self.x[:,n+1]], axis=0),
+                            description="position_dynamics")
+
+    def _add_centroidal_constraints(self):
+        """
+        Add the constraints on the definitions of the centroidal variables
+        """
+        num_pos = self.plant_f.multibody.num_velocities()
+        for n in range(self.num_time_samples):
+            # Add equality constraints on centroidal variables and generalized coordinates
+            self.prog.AddConstraint(self._com_error, 
+                                    lb=np.zeros((3,1)),
+                                    ub=np.zeros((3,1)),
+                                    vars=np.concatenate([self.com[0:3,n], self.x[0:num_pos,n]]),
+                                    description="com_error")
+            self.prog.AddConstraint(self._momentum_error,
+                                    lb=np.zeros((3,1)),
+                                    ub=np.zeros((3,1)),
+                                    vars=np.concatenate([self.momentum[:,n], self.x[:,n]]),
+                                    description="momentum_error")
+            self.prog.AddConstraint(self._contact_position_error, 
+                                    lb=np.zeros((3*self.numN, 1)),
+                                    ub=np.zeros((3*self.numN, 1)),
+                                    vars=np.concatenate([self.contactpts[:,n], self.x[0:num_pos,n]], axis=0),
+                                    description="contact_point_error")
 
     def _com_error(self, dvars):
         """
@@ -783,9 +838,10 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
         plant, context, _ = self._autodiff_or_float(dvars)
         # Split the variables
         rCOM, q = np.split(dvars, [3])
-        # TODO: Implement function to calculate generalized position from state variables
+        # Calculate generalized position from state variables
+        q = self._dvar_to_gen_position(q)
         # Calculate COM position and return the constraint
-        plant.SetPositions(context, q)
+        plant.multibody.SetPositions(context, q)
         return rCOM - plant.CalcCenterOfMassPositionInWorld(context)
 
     def _momentum_error(self, dvars):
@@ -799,7 +855,7 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
         lCOM, state = np.split(dvars, [3])
         q, v = self._state_to_coordinates(state)
         # Update the context
-        plant.SetPositionsAndVelociteis(context, q, v)
+        plant.multibody.SetPositionsAndVelocities(context, q, v)
         # Return the momentum error
         pCOM = plant.CalcCenterOfMassPositionInWorld(context)
         return lCOM - plant.CalcSpatialMomentumInWorldAboutPoint(context, pCOM).rotational()
@@ -814,41 +870,53 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
         plant, context, _ = self._autodiff_or_float(dvars)
         # Split the variables
         contact, q = np.split(dvars, [3*self.numN])
-        #TODO: Convert position variables to generalized coordinates
+        # Convert position variables to generalized coordinates
+        q = self._dvar_to_gen_position(q)
         # Get the contact positions
         plant.multibody.SetPositions(context, q)
         kin = plant.calc_contact_positions(context)
-        #TODO: Subtract the forward kinematic solution from the variables
+        # Subtract the forward kinematic solution from the variables
+        return contact - np.concatenate(kin, axis=0)
 
     def _backward_com_dynamics(self, dvars):
         """
             Returns the integration error for the COM Linear Dynamics
 
-            Decision Variables: [timestep, CoM(k), CoM(k+1), Forces(k+1)]
+            Decision Variables: [timestep, CoM(k), CoM(k+1), Forces(k+1), ContactPoints(k+1)]
         """
         # Get the plant
         plant, _, _ = self._autodiff_or_float(dvars)
         # Split the variables
-        h, rcom1, vcom1, rcom2, vcom2, forces = np.split(dvars, np.cumsum([1, 3, 3, 3, 3]))
+        h, rcom1, vcom1, rcom2, vcom2, forces, pts = np.split(dvars, np.cumsum([1, 3, 3, 3, 3, self.numN+self.numT]))
         # Position error (Midpoint Integration)
         p_err = rcom2 - rcom1 - h/2.0 * (vcom1 + vcom2)
+        # Resolve forces in world coordinates
+        forces = plant.resolve_contact_forces_in_world_at_points(forces, pts)
+        netforce = np.zeros((3,), dtype=h.dtype)
+        for force in forces:
+            netforce += force
         # Velocity error (backward euler integration)
-        # TODO: Resolve forces in world coordinates
         v_err = vcom2 - vcom1 - h *(forces + self.total_mass() * plant.multibody.gravity_field())
         return np.concatenate((p_err, v_err), axis=0)
 
-    def _backward_momentum_dynamcis(self, dvars):
+    def _backward_momentum_dynamics(self, dvars):
         """
             Returns the integration error for the COM Momentum Dynamics
         
             Decision Variables: [timestep, H(k), H(k+1), ContactPos(k), COM_POS(k), Forces(k)]
         """
+        # Get the plant
+        plant, _, _ = self._autodiff_or_float(dvars)
         # Split the variables
         h, momentum1, momentum2, contact_pos, com_pos, contact_force = np.split(dvars, np.cumsum([1, 3, 3, self.numN, 3]))
-        # TODO: Resolve the contact force variables into world coordinates, then angularize
-        
+        # Resolve the contact force variables into world coordinates, then angularize
+        forces = plant.resolve_contact_forces_in_world_at_points(contact_force, contact_pos)
+        # Calculate cross products
+        torque = np.zeros((3,), dtype = com_pos.dtype)
+        for n in range(self.numN):
+            torque += np.cross(contact_pos[3*n:3*(n+1)] - com_pos, forces[3*n:3*(n+1)])        
         # Calculate the defect
-        return momentum2 - momentum1 - h * np.zeros((3,))
+        return momentum2 - momentum1 - h * torque
 
     def _generalized_position_dynamics(self, dvars):
         """
@@ -860,54 +928,65 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
         h, q1, q2, v2 = np.split(dvars, np.cumsum([1, nV, nV]))
         return q2 - q1 - h*v2
         
-    def _backward_dynamics(self, dvars):
-        """
-
-        Variable decision list:
-            [h, x1, x2, com1, com2, forces]
-        """
-        plant, context, _ = self._autodiff_or_float(dvars)
-        # Get the individual variables from the decision variable list
-        inds = [self.h.shape[0], self.x.shape[0], self.x.shape[0], self.com.shape[0], self.com.shape[0]]
-        timestep, x1, x2, com1, com2, forces = np.split(dvars, np.cumsum(inds))
-        rcom1, vcom1 = np.split(com1, 1)
-        rcom2, vcom2 = np.split(com2, 1)
-        # Calculate the center of mass position and momentum
-        plant.SetPositionsAndVelocities(context, x1)
-        com_pos_1 = plant.CalcCenterOfMassPositionInWorld(context)
-        momentum1 = plant.CalcSpatialMomentumInWorldAboutPoint(context, com_pos_1).rotational()
-        plant.SetPositionsAndVelocities(context, x2)
-        com_pos_2 = plant.CalcCenterOfMassPositionInWorld(context)
-        momentum2 = plant.CalcSpatialMomentumInWorldAboutPoint(context, com_pos_2).rotational()
-        # Resolve the contact force variables into 3-vectors in world coordinates
-        contact_pts = plant.get_contact_points(context)  
-        world_forces = plant.resolve_contact_forces_in_world(context, forces) 
-        # COM Dynamics
-        total_mass = self._get_total_mass()
-        com_err = vcom2 - vcom1
-        com_err[-1] -=  timestep*9.81/total_mass
-        momentum_err = momentum2 - momentum1
-        for contact_pt, world_force in zip(contact_pts, world_forces):
-            com_err -= timestep * world_force/total_mass
-            momentum_err -= timestep * np.cross(contact_pt - rcom2, world_force)
-        # CoM Position defects
-        pos_err = np.concatenate([com1[0:3] - com_pos_1, com2[0:3] - com_pos_2], axis=0)
-        # COM Velocity defects
-        vel_err = rcom2 - rcom1 - timestep * (vcom2 + vcom1)/2
-        # Generalize coordinate defects
-        q1, _ = np.split(x1,[plant.multibody.num_positions()])
-        q2, v2 = np.split(x2,[plant.multibody.num_positions()])
-        dq2 = plant.multibody.MapVelocityToQDot(context, v2)
-        fq = q2 - q1 - timestep*dq2
-
-        return np.concatenate([fq, com_err, momentum_err, vel_err, pos_err], axis=0)
-
     def _get_total_mass(self):
         mass = 0.
         body_inds = self.plant.GetBodyIndices(self.model_index)
         for ind in body_inds:
             mass += self.plant.get_body(ind).get_mass()
         return mass
+
+    def _reconstruct_trajectory(self, soln, dvar):
+        t = self.get_solution_times(soln)
+        return PiecewisePolynomial.FirstOrderHold(t, soln.GetResult(dvar))
+
+    def reconstruct_com_trajectory(self, soln):
+        return self._reconstruct_trajectory(soln, self.com)
+    
+    def reconstruct_momentum_trajectory(self, soln):
+        return self._reconstruct_trajectory(soln, self.momentum)
+
+    def reconstruct_state_trajectory(self, soln):
+        return self._reconstruct_trajectory(soln, self.x)
+
+    def reconstruct_force_trajectory(self, soln):
+        return self._reconstruct_trajectory(soln, self.l)
+
+    def reconstruct_contact_point_trajectory(self, soln):
+        return self._reconstruct_trajectory(soln, self.contactpts)
+
+    def reconstruct_input_trajectory(self, soln):
+        raise NotImplementedError("control torques not implemented in centroidal model")
+    
+    def reconstruct_limit_force_trajectory(self, soln):
+        return NotImplementedError("joint limits not included in centroidal model")
+
+    def reconstruct_all_trajectories(self, soln):
+        com = self.reconstruct_com_trajectory(soln)
+        momentum = self.reconstruct_momentum_trajectory(soln)
+        state = self.reconstruct_state_trajectory(soln)
+        contact = self.reconstruct_contact_point_trajectory(soln)
+        forces = self.reconstruct_force_trajectory(soln)
+        slacks = self.reconstruct_slack_trajectory(soln)
+        return com, momentum, state, contact, forces, slacks
+
+    def result_to_dict(self, soln):
+        """ unpack the trajectories from the program result and store in a dictionary"""
+        t = self.get_solution_times(soln)
+        com, momentum, x, contactpts, forces, slacks = self.reconstruct_all_trajectories(soln)
+        if slacks is not None:
+            slacks = slacks.vector_values(t)
+        return {"time": t,
+                    "state": x.vector_values(t),
+                    "com": com.vector_values(t), 
+                    "force": forces.vector_values(t),
+                    "momentum": momentum.vector_values(t),
+                    "contactpts": contactpts.vector_values(t),
+                    "slacks": slacks,
+                    "solver": soln.get_solver_id().name(),
+                    "success": soln.is_success(),
+                    "exit_code": soln.get_solver_details().info,
+                    "final_cost": soln.get_optimal_cost()
+                    }
 
 class ContactConstraintViewer():
     def __init__(self, trajopt, result_dict):
