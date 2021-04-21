@@ -6,6 +6,8 @@ contactimplicit: Implements Contact Implicit Trajectory Optimization using Backw
 Luke Drnach
 October 5, 2020
 """
+#TODO: Do integration with euler angles instead of quaternions
+
 import numpy as np 
 from matplotlib import pyplot as plt
 from pydrake.all import MathematicalProgram, PiecewisePolynomial
@@ -942,7 +944,7 @@ class ContactConstraintViewer():
         Tslack, velocity = np.split(velocity, [self.trajopt.numT])
         Fslack, friction = np.split(friction, [self.trajopt.numN])
         # Plot the remaining variables using the nonlinear plotter
-        normal_axs, tangent_axs = self.plot_complementarity_nonlinear(distance, velocity, friction)
+        normal_axs, tangent_axs = self.plot_complementarity_nonlinear(time, distance, velocity, friction)
         # Add in the slack variables
         color = 'tab:green'
         for n in range(0, self.trajopt.numN):
@@ -951,7 +953,7 @@ class ContactConstraintViewer():
             for k in range(0, 4*self.trajopt.plant_f.dlevel):
                 tangent_axs[n*4*self.trajopt.plant_f.dlevel + k].plot(time, Tslack[n*4*self.trajopt.plant_f.dlevel + k,:], linewidth=1.5, color=color)
         
-    def plot_complementarity_nonlinear(self,time, distance, velocity, friction):
+    def plot_complementarity_nonlinear(self, time, distance, velocity, friction):
         # Get the variables
         norm_dist = distance[0:self.trajopt.numN,:]
         norm_force = distance[self.trajopt.numN:2*self.trajopt.numN,:]

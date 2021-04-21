@@ -338,12 +338,12 @@ def plot_complementarity(ax, x, y1, y2, label1, label2):
         x = range(0, len(y1))
     color = "tab:red"
     ax.set_ylabel(label1, color = color)
-    ax.plot(x, y1, "o-", color=color, linewidth=1.5)
+    ax.plot(x, y1, "-", color=color, linewidth=1.5)
     # Create the second axis 
     ax2 = ax.twinx()
     color = "tab:blue"
     ax2.set_ylabel(label2, color=color)
-    ax2.plot(x, y2, "o-", color=color, linewidth=1.5)
+    ax2.plot(x, y2, "-", color=color, linewidth=1.5)
     # Align the axes at zero
     align_axes(ax,ax2)
 
