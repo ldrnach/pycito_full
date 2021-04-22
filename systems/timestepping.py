@@ -387,14 +387,14 @@ class TimeSteppingMultibodyPlant():
         forces = self.resolve_forces(forces)
         # Reorganize from (Normal, Tangential) to a list (Fx1, Fy1, Fz1, Fx2, ...)
         force_list = []
-        for n in range(self.num_contacts):
+        for n in range(self.num_contacts()):
             # Get the terrain frame given the contact point
             frame = self.terrain.local_frame(contactpts[3*n:3*(n+1)])
             # Pull (Normal_k, Tangential_k) from (Normal, Tangential)
             force = forces[[n, self.num_contacts() + 2*n, self.num_contacts() + 2*n +1]]
             # Transform and append
-            force_list.append(frame.dot(force))
-        return force_list
+            force_list.append(frame.transpose().dot(force))
+        return np.concatenate(force_list, axis=1)
 
     def resolve_contact_forces_in_world(self, context, forces):
         """
@@ -412,9 +412,9 @@ class TimeSteppingMultibodyPlant():
         _, frames = self.getTerrainPointsAndFrames(context)
         world_forces = []
         for force, frame in zip(force_list, frames):
-            world_forces.append(frame.dot(force))
+            world_forces.append(frame.transpose().dot(force))
         # Return a list of forces in world coordinates
-        return world_forces
+        return np.concatenate(world_forces, axis=1)
 
     def resolve_limit_forces(self, jl_forces):
         """ 
@@ -455,6 +455,8 @@ class TimeSteppingMultibodyPlant():
 
     def resolve_forces(self, forces):
         """ Convert discretized friction & normal forces into a non-discretized 3-vector"""
+        if forces.ndim == 1:
+            forces = np.expand_dims(forces, axis=1)
         numN = self.num_contacts()
         n = 4*self.dlevel
         fN = forces[0:numN, :]
