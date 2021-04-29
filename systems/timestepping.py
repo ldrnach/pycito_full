@@ -35,11 +35,20 @@ class TimeSteppingMultibodyPlant():
         self.model_index = []
         if file is not None:
             # Parse the file
-            self.model_index = Parser(self.multibody).AddModelFromFile(FindResource(file))
+            self.model_index.append(Parser(self.multibody).AddModelFromFile(FindResource(file)))
         # Initialize the collision data
         self.collision_frames = []
         self.collision_poses = []
         self.collision_radius = []
+        self.collision_index = []
+
+    def add_model(self, urdf_file=None, name=None):
+        """ Adds a model, specified by urdf file, to the plant"""
+        if urdf_file is not None:
+            if name is not None:
+                self.model_index.append(Parser(self.multibody).AddModelFromFile(FindResource(urdf_file), model_name=name))
+            else:
+                self.model_index.append(Parser(self.multibody).AddModelFromFile(FindResource(urdf_file)))
 
     def Finalize(self):
         """
@@ -191,24 +200,26 @@ class TimeSteppingMultibodyPlant():
         """Identifies the collision geometries in the model and stores their parent frame and pose in parent frame in lists"""
         # Create a diagram and a scene graph
         inspector = self.scene_graph.model_inspector()
-        # Locate collision geometries and contact points
-        body_inds = self.multibody.GetBodyIndices(self.model_index)
-        # Get the collision frames for each body in the model
-        for body_ind in body_inds:
-            body = self.multibody.get_body(body_ind)
-            collision_ids = self.multibody.GetCollisionGeometriesForBody(body)
-            for id in collision_ids:
-                # get and store the collision geometry frames
-                frame_name = inspector.GetName(inspector.GetFrameId(id)).split("::")
-                self.collision_frames.append(self.multibody.GetFrameByName(frame_name[-1]))
-                self.collision_poses.append(inspector.GetPoseInFrame(id))
-                # Check for a spherical geometry
-                geoms = inspector.GetGeometries(inspector.GetFrameId(id), Role.kProximity)
-                shape = inspector.GetShape(geoms[0])
-                if type(shape) is Sphere:
-                    self.collision_radius.append(shape.radius())
-                else:
-                    self.collision_radius.append(0.)
+        for index in self.model_index:
+            # Locate collision geometries and contact points
+            body_inds = self.multibody.GetBodyIndices(index)
+            # Get the collision frames for each body in the model
+            for body_ind in body_inds:
+                body = self.multibody.get_body(body_ind)
+                collision_ids = self.multibody.GetCollisionGeometriesForBody(body)
+                for id in collision_ids:
+                    # get and store the collision geometry frames
+                    frame_name = inspector.GetName(inspector.GetFrameId(id)).split("::")
+                    self.collision_frames.append(self.multibody.GetFrameByName(frame_name[-1], index))
+                    self.collision_poses.append(inspector.GetPoseInFrame(id))
+                    self.collision_index.append(index)
+                    # Check for a spherical geometry
+                    geoms = inspector.GetGeometries(inspector.GetFrameId(id), Role.kProximity)
+                    shape = inspector.GetShape(geoms[0])
+                    if type(shape) is Sphere:
+                        self.collision_radius.append(shape.radius())
+                    else:
+                        self.collision_radius.append(0.)
 
     def __discretize_friction(self, normal, tangent):
         """

@@ -22,7 +22,7 @@ class Block(TimeSteppingMultibodyPlant):
         # Initialize the time-stepping multibody plant
         super(Block, self).__init__(file=FindResource(urdf_file), terrain=terrain)
         # Weld the center body frame to the world frame
-        body_inds = self.multibody.GetBodyIndices(self.model_index)
+        body_inds = self.multibody.GetBodyIndices(self.model_index[0])
         base_frame = self.multibody.get_body(body_inds[0]).body_frame()
         self.multibody.WeldFrames(self.multibody.world_frame(), base_frame, RigidTransform())
 

@@ -14,7 +14,7 @@ from pydrake.autodiffutils import AutoDiffXd
 from pydrake.multibody.tree import MultibodyForces_
 from utilities import MathProgIterationPrinter, plot_complementarity
 from trajopt.constraints import ConstantSlackNonlinearComplementarity, ComplementarityFactory, NCCImplementation, NCCSlackType
-from trajopt.quatutils import rpy_rates_to_velocity, rpy_to_quaternion
+from trajopt.quatutils import xyz_to_quaternion
 #TODO: Re-make decision variables to ease code understanding
 #TODO: Unit testing for whole-body and centrodial optimizers
 
@@ -306,10 +306,10 @@ class ContactImplicitDirectTranscription():
             coordsmap = np.full(coords.shape, True)
             xmap = np.full(x.shape, True)
             for pidx, vidx in zip(self.floating_pos, self.floating_vel):
-                # Convert Euler angles to quaternion
-                coords[pidx:pidx+4] = rpy_to_quaternion(x[pidx:pidx+3])
-                # Convert Euler rates to body velocity
-                coords[vidx:vidx+3] = rpy_rates_to_velocity(x[pidx:pidx+3], x[vidx:vidx+3])
+                # Convert XYZ-Angles to quaternion
+                coords[pidx:pidx+4] = xyz_to_quaternion(x[pidx:pidx+3])
+                # Copy over angular velocity in world coordinates
+                coords[vidx:vidx+3] =  x[vidx:vidx+3]
                 # Mask out the orientation states
                 coordsmap[pidx:pidx+4] = False
                 coordsmap[vidx:vidx+3] = False
@@ -329,7 +329,7 @@ class ContactImplicitDirectTranscription():
             xmap = np.full(x.shape, True)
             for pidx in self.floating_pos:
                 # Convert to quaternion
-                coords[pidx:pidx+4] = rpy_to_quaternion(x[pidx:pidx+3])
+                coords[pidx:pidx+4] = xyz_to_quaternion(x[pidx:pidx+3])
                 # Mask out remaining variables
                 coordsmap[pidx:pidx+4] = False
                 xmap[pidx:pidx+3] = False
