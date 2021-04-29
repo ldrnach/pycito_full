@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<robot name = "free_block">
+    <link name = "box">
+        <visual>
+            <origin xyz = "0 0 0"/>
+            <geometry>
+                <box size="1 0.5 0.1"/>
+            </geometry>
+        </visual>
+        <inertial>
+            <origin xyz="0 0 0"/>
+            <mass value="1"/>
+            <inertia ixx="0.022" iyy="0.08" izz="0.10" ixy="0" ixz="0" iyz="0"/>
+        </inertial>
+        <!-- Put a single collision point at the bottom of the box-->
+        <!--First collision point-->
+        <collision>
+            <origin xyz="0 0 0"/>
+            <geometry>
+                <box size="1 0.1 0.5"/>
+            </geometry>
+        </collision>
+    </link>
+</robot>
