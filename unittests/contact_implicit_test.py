@@ -8,14 +8,14 @@ October 14, 2020
 import numpy as np
 import unittest
 from trajopt.contactimplicit import ContactImplicitDirectTranscription
-from systems.timestepping import TimeSteppingMultibodyPlant
+from systems.block.block import Block
 from pydrake.autodiffutils import AutoDiffXd
 
 class ContactImplicitTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Setup and finalize the plant model, and create the optimization problem"""
-        cls.model = TimeSteppingMultibodyPlant(file="systems/urdf/sliding_block.urdf")
+        cls.model = Block()
         cls.model.Finalize()
         cls.opt = ContactImplicitDirectTranscription(plant=cls.model,
                                                 context=cls.model.multibody.CreateDefaultContext(),
@@ -40,38 +40,38 @@ class ContactImplicitTest(unittest.TestCase):
         
     def test_eval_dynamic_constraint(self):
         """Check that the dynamic constraint can be evaluated"""
-        z = np.concatenate([self.h, self.x1, self.x2, self.u, self.l], axis=0)
-        r = self.opt._ContactImplicitDirectTranscription__backward_dynamics(z)
-        r_true = np.array([0.998, -0.501, 6.5, -40.19])
-        self.assertTrue(np.allclose(r,r_true), msg="Backward dynamics incorrect")
+        z = np.concatenate([self.h, self.x1, self.x2, self.u, self.l[0:5]], axis=0)
+        r = self.opt._backward_dynamics(z)
+        r_true = np.array([0.998, -0.501, 0.065, -0.4019])
+        np.testing.assert_allclose(r,r_true, err_msg="Backward dynamics incorrect")
         
     def test_eval_normaldist_constraint(self):
         """Check the normal distance constraint"""
         # Check that the constraint returns the correct values for non-contact
         z = np.concatenate([self.x1, self.l[0:self.numN]], axis=0)
-        r = self.opt._ContactImplicitDirectTranscription__normal_distance_constraint(z)
+        r = self.opt.distance_cstr(z)
         phi = self.x1[1] - 0.5
         cstr_true = np.array([phi, self.l[0], phi*self.l[0]])
-        self.assertTrue(np.allclose(r, cstr_true), msg="Normal distance constraint incorrect for no-contact")
+        np.testing.assert_allclose(r, cstr_true, err_msg="Normal distance constraint incorrect for no-contact")
         # Check that the constraint returns the correct values for contact
         z = np.concatenate([self.x2, self.l[0:self.numN]], axis=0)
-        r = self.opt._ContactImplicitDirectTranscription__normal_distance_constraint(z)
+        r = self.opt.distance_cstr(z)
         cstr_true = np.array([0.0, self.l[0], 0.0])
-        self.assertTrue(np.allclose(r, cstr_true), msg="Normal distance constraint incorrect for contact")
+        np.testing.assert_allclose(r, cstr_true, err_msg="Normal distance constraint incorrect for contact")
 
     def test_eval_slidingvel_constraint(self):
         """Check that the sliding velocity constraint can be evaluated"""
-        z = np.concatenate([self.x1,self.l[self.numN:]], axis=0)
-        r = self.opt._ContactImplicitDirectTranscription__sliding_velocity_constraint(z)
+        z = np.concatenate([self.x1,self.l[self.numN+self.numT:], self.l[self.numN:self.numN+self.numT]], axis=0)
+        r = self.opt.sliding_cstr(z)
         r_true = np.array([4.3, 4.2, 4.1, 4.2, 1.5, 2.1, 0.5, 3.7, 6.45, 8.82, 2.05, 15.54])
-        self.assertTrue(np.allclose(r, r_true), msg = "Sliding velocity constraint incorrect")
+        np.testing.assert_allclose(r, r_true, err_msg = "Sliding velocity constraint incorrect")
 
     def test_eval_friccone_constraint(self):
         """Check that the friction cone constraint can be evaluated"""
         z = np.concatenate([self.x1, self.l], axis=0)
-        r = self.opt._ContactImplicitDirectTranscription__friction_cone_constraint(z)
+        r = self.opt.friccone_cstr(z)
         r_true = np.array([-2.8, 4.2, -11.76])
-        self.assertTrue(np.allclose(r,r_true), msg="Friction cone constraint incorrect") 
+        np.testing.assert_allclose(r,r_true, err_msg="Friction cone constraint incorrect") 
 
     def test_equal_timestep_constraint(self):
         """Check that the add_equal_time_constraints method executes"""

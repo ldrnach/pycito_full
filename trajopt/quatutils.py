@@ -110,6 +110,10 @@ def quat2rpy(quat):
     else:
         return rpy
 
+def rpy2quat(rpy):
+    """ Thin wrapper for rpy_to_quaternion"""
+    return rpy_to_quaternion(rpy)
+
 def rpy_to_quaternion(rpy):
     """
     Convert roll-pitch-yaw angles to quaternions

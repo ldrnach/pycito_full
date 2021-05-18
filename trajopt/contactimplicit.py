@@ -6,7 +6,7 @@ contactimplicit: Implements Contact Implicit Trajectory Optimization using Backw
 Luke Drnach
 October 5, 2020
 """
-
+from enum import Enum
 import numpy as np 
 from matplotlib import pyplot as plt
 from pydrake.all import MathematicalProgram, PiecewisePolynomial
@@ -18,13 +18,18 @@ from trajopt.quatutils import xyz_to_quaternion
 #TODO: Re-make decision variables to ease code understanding
 #TODO: Unit testing for whole-body and centrodial optimizers
 
+class OrientationType(Enum):
+    QUATERNION = 1
+    FIXEDANGLES = 2
+
 class OptimizationOptions():
     """ Keeps track of optional settings for Contact Implicit Trajectory Optimization"""
     def __init__(self):
         """ Initialize the options to their default values"""
         self.slacktype = NCCSlackType.CONSTANT_SLACK
         self.ncc_implementation = NCCImplementation.NONLINEAR
-    
+        self.orientationtype = OrientationType.FIXEDNAGLES
+
     def useLinearComplementarity(self):
         """ Use linear complementarity with equality constraints"""
         self.ncc_implementation = NCCImplementation.LINEAR_EQUALITY
@@ -45,6 +50,13 @@ class OptimizationOptions():
         """ Use a decision variable for the slack in the complementarity constraints"""
         self.slacktype = NCCSlackType.VARIABLE_SLACK
 
+    def useQuaternionOrientation(self):
+        """ Use quaternions to represent orientation """
+        self.orientationtype = OrientationType.QUATERNION
+    
+    def useFixedAngleOrientation(self):
+        self.orientationtype = OrientationType.FIXEDANGLES
+
 class DecisionVariableList():
     """Helper class for adding a list of decision variables to a cost/constraint"""
     def __init__(self, varlist = []):
@@ -60,7 +72,7 @@ class ContactImplicitDirectTranscription():
     """
     Implements contact-implicit trajectory optimization using Direct Transcription
     """
-    def __init__(self, plant, context, num_time_samples, minimum_timestep, maximum_timestep, options=OptimizationOptions):
+    def __init__(self, plant, context, num_time_samples, minimum_timestep, maximum_timestep, options=OptimizationOptions()):
         """
         Create MathematicalProgram with decision variables and add constraints for the rigid body dynamics, contact conditions, and joint limit constraints
 
@@ -104,7 +116,6 @@ class ContactImplicitDirectTranscription():
         self._set_initial_timesteps()
 
     def _check_floating_dof(self):
-
         # Get the floating bodies
         floating = self.plant_f.multibody.GetFloatingBaseBodies()
         self.floating_pos = []
@@ -118,6 +129,7 @@ class ContactImplicitDirectTranscription():
                 self.floating_vel.append(body.floating_velocities_start())
                 self.floating_mag.append(num_states)
                 num_states += 1
+    
     def _has_quaternion_states(self):
         return len(self.plant_f.multibody.GetFloatingBaseBodies()) > 0
 
@@ -129,11 +141,16 @@ class ContactImplicitDirectTranscription():
 
             addDecisionVariables is called during object construction
         """
+        #TODO: Implement switch between quaternion and euler angles
         # Add time variables to the program
         self.h = self.prog.NewContinuousVariables(rows=self.num_time_samples-1, cols=1, name='h')
         # Add state variables to the program
         nX = 2*self.plant_ad.multibody.num_velocities()
-        self.x = self.prog.NewContinuousVariables(rows=nX, cols=self.num_time_samples, name='x')
+        if self._has_quaternion_states() and self.options.orientationType == OrientationType.QUATERNION:
+            self.x = self.prog.NewContinuousVariabes(rows=nX, cols=self.num_time_samples, name='x')
+            nQuat = len(self.floating_mag)
+        else:
+            self.x = self.prog.NewContinuousVariables(rows=nX+nQuat, cols=self.num_time_samples, name='x')
         # Add control variables to the program
         nU = self.plant_ad.multibody.num_actuators()
         self.u = self.prog.NewContinuousVariables(rows=nU, cols=self.num_time_samples, name='u')
@@ -275,8 +292,8 @@ class ContactImplicitDirectTranscription():
         p2, dp2 = np.split(x2, 2)
         fp = p2 - p1 - h*dp2
         # Convert decision variables to Drake coordinates
-        _, v1 = self._state_to_coordinates(x1)
-        q2, v2 = self._state_to_coordinates(x2)
+        _, v1 = self._dvars_to_coordinates(x1)
+        q2, v2 = self._dvars_to_coordinates(x2)
         # Update the context - backward Euler integration
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate((q2,v2), axis=0))
         # Set mutlibodyForces to zero
@@ -299,7 +316,7 @@ class ContactImplicitDirectTranscription():
         fv = M.dot(v2 - v1) - h*forces
         return np.concatenate((fp, fv), axis=0)
 
-    def _state_to_coordinates(self, x):
+    def _dvars_to_coordinates(self, x):
         """Convert the state vector (decision variables) to generalized coordinates"""
         if self._has_quaternion_states():
             coords = np.zeros((self.plant_f.multibody.num_positions()  + self.plant_f.multibody.num_velocities(),), dtype=x.dtype)
@@ -528,6 +545,8 @@ class ContactImplicitDirectTranscription():
         """
         if subset_index is None:
             subset_index = np.array(range(0, self.x.shape[0]))  
+        if type(subset_index) is not np.ndarray:
+            subset_index = np.array(subset_index)
         # Check that the input is within the joint limits
         qmin = self.plant_f.multibody.GetPositionLowerLimits()
         qmax = self.plant_f.multibody.GetPositionUpperLimits()
@@ -853,7 +872,7 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
         plant, context, _ = self._autodiff_or_float(dvars)
         # Split the variables
         lCOM, state = np.split(dvars, [3])
-        q, v = self._state_to_coordinates(state)
+        q, v = self._dvars_to_coordinates(state)
         # Update the context
         plant.multibody.SetPositionsAndVelocities(context, q, v)
         # Return the momentum error
