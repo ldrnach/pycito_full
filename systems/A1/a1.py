@@ -7,7 +7,7 @@ Includes classes for creating A1 MultibodyPlant and TimesteppingMultibodyPlant a
 # Library imports
 import numpy as np
 import matplotlib.pyplot as plt
-from pydrake.all import PiecewisePolynomial
+from pydrake.all import PiecewisePolynomial, InverseKinematics, Solve, Body, PrismaticJoint, BallRpyJoint, SpatialInertia, UnitInertia
 # Project Imports
 from utilities import FindResource, GetKnotsFromTrajectory, quat2rpy
 from systems.timestepping import TimeSteppingMultibodyPlant
@@ -18,6 +18,26 @@ class A1(TimeSteppingMultibodyPlant):
     def __init__(self, urdf_file="systems/A1/A1_description/urdf/a1_foot_collision.urdf", terrain=FlatTerrain()):
         # Initialize the time-stepping multibody plant
         super(A1, self).__init__(file=FindResource(urdf_file), terrain=terrain)
+
+
+    def useVirtualLinks(self):
+        if self.multibody.is_finalized():
+            raise RuntimeError("useFloatingRPYJoint must be called before finalize")
+        zeroinertia = SpatialInertia(0, np.zeros((3,)), UnitInertia(0., 0., 0.))
+        # Create virtual, zero-mass links
+        xlink = self.multibody.AddRigidBody('xlink', self.model_index, zeroinertia)
+        ylink = self.multibody.AddRigidBody('ylink', self.model_index, zeroinertia)
+        zlink = self.multibody.AddRigidBody('zlink', self.model_index, zeroinertia)
+        # Create the translational and rotational joints
+        xtrans = PrismaticJoint("xtranslation", self.multibody.world_frame(), xlink.body_frame(), [1., 0., 0.])
+        ytrans = PrismaticJoint("ytranslation", xlink.body_frame(), ylink.body_frame(), [0., 1., 0.])
+        ztrans = PrismaticJoint("ztranslation", ylink.body_frame(), zlink.body_frame(), [0., 0., 1.])
+        rpyrotation = BallRpyJoint("baseorientation", zlink.body_frame(), self.multibody.GetBodyByName('base').body_frame())
+        # Add the joints to the multibody plant
+        self.multibody.AddJoint(xtrans)
+        self.multibody.AddJoint(ytrans)
+        self.multibody.AddJoint(ztrans)
+        self.multibody.AddJoint(rpyrotation)
 
     def print_frames(self, config=None):
         body_indices = self.multibody.GetBodyIndices(self.model_index)
@@ -100,6 +120,35 @@ class A1(TimeSteppingMultibodyPlant):
         dist = self.GetNormalDistances(context)
         pos[6] = pos[6] - np.amin(dist)
         return pos
+
+    def standing_pose_ik(self, base_pose, guess=None):
+        # Create an IK Problem
+        IK = InverseKinematics(self.multibody, with_joint_limits=True)
+        # Get the context and set the default pose
+        context = self.multibody.CreateDefaultContext()
+        q_0 = np.zeros((self.multibody.num_positions(),))
+        q_0[0:7] = base_pose
+        self.multibody.SetPositions(context, q_0)
+        # Constrain the foot positions
+        world = self.multibody.world_frame()
+        for pose, frame, radius in zip(self.collision_poses, self.collision_frames, self.collision_radius):
+            point = pose.translation().copy()
+            point[-1] -= radius
+            point_w = self.multibody.CalcPointsPositions(context, frame, point, world)
+            point_w[-1] = 0.
+            IK.AddPositionConstraint(frame, point, world, point_w, point_w)
+        # Set the base position as a constraint
+        q_vars = IK.q()
+        prog = IK.prog()
+        prog.AddLinearEqualityConstraint(Aeq = np.eye(7), beq = np.expand_dims(base_pose, axis=1), vars=q_vars[0:7])
+        # Solve the problem
+        prog = IK.prog()
+        if guess is not None:
+            # Set the initial guess
+            prog.SetInitialGuess(q_vars, guess)
+        result = Solve(prog)
+        # Return the configuration vector
+        return result.GetSolution(IK.q()), result.is_success()
 
     def plot_trajectories(self, xtraj=None, utraj=None, ftraj=None, jltraj=None):
         """ Plot all the trajectories for A1 """
@@ -238,9 +287,16 @@ if __name__ == "__main__":
     print(f"A1 has lower joint limits {qmin} and upper joint limits {qmax}")
     print(f"A1 has actuation matrix:")
     print(a1.multibody.MakeActuationMatrix())
-    # Construct standing controller for A1 static pose
+    # Get the default A1 standing pose
     pose = a1.standing_pose()
-    u, f = a1.static_controller(pose, verbose=True)
+    print(f"A1 standing pose{pose}")
+    # Get a new standing pose using inverse kinematics
+    pose2 = pose.copy()
+    pose2[6] = pose[6]/2.
+    pose2_ik, status = a1.standing_pose_ik(base_pose = pose2[0:7], guess = pose2.copy())
+    print(f"IK Successful? {status}")
+    print(f"Second A1 standing pose {pose2_ik}")
+    #u, f = a1.static_controller(pose, verbose=True)
     print('Complete')
     #a1.configuration_sweep()
     # a1.print_frames()
