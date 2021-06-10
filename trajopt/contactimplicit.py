@@ -28,7 +28,7 @@ class OptimizationOptions():
         """ Initialize the options to their default values"""
         self.slacktype = NCCSlackType.CONSTANT_SLACK
         self.ncc_implementation = NCCImplementation.NONLINEAR
-        self.orientationtype = OrientationType.FIXEDNAGLES
+        self.orientationtype = OrientationType.FIXEDANGLES
 
     def useLinearComplementarity(self):
         """ Use linear complementarity with equality constraints"""
@@ -147,10 +147,10 @@ class ContactImplicitDirectTranscription():
         # Add state variables to the program
         nX = 2*self.plant_ad.multibody.num_velocities()
         if self._has_quaternion_states() and self.options.orientationType == OrientationType.QUATERNION:
-            self.x = self.prog.NewContinuousVariabes(rows=nX, cols=self.num_time_samples, name='x')
             nQuat = len(self.floating_mag)
-        else:
             self.x = self.prog.NewContinuousVariables(rows=nX+nQuat, cols=self.num_time_samples, name='x')
+        else:
+            self.x = self.prog.NewContinuousVariables(rows=nX, cols=self.num_time_samples, name='x')
         # Add control variables to the program
         nU = self.plant_ad.multibody.num_actuators()
         self.u = self.prog.NewContinuousVariables(rows=nU, cols=self.num_time_samples, name='u')
