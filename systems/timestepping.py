@@ -83,7 +83,7 @@ class TimeSteppingMultibodyPlant():
             # Calc normal distance to terrain   
             terrain_frame = self.terrain.local_frame(terrain_pt)  
             normal = terrain_frame[0,:]
-            distances[n] = normal.dot(collision_pt - terrain_pt)
+            distances[n] = normal.dot(collision_pt - terrain_pt) - self.collision_radius[n]
         # Return the distances as a single array
         return distances
 
@@ -243,8 +243,7 @@ class TimeSteppingMultibodyPlant():
         t = np.zeros(shape=(N,))
         nf = 1
         if u is None:
-            B = self.multibody.MakeAcutatorMatrix()
-            u = np.zeros(shape=(B.shape[1], N))
+            u = np.zeros(shape=(self.multibody.num_actuators(), N))
         context = self.multibody.CreateDefaultContext()
         Jn, Jt = self.GetContactJacobians(context)
         f = np.zeros(shape=(Jn.shape[0] + Jt.shape[0], N))
