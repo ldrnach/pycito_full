@@ -19,12 +19,11 @@ class A1(TimeSteppingMultibodyPlant):
         # Initialize the time-stepping multibody plant
         super(A1, self).__init__(file=FindResource(urdf_file), terrain=terrain)
 
-
-    def useVirtualLinks(self):
+    def useFloatingRPYJoint(self):
         if self.multibody.is_finalized():
             raise RuntimeError("useFloatingRPYJoint must be called before finalize")
         zeroinertia = SpatialInertia(0, np.zeros((3,)), UnitInertia(0., 0., 0.))
-        # Create virtual, zero-mass links
+        # Create virtual, zero-mass
         xlink = self.multibody.AddRigidBody('xlink', self.model_index, zeroinertia)
         ylink = self.multibody.AddRigidBody('ylink', self.model_index, zeroinertia)
         zlink = self.multibody.AddRigidBody('zlink', self.model_index, zeroinertia)
