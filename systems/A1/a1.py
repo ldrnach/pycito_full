@@ -7,7 +7,11 @@ Includes classes for creating A1 MultibodyPlant and TimesteppingMultibodyPlant a
 # Library imports
 import numpy as np
 import matplotlib.pyplot as plt
+<<<<<<< HEAD
 from pydrake.all import PiecewisePolynomial, InverseKinematics, Solve
+=======
+from pydrake.all import PiecewisePolynomial, InverseKinematics, Solve, Body, PrismaticJoint, BallRpyJoint, SpatialInertia, UnitInertia
+>>>>>>> master
 # Project Imports
 from utilities import FindResource, GetKnotsFromTrajectory, quat2rpy
 from systems.timestepping import TimeSteppingMultibodyPlant
@@ -19,6 +23,25 @@ class A1(TimeSteppingMultibodyPlant):
     def __init__(self, urdf_file="systems/A1/A1_description/urdf/a1_foot_collision.urdf", terrain=FlatTerrain()):
         # Initialize the time-stepping multibody plant
         super(A1, self).__init__(file=FindResource(urdf_file), terrain=terrain)
+
+    def useFloatingRPYJoint(self):
+        if self.multibody.is_finalized():
+            raise RuntimeError("useFloatingRPYJoint must be called before finalize")
+        zeroinertia = SpatialInertia(0, np.zeros((3,)), UnitInertia(0., 0., 0.))
+        # Create virtual, zero-mass
+        xlink = self.multibody.AddRigidBody('xlink', self.model_index, zeroinertia)
+        ylink = self.multibody.AddRigidBody('ylink', self.model_index, zeroinertia)
+        zlink = self.multibody.AddRigidBody('zlink', self.model_index, zeroinertia)
+        # Create the translational and rotational joints
+        xtrans = PrismaticJoint("xtranslation", self.multibody.world_frame(), xlink.body_frame(), [1., 0., 0.])
+        ytrans = PrismaticJoint("ytranslation", xlink.body_frame(), ylink.body_frame(), [0., 1., 0.])
+        ztrans = PrismaticJoint("ztranslation", ylink.body_frame(), zlink.body_frame(), [0., 0., 1.])
+        rpyrotation = BallRpyJoint("baseorientation", zlink.body_frame(), self.multibody.GetBodyByName('base').body_frame())
+        # Add the joints to the multibody plant
+        self.multibody.AddJoint(xtrans)
+        self.multibody.AddJoint(ytrans)
+        self.multibody.AddJoint(ztrans)
+        self.multibody.AddJoint(rpyrotation)
 
     def print_frames(self, config=None):
         body_indices = self.multibody.GetBodyIndices(self.model_index)
@@ -263,6 +286,7 @@ class A1(TimeSteppingMultibodyPlant):
 def test_rpy2quat():
     a1 = A1()
     a1.Finalize()
+<<<<<<< HEAD
     context = a1.multibody.CreateDefaultContext()
     pos = a1.multibody.GetPositions(context)
     t = np.linspace(0., 1., 101)
@@ -299,6 +323,24 @@ if __name__ == "__main__":
     # print(f"Second A1 standing pose {pose2_ik}")
     # #u, f = a1.static_controller(pose, verbose=True)
     # print('Complete')
+=======
+    print(f"A1 effort limits {a1.get_actuator_limits()}")
+    qmin, qmax = a1.get_joint_limits()
+    print(f"A1 has lower joint limits {qmin} and upper joint limits {qmax}")
+    print(f"A1 has actuation matrix:")
+    print(a1.multibody.MakeActuationMatrix())
+    # Get the default A1 standing pose
+    pose = a1.standing_pose()
+    print(f"A1 standing pose{pose}")
+    # Get a new standing pose using inverse kinematics
+    pose2 = pose.copy()
+    pose2[6] = pose[6]/2.
+    pose2_ik, status = a1.standing_pose_ik(base_pose = pose2[0:7], guess = pose2.copy())
+    print(f"IK Successful? {status}")
+    print(f"Second A1 standing pose {pose2_ik}")
+    #u, f = a1.static_controller(pose, verbose=True)
+    print('Complete')
+>>>>>>> master
     #a1.configuration_sweep()
     # a1.print_frames()
     # pos = a1.standing_pose()

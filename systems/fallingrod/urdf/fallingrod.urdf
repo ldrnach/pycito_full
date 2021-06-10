@@ -1,0 +1,80 @@
+<?xml version="1.0"?>
+<robot name = "falling_rod">
+    <material name="grey">
+    	<color rgba="0.2 0.2 0.2 1.0"/>
+  	</material>
+    <link name = "xtrans"/>
+    <link name = "ztrans"/>
+    <link name = "yrot" />
+    <link name = "rod">
+        <visual>
+            <origin xyz = "0 0 0"/>
+            <geometry>
+                <cylinder length="0.5" radius="0.05"/>
+            </geometry>
+          	<material name="grey"/>
+        </visual>
+        <inertial>
+            <origin xyz="0 0 0"/>
+            <mass value="1"/>
+            <inertia ixx="0.167" iyy="0.002" izz="0.167" ixy="0" ixz="0" iyz="0"/>
+        </inertial>
+    </link>
+    <link name = "bottom_cap">
+        <visual>
+            <origin xyz = "0 0 -0.25"/>
+            <geometry>
+                <sphere radius="0.05"/>
+            </geometry>
+            <material name="grey"/>
+        </visual>
+        <collision>
+            <origin xyz="0.0 0.0 -0.25"/>
+            <geometry>
+                <sphere radius="0.05"/>
+            </geometry>
+        </collision>
+    </link>
+    <link name = "top_cap">
+        <visual>
+            <origin xyz="0 0 0.25"/>
+            <geometry>
+                <sphere radius="0.05"/>
+            </geometry>
+            <material name="grey"/>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0.25"/>
+            <geometry>
+                <sphere radius="0.05"/>
+            </geometry>
+        </collision>
+    </link>
+    <!--Add joints between the dummy frames to model the brick-->
+    <joint name="xslide" type="prismatic">
+        <parent link="xtrans"/>
+        <child link="ztrans"/>
+        <origin rpy="0 0 0" xyz="0 0 0"/>
+        <axis xyz="1 0 0"/>
+    </joint>
+    <joint name="zslide" type="prismatic">
+        <parent link="ztrans"/>
+        <child link="yrot"/>
+        <origin rpy="0 0 0" xyz="0 0 0"/>
+        <axis xyz="0 0 1"/>
+    </joint>
+    <joint name="yrotate" type="revolute">
+        <parent link="yrot" />
+        <child link="rod" />
+        <origin rpy="0 0 0" xyz="0 0 0"/>
+        <axis xyz="0 1 0"/>
+    </joint>
+    <joint name="top_joint" type="fixed">
+        <parent link="rod"/>
+        <child link="top_cap"/>
+    </joint>
+    <joint name="bottom_joint" type="fixed">
+        <parent link="rod"/>
+        <child link="bottom_cap"/>
+    </joint>
+</robot>
