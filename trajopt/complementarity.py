@@ -5,8 +5,8 @@ Luke Drnach
 June 11, 2021
 """
 import numpy as np
-from abc import ABC, abstractmethod
 import warnings
+from abc import ABC, abstractmethod
 
 class ComplementarityFunction(ABC):
     """
@@ -26,22 +26,6 @@ class ComplementarityFunction(ABC):
         self.slack = 0.
         self.name = self.fcn.__name__
     
-    def __call__(self, vars):
-        """Evaluate the constraint"""
-        return self.eval(vars)
-
-    @abstractmethod
-    def eval(self, vars):
-        """Concrete implementation of the evaluator called by __call__"""
-
-    @abstractmethod
-    def lower_bound(self):
-        """Returns the lower bound of the constraint"""
-
-    @abstractmethod
-    def upper_bound(self):
-        """Returns the upper bound of the constraint"""
-
     def set_description(self, name=None):
         """Set a string description for the constraint"""
         if name is None:
@@ -49,6 +33,7 @@ class ComplementarityFunction(ABC):
         else:
             self.name = name
 
+    @abstractmethod
     def eval_product(self, vars):
         """Return the product of the complementarity function and variables"""
         x, z  = np.split(vars, [self.xdim])
@@ -61,15 +46,21 @@ class ComplementarityFunction(ABC):
         self._addNonnegativityConstraint(prog, zvars)
         # Add the non-linear constraints
         for n in range(xvars.shape[1]):
-            prog.AddConstraint(self.eval_product, lb =  )
-
-
-
+            prog.AddConstraint(self.eval_product, 
+                            lb = np.full((self.zdim,), -np.inf),
+                            ub = self.slack * np.ones((self.zdim,)),
+                            vars = np.concatenate([xvars[:,n], zvars[:,n]], axis=0),
+                            description = self.name + "_product")
+            prog.AddConstraint(self.fcn,
+                            lb = np.zeros((self.zdim,)),
+                            ub = np.full((self.zdim,), np.inf),
+                            vars = xvars[:,n],
+                            description = self.name + "_nonnegativity")
 
     def _addNonnegativityConstraint(self, prog, zvars):
         """Add the linear nonnegativity constraint on the complementarity variables"""
         cstr = prog.AddBoundingBoxConstraint(lb = 0., ub = np.inf, vars = zvars.flatten())
-        cstr.evaluator().set_description(self.name + "_nonnegativity")
+        cstr.evaluator().set_description(self.name + "_boundingbox")
 
     def _check_vars(self, xvars, zvars):
         """ Check that the decision variables are appropriately sized"""
@@ -100,6 +91,110 @@ class ComplementarityFunction(ABC):
     @cost_weight.setter
     def cost_weight(self, val):
         warnings.warn(f"{type(self).__name__} does not have an associated cost. The value is ignored.")
+
+class NonlinearComplementarityConstantSlack(ComplementarityFunction):
+    """
+    Implements the nonlinear complementarity constraint with a constant slack variable
+    Implements the problem as:
+        f(x) >= 0
+        z >= 0 
+        z*f(x) <= s
+    In this implementation, the slack is pushed to the upper bound of the constraints
+    """
+    def __init__(self, fcn, xdim=1, zdim=1, slack=0.):
+        super(NonlinearComplementarityConstantSlack, self).__init__(fcn, xdim, zdim)
+        self.slack = slack
+
+    def addToProgram(self, prog, xvars, zvars):
+        """Add the complementarity constraint to a program"""
+        self._check_vars(xvars, zvars)
+        # Add the linear nonnegativity constraint
+        self._addNonnegativityConstraint(prog, zvars)
+        # Add the non-linear constraints
+        for n in range(xvars.shape[1]):
+            prog.AddConstraint(self.eval_product, 
+                            lb = np.full((self.zdim,), -np.inf),
+                            ub = self.slack * np.ones((self.zdim,)),
+                            vars = np.concatenate([xvars[:,n], zvars[:,n]], axis=0),
+                            description = self.name + "_product")
+            prog.AddConstraint(self.fcn,
+                            lb = np.zeros((self.zdim,)),
+                            ub = np.full((self.zdim,), np.inf),
+                            vars = xvars[:,n],
+                            description = self.name + "_nonnegativity")
+
+    def eval_product(self, vars):
+        """Return the product of the complementarity function and variables"""
+        x, z  = np.split(vars, [self.xdim])
+        return z*self.fcn(x)
+
+    def _addNonnegativityConstraint(self, prog, zvars):
+        """Add the linear nonnegativity constraint on the complementarity variables"""
+        cstr = prog.AddBoundingBoxConstraint(lb = 0., ub = np.inf, vars = zvars.flatten())
+        cstr.evaluator().set_description(self.name + "_boundingbox")
+
+class NonlinearComplementarityVariableSlack(NonlinearComplementarityConstantSlack):
+    """
+    Implements the nonlinear complementarity constraint as
+        f(x) >= 0
+        z >= 0 
+        z*f(x) - s <= 0
+    where s is a decision variable. In this implementation, the bounds on the constraint are fixed, but 
+    the slack variable s is introduced and minimized in an associated cost.
+    """
+    def __init__(self, fcn, xdim=1, zdim=1):
+        super(NonlinearComplementarityVariableSlack, self).__init__(fcn, xdim, zdim)
+        self.__slack_cost = None
+        self.__cost_weight = 1.
+
+    def eval_product(self, vars):
+        """Return the product of the complementarity function and variables"""
+        x, z, s  = np.split(vars, [self.xdim, self.zdim])
+        return z*self.fcn(x) - s
+
+    def addToProgram(self, prog, xvars, zvars):
+        """ Add the constraint with the slack variables to the mathematical program"""
+        self._check_vars(xvars, zvars)
+        self.__slack = prog.NewContinuousVariables(rows=1, cols=zvars.shape[1], name=self.name+"_slacks")
+        # Add the complementarity constraints
+        self._addNonnegativityConstraint(prog, zvars)
+        for n in range(zvars.shape[1]):
+            prog.AddConstraint(self.eval_product, 
+                            lb = np.full((self.zdim,), -np.inf),
+                            ub = np.zeros((self.zdim,)),
+                            vars = np.concatenate([xvars[:,n], zvars[:,n], self.__slack[:,n]], axis=0),
+                            description = self.name + "_product")
+            prog.AddConstraint(self.fcn, 
+                            lb = np.zeros((self.zdim, )),
+                            ub = np.full((self.zdim,), np.inf),
+                            vars = xvars[:,n],
+                            description = self.name+"_nonnegativity")
+        # Add a cost on the slack variables
+        self.__slack_cost = prog.AddLinearCost(a = self.cost_weight * np.ones((self.__slack.shape[1]),), b=np.zeros((1,)), vars = self.__slacks)
+        self.__slack_cost.evaluator().set_description(self.name + "SlackCost")
+
+    @property
+    def slack(self):
+        return self.__slack
+
+    @slack.setter
+    def slack(self, val):
+        warnings.warn(f"{type(self).__name__} does not allow setting constant slack variables. The value is ignored")
+
+    @property
+    def cost_weight(self):
+        return self.__cost_weight
+
+    @cost_weight.setter
+    def cost_weight(self, val):
+        if (type(val) == int or type(val) == float) and val >= 0.:
+            #Store the cost weight value
+            self.__cost_weight = val
+            # Update slack cost
+            if self.__slack_cost is not None:
+                self.__slack_cost.evaluator().UpdateCoefficients(new_a = val*np.ones(self.slack.shape[1,]))
+        else:
+            raise ValueError("cost_weight must be a nonnegative numeric value")
 
 class CostRelaxedNonlinearComplementarity(ComplementarityFunction):
     """
@@ -170,59 +265,6 @@ class CostRelaxedNonlinearComplementarity(ComplementarityFunction):
             self.__cost_weight = val
         else:
             raise ValueError("cost_weight must be a nonnegative numeric value")       
-
-class ConstantSlackNonlinearComplementarity(ComplementarityFunction):
-    """
-    Implements the nonlinear complementarity constraint with a constant slack variable
-    Implements the problem as:
-        f(x) >= 0
-        z >= 0 
-        z*f(x) <= s
-    In this implementation, the slack is pushed to the upper bound of the constraints
-    """
-    def eval(self, vars):
-        """ 
-        Evaluates the original nonlinear complementarity constraint 
-        
-        The argument must be a numpy array of decision variables organized as [x, z]
-        """
-        x, z = np.split(vars, [self.xdim])
-        fcn_val = self.fcn(x)
-        return np.concatenate([fcn_val, z, fcn_val*z], axis=0)
-
-    def upper_bound(self):
-        """ Returns the upper bound of the constraint"""
-        return np.concatenate([np.full((2*self.zdim, ), np.inf), self.slack * np.ones((self.zdim,))], axis=0)
-
-    def lower_bound(self):
-        """ Returns the lower bound of the constraint"""
-        return np.concatenate([np.zeros((2*self.zdim,)), -np.full((self.zdim,), np.inf)], axis=0)
-
-class VariableSlackNonlinearComplementarity(ComplementarityFunction):
-    """
-    Implements the nonlinear complementarity constraint as
-        f(x) >= 0
-        z >= 0 
-        z*f(x) - s <= 0
-    where s is a decision variable. In this implementation, the bounds on the constraint are fixed
-    """
-    def eval(self, vars):
-        """
-        Evaluate the complementarity constraint
-        
-        The argument must be a numpy array of decision variables [x, z, s]
-        """
-        x, z, s = np.split(vars, np.cumsum([self.xdim, self.zdim]))
-        fcn_val = self.fcn(x)
-        return np.concatenate([fcn_val, z, fcn_val*z -s], axis=0)
-
-    def upper_bound(self):
-        """Return the lower bound"""
-        return np.concatenate([np.full((2*self.zdim,), np.inf), np.zeros((self.zdim,))], axis=0)
-
-    def lower_bound(self):
-        """Return the upper bound"""
-        return np.concatenate([np.zeros((2*self.zdim,)), -np.full((self.zdim,), np.inf)], axis=0)
 
 class ConstantSlackLinearEqualityComplementarity(ComplementarityFunction):
     """
