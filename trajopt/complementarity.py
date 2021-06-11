@@ -1,81 +1,12 @@
 """
-constraints: a package of extra constraints for the pyCITO project
-These constraints are NOT subclasses of Drake's Constraint class
+complementarity: implementations of complementarity constraints for use in optimization problems.
+
+Luke Drnach
+June 11, 2021
 """
-from enum import Enum
 import numpy as np
 from abc import ABC, abstractmethod
-
-class NCCSlackType(Enum):
-    """
-    NCCSlackType controls the implementation of constraint relaxation for NonlinearComplementarityFcn
-    NCCSlackType is an enumerated type. The following options are available.
-    
-    CONSTANT_SLACK: Complementarity with a fixed value for slack in the product constraint is implemented. To recover strict complementarity, set the slack to 0 
-    
-    VARIABLE_SLACK: Complementarity where the slack in the produce constraint is a decision variable. In this case, an additional cost should be added to penalize the slack variable
-    """
-    CONSTANT_SLACK = 1
-    VARIABLE_SLACK = 3
-
-class NCCImplementation(Enum):
-    """
-        NCCImplementation is an enumerated type controlling how NonlinearComplementarityFcn implements the constraint:
-            f(z) >= 0
-            g(z) >= 0
-            f(g)*g(z) <= 0
-
-        NONLINEAR: The constraint is implemented in its original format
-
-        LINEAR_EQUALITY: Additional variables are passed to the constraint to implement a linear complementarity condition, and equality constraints are added. The new constraint set is:
-            a = f(z)
-            b = g(z)
-            a >= 0
-            b >= 0
-            a*b <= 0
-
-        COST: Only the non-negativity constraints are implemented as constraints. The product constraint must be added separately as a cost, using the method "product_cost". When using COST, the slack variable is ignored, but a cost weight is included to enforce the complementarity constraint
-    """
-    NONLINEAR = 1
-    LINEAR_EQUALITY = 2
-    COST = 3
-
-class ComplementarityFactory():
-    """
-        ComplementarityFactory: Factory class for creating concrete implementations of nonlinear complementarity constraints for trajectory optimization or other mathematical programs.
-    """
-    def __init__(self, implementation=NCCImplementation.NONLINEAR, slacktype=NCCSlackType.CONSTANT_SLACK):
-        self._constraint_class = self._get_constraint_class(implementation, slacktype)
-
-    def create(self, fcn, xdim, zdim):
-        """ 
-        Create a concrete instance of the complementarity constraint
-        """
-        return self._constraint_class(fcn, xdim, zdim)
-
-    @staticmethod
-    def _get_constraint_class(implementation, slacktype):
-        """
-        Determine and return a class reference to make complementarity constraints with the specified implementation (determined by NCCImplementation type) and slack variable (determined by NCCSlackType)
-        """
-        if implementation == NCCImplementation.NONLINEAR:
-            if slacktype == NCCSlackType.CONSTANT_SLACK:
-                return ConstantSlackNonlinearComplementarity
-            elif slacktype == NCCSlackType.VARIABLE_SLACK:
-                return VariableSlackNonlinearComplementarity
-            else:
-                raise ValueError(f"Unknown Complementarity Slack Implementation {slacktype}")
-        elif implementation == NCCImplementation.LINEAR_EQUALITY:
-            if slacktype == NCCSlackType.CONSTANT_SLACK:
-                return ConstantSlackLinearEqualityComplementarity
-            elif slacktype == NCCSlackType.VARIABLE_SLACK:
-                return VariableSlackLinearEqualityComplementarity
-            else:
-                raise ValueError(f"Unknown Complementarity Slack Implementation {slacktype}")
-        elif implementation == NCCImplementation.COST:
-            return CostRelaxedNonlinearComplementarity
-        else:
-            raise ValueError(f"Unknown Complementarity Function Implementation {implementation}")
+import warnings
 
 class ComplementarityFunction(ABC):
     """
@@ -85,7 +16,7 @@ class ComplementarityFunction(ABC):
         f(x) * z <= s
     where s is a slack variable and s=0 enforces strict complementarity
     """
-    def __init__(self, fcn, xdim=0, zdim=1):
+    def __init__(self, fcn, xdim=1, zdim=1):
         """
             Creates the complementarity constraint function. Stores a reference to the nonlinear function, the dimensions of the x and z variables, and sets the slack to 0
         """
@@ -93,6 +24,7 @@ class ComplementarityFunction(ABC):
         self.xdim = xdim
         self.zdim = zdim
         self.slack = 0.
+        self.name = self.fcn.__name__
     
     def __call__(self, vars):
         """Evaluate the constraint"""
@@ -110,6 +42,46 @@ class ComplementarityFunction(ABC):
     def upper_bound(self):
         """Returns the upper bound of the constraint"""
 
+    def set_description(self, name=None):
+        """Set a string description for the constraint"""
+        if name is None:
+            self.name = self.fcn.__name__
+        else:
+            self.name = name
+
+    def eval_product(self, vars):
+        """Return the product of the complementarity function and variables"""
+        x, z  = np.split(vars, [self.xdim])
+        return z*self.fcn(x)
+
+    def addToProgram(self, prog, xvars, zvars):
+        """Add the complementarity constraint to a program"""
+        self._check_vars(xvars, zvars)
+        # Add the linear nonnegativity constraint
+        self._addNonnegativityConstraint(prog, zvars)
+        # Add the non-linear constraints
+        for n in range(xvars.shape[1]):
+            prog.AddConstraint(self.eval_product, lb =  )
+
+
+
+
+    def _addNonnegativityConstraint(self, prog, zvars):
+        """Add the linear nonnegativity constraint on the complementarity variables"""
+        cstr = prog.AddBoundingBoxConstraint(lb = 0., ub = np.inf, vars = zvars.flatten())
+        cstr.evaluator().set_description(self.name + "_nonnegativity")
+
+    def _check_vars(self, xvars, zvars):
+        """ Check that the decision variables are appropriately sized"""
+        nX, N = xvars.shape
+        nZ, M = zvars.shape
+        if nX != self.xdim:
+            raise ValueError(f"Expected {self.xdim} xvars but got {nX} instead")
+        if nZ != self.zdim:
+            raise ValueError(f"Expected {self.zdim} zvars but got {nZ} instead")
+        if N != M:
+            raise ValueError(f"expected xvars and zvars to have the same 2nd dimension. Instead, got {N} and {M}")
+
     @property
     def slack(self):
         return self.__slack
@@ -120,6 +92,14 @@ class ComplementarityFunction(ABC):
             self.__slack = val
         else:
             raise ValueError("slack must be a nonnegative numeric value")
+    
+    @property
+    def cost_weight(self):
+        warnings.warn(f"{type(self).__name__} does not have an associated cost")
+
+    @cost_weight.setter
+    def cost_weight(self, val):
+        warnings.warn(f"{type(self).__name__} does not have an associated cost. The value is ignored.")
 
 class CostRelaxedNonlinearComplementarity(ComplementarityFunction):
     """
@@ -135,7 +115,11 @@ class CostRelaxedNonlinearComplementarity(ComplementarityFunction):
         as a cost. The parameter cost_weight sets the penalty parameter for the cost function 
     """
     def __init__(self, fcn=None, xdim=0, zdim=1):
-        super().__init__(fcn, xdim, zdim)
+        """ initialize the constraint"""
+        self.fcn = fcn
+        self.xdim = xdim
+        self.zdim = zdim
+        self.name = self.fcn.__name__
         self.cost_weight = 1.
     
     def eval(self, vars):
@@ -163,6 +147,18 @@ class CostRelaxedNonlinearComplementarity(ComplementarityFunction):
         """
         x, z = np.split(vars, [self.xdim])
         return self.cost_weight * z.dot(self.fcn(x))
+
+    def addToProgram(self, prog, xvars, zvars):
+        """Add the constraint to the a mathematical program"""
+
+
+    @property
+    def slack(self):
+        return None
+
+    @slack.setter
+    def slack(self, val):
+        warnings.warn(f"{type(self).__name__} does not support setting constant slack variables. The value is ignored.")
 
     @property
     def cost_weight(self):
