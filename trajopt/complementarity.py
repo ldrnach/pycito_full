@@ -209,32 +209,25 @@ class CostRelaxedNonlinearComplementarity(ComplementarityFunction):
             z*f(x) = 0
         as a cost. The parameter cost_weight sets the penalty parameter for the cost function 
     """
-    def __init__(self, fcn=None, xdim=0, zdim=1):
+    def __init__(self, fcn, xdim=0, zdim=1):
         """ initialize the constraint"""
-        self.fcn = fcn
-        self.xdim = xdim
-        self.zdim = zdim
-        self.name = self.fcn.__name__
-        self.cost_weight = 1.
+        super().__init__(fcn, xdim, zdim)
+        self.cost_weight =  1.
     
-    def eval(self, vars):
-        """
-        Evaluate the inequality constraints only
-        
-        The argument must be a numpy array of decision variables ordered as [x, z]
-        """
-        x, z = np.split(vars, [self.xdim])
-        return np.concatenate([self.fcn(x), z], axis=0)
+    def addToProgram(self, prog, xvars, zvars):
+        """ Add the constraint and costs to the program """
+        self._check_vars(xvars, zvars)
+        self._addNonnegativityConstraint(prog, zvars)
+        for n in range(zvars.shape[1]):
+            prog.AddConstraint(self.fcn, 
+                                lb=np.zeros((self.zdim,)), 
+                                ub=np.full((self.zdim,), np.inf),
+                                vars = xvars[:,n],
+                                description=self.name + "_Nonnegativity")
+            # Product as cost
+            prog.AddCost(self.eval_product, vars=np.concatenate([xvars[:,n], zvars[:,n]], axis=0), description=self.name+"_cost")
 
-    def lower_bound(self):
-        """Return the lower bound"""
-        return np.zeros((2*self.zdim))
-
-    def upper_bound(self):
-        """Return the upper bound"""
-        return np.full((2*self.zdim,), np.inf)
-
-    def product_cost(self, vars):
+    def eval_product(self, vars):
         """
         Returns the product constraint as a scalar for use as a cost
 
@@ -242,10 +235,6 @@ class CostRelaxedNonlinearComplementarity(ComplementarityFunction):
         """
         x, z = np.split(vars, [self.xdim])
         return self.cost_weight * z.dot(self.fcn(x))
-
-    def addToProgram(self, prog, xvars, zvars):
-        """Add the constraint to the a mathematical program"""
-
 
     @property
     def slack(self):
