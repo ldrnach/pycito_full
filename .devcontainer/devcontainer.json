@@ -9,9 +9,5 @@
         "ms-python.python",
         "ms-python.vscode-pylance",
         "smilerobotics.urdf"
-<<<<<<< HEAD
     ]
-=======
-    ],
->>>>>>> master
 }
