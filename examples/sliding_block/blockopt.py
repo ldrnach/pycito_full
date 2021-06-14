@@ -13,7 +13,6 @@ import timeit
 import numpy as np
 import matplotlib.pyplot as plt
 from trajopt.contactimplicit import ContactImplicitDirectTranscription, OptimizationOptions, ContactConstraintViewer
-from trajopt.constraints import NCCImplementation
 from systems.block.block import Block
 from pydrake.solvers.snopt import SnoptSolver
 import utilities as utils
@@ -67,7 +66,7 @@ def setup_block_trajopt():
     # Get the default context
     context = plant.multibody.CreateDefaultContext()
     options = OptimizationOptions()
-    options.ncc_implementation = NCCImplementation.NONLINEAR
+    options.useNonlinearComplementarityWithConstantSlack()
     # Create a Contact Implicit Trajectory Optimization
     trajopt = ContactImplicitDirectTranscription(plant=plant,
                                                 context=context,

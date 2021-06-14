@@ -133,11 +133,11 @@ class ContactImplicitDirectTranscription():
         self.h = self.prog.NewContinuousVariables(rows=self.num_time_samples-1, cols=1, name='h')
         # Add state variables to the program
         nX = 2*self.plant_ad.multibody.num_velocities()
-        if self._has_quaternion_states() and self.options.orientationType == OrientationType.QUATERNION:
-            nQuat = len(self.floating_mag)
-            self.x = self.prog.NewContinuousVariables(rows=nX+nQuat, cols=self.num_time_samples, name='x')
-        else:
-            self.x = self.prog.NewContinuousVariables(rows=nX, cols=self.num_time_samples, name='x')
+        # if self._has_quaternion_states() and self.options.orientationType == OrientationType.QUATERNION:
+        #     nQuat = len(self.floating_mag)
+        #     self.x = self.prog.NewContinuousVariables(rows=nX+nQuat, cols=self.num_time_samples, name='x')
+        # else:
+        self.x = self.prog.NewContinuousVariables(rows=nX, cols=self.num_time_samples, name='x')
         # Add control variables to the program
         nU = self.plant_ad.multibody.num_actuators()
         self.u = self.prog.NewContinuousVariables(rows=nU, cols=self.num_time_samples, name='u')
@@ -205,9 +205,10 @@ class ContactImplicitDirectTranscription():
         self.sliding_cstr.set_description("sliding_velocity")
         self.friction_cstr.set_description("friction_cone")
         # Add to program
-        self.distance_cstr.addToProgram(self.prog, xvars=self.x, zvars=self._normal_forces)
-        self.sliding_cstr.addToProgram(self.prog, xvars=np.concatenate([self.x, self._sliding_vel], axis=0), zvars=self._tangent_forces)
-        self.friction_cstr.addToProgram(self.prog, xvars=np.concatenate([self.x, self._normal_forces, self._tangent_forces], axis=0), zvars=self._sliding_vel)
+        for n in range(self.num_time_samples):
+            self.distance_cstr.addToProgram(self.prog, xvars=self.x[:,n], zvars=self._normal_forces[:,n])
+            self.sliding_cstr.addToProgram(self.prog, xvars=np.concatenate([self.x[:,n],self._sliding_vel[:,n]], axis=0), zvars=self._tangent_forces[:,n])
+            self.friction_cstr.addToProgram(self.prog, xvars=np.concatenate([self.x[:,n], self._normal_forces[:,n], self._tangent_forces[:,n]], axis=0), zvars=self._sliding_vel[:,n])
 
     def _backward_dynamics(self, z):  
         """
@@ -704,15 +705,15 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
         # store a matrix for organizing the friction forces
         self._e = self.plant_ad.duplicator_matrix()
         # Add slack variables for complementarity problems
-        if self.options.ncc_implementation == NCCImplementation.LINEAR_EQUALITY: 
-            if self.options.slacktype == NCCSlackType.VARIABLE_SLACK:
-                self.slacks = self.prog.NewContinuousVariables(rows = 1 + 2*self.numN + self.numT, cols=self.num_time_sampels, name='slacks')
-            else: 
-                self.slacks = self.prog.NewContinuousVariables(rows=2*self.numN + self.numT, cols=self.num_time_samples, name='slacks')
-        elif self.options.ncc_implementation == NCCImplementation.NONLINEAR and self.options.slacktype == NCCSlackType.VARIABLE_SLACK:
-            self.slacks = self.prog.NewContinuousVariables(rows=1,cols=self.num_time_samples, name='slacks')
-        else:
-            self.slacks = []
+        # if self.options.ncc_implementation == NCCImplementation.LINEAR_EQUALITY: 
+        #     if self.options.slacktype == NCCSlackType.VARIABLE_SLACK:
+        #         self.slacks = self.prog.NewContinuousVariables(rows = 1 + 2*self.numN + self.numT, cols=self.num_time_sampels, name='slacks')
+        #     else: 
+        #         self.slacks = self.prog.NewContinuousVariables(rows=2*self.numN + self.numT, cols=self.num_time_samples, name='slacks')
+        # elif self.options.ncc_implementation == NCCImplementation.NONLINEAR and self.options.slacktype == NCCSlackType.VARIABLE_SLACK:
+        #     self.slacks = self.prog.NewContinuousVariables(rows=1,cols=self.num_time_samples, name='slacks')
+        # else:
+        #     self.slacks = []
 
     def _add_dynamic_constraints(self):
         """
@@ -954,7 +955,8 @@ class ContactConstraintViewer():
         h_idx = self.trajopt.prog.FindDecisionVariableIndices(self.trajopt.h.flatten()) 
         time = np.cumsum(np.hstack((0, self.all_vals[h_idx])))
         self.plot_dynamic_defects(time, cstr_vals['dynamics'])
-        if self.trajopt.options.ncc_implementation == NCCImplementation.LINEAR_EQUALITY:
+        if self.trajopt.options.complementarity in [compl.LinearEqualityConstantSlackComplementarity, compl.LinearEqualityVariableSlackComplementarity]:
+        #if self.trajopt.options.ncc_implementation == NCCImplementation.LINEAR_EQUALITY:
             self.plot_complementarity_linear(time, cstr_vals['normal_distance'], cstr_vals['sliding_velocity'], cstr_vals['friction_cone'])
         else:
             self.plot_complementarity_nonlinear(time, cstr_vals['normal_distance'], cstr_vals['sliding_velocity'], cstr_vals['friction_cone'])
