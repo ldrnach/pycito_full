@@ -212,7 +212,7 @@ class NonlinearComplementarityVariableSlack(ComplementarityConstraint):
             self.__cost_weight = val
             # Update slack cost
             if self.__slack_cost is not None:
-                self.__slack_cost.evaluator().UpdateCoefficients(new_a = val*np.ones(self.slack.shape[1,]))
+                self.__slack_cost.evaluator().UpdateCoefficients(new_a = val*np.ones(self.slack.shape[1]))
         else:
             raise ValueError("cost_weight must be a nonnegative numeric value")
 
@@ -421,7 +421,7 @@ class LinearEqualityVariableSlackComplementarity(ComplementarityConstraint):
             self.__cost_weight = val
             # Update slack cost
             if self.__slack_cost is not None:
-                self.__slack_cost.evaluator().UpdateCoefficients(new_a = val*np.ones(self.slack.shape[1,]))
+                self.__slack_cost.evaluator().UpdateCoefficients(new_a = val*np.ones(self.slack.shape[1]))
         else:
             raise ValueError("cost_weight must be a nonnegative numeric value")
 
