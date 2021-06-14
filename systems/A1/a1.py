@@ -279,6 +279,123 @@ class A1(TimeSteppingMultibodyPlant):
         vis = Visualizer("systems/A1/A1_description/urdf/a1_no_collision.urdf")
         vis.visualize_trajectory(xtraj=trajectory)
 
+class A1VirtualBase(A1):
+    def __init__(self, urdf_file="systems/A1/A1_description/urdf/a1_foot_collision.urdf", terrain=FlatTerrain()):
+        super(A1VirtualBase, self).__init__(urdf_file, terrain)
+        # Add in virtual joints to represent the floating base
+        zeroinertia = SpatialInertia(0, np.zeros((3,)), UnitInertia(0., 0., 0.))
+        # Create virtual, zero-mass
+        xlink = self.multibody.AddRigidBody('xlink', self.model_index[0], zeroinertia)
+        ylink = self.multibody.AddRigidBody('ylink', self.model_index[0], zeroinertia)
+        zlink = self.multibody.AddRigidBody('zlink', self.model_index[0], zeroinertia)
+        # Create the translational and rotational joints
+        xtrans = PrismaticJoint("xtranslation", self.multibody.world_frame(), xlink.body_frame(), [1., 0., 0.])
+        ytrans = PrismaticJoint("ytranslation", xlink.body_frame(), ylink.body_frame(), [0., 1., 0.])
+        ztrans = PrismaticJoint("ztranslation", ylink.body_frame(), zlink.body_frame(), [0., 0., 1.])
+        rpyrotation = BallRpyJoint("baseorientation", zlink.body_frame(), self.multibody.GetBodyByName('base').body_frame())
+        # Add the joints to the multibody plant
+        self.multibody.AddJoint(xtrans)
+        self.multibody.AddJoint(ytrans)
+        self.multibody.AddJoint(ztrans)
+        self.multibody.AddJoint(rpyrotation)
+    
+    def standing_pose(self):
+        # Get the default configuration vector
+        context = self.multibody.CreateDefaultContext()
+        pos = self.multibody.GetPositions(context)
+        # Change the hip pitch to 45 degrees
+        pos[10:14] = np.pi/4
+        # Change the knee pitch to keep the foot under the hip
+        pos[14:] = -np.pi/2
+        # Adjust the base height to make the normal distances 0
+        self.multibody.SetPositions(context, pos)
+        dist = self.GetNormalDistances(context)
+        pos[2] = pos[2] - np.amin(dist)
+        return pos
+
+    def standing_pose_ik(self, base_pose, guess=None):
+        """
+
+        base_pose should be specified as [xyz, rpy], a (6,) array
+        """
+        # Create an IK Problem
+        IK = InverseKinematics(self.multibody, with_joint_limits=True)
+        # Get the context and set the default pose
+        context = self.multibody.CreateDefaultContext()
+        q_0 = np.zeros((self.multibody.num_positions(),))
+        q_0[0:6] = base_pose
+        self.multibody.SetPositions(context, q_0)
+        # Constrain the foot positions
+        world = self.multibody.world_frame()
+        for pose, frame, radius in zip(self.collision_poses, self.collision_frames, self.collision_radius):
+            point = pose.translation().copy()
+            point[-1] -= radius
+            point_w = self.multibody.CalcPointsPositions(context, frame, point, world)
+            point_w[-1] = 0.
+            IK.AddPositionConstraint(frame, point, world, point_w, point_w)
+        # Set the base position as a constraint
+        q_vars = IK.q()
+        prog = IK.prog()
+        prog.AddLinearEqualityConstraint(Aeq = np.eye(6), beq = np.expand_dims(base_pose, axis=1), vars=q_vars[0:6])
+        # Solve the problem
+        prog = IK.prog()
+        if guess is not None:
+            # Set the initial guess
+            prog.SetInitialGuess(q_vars, guess)
+        result = Solve(prog)
+        # Return the configuration vector
+        return result.GetSolution(IK.q()), result.is_success()
+
+    def plot_state_trajectory(self, xtraj, show=True):
+        """ Plot the state trajectory for A1"""
+        # Get the configuration and velocity trajectories as arrays
+        t, x = GetKnotsFromTrajectory(xtraj)
+        nq = self.multibody.num_positions()
+        q, v = np.split(x, [nq])
+        # Get orientation from quaternion
+        # Plot COM orientation and position
+        _, paxs = plt.subplots(2,1)
+        labels=[["X", "Y", "Z"],["Roll", "Pitch", "Yaw"]]
+        ylabels = ["Position","Orientation"]
+        for n in range(2):
+            for k in range(3):
+                paxs[n].plot(t, q[3*n + k,:], linewidth=1.5, label=labels[n][k])
+            paxs[n].set_ylabel(ylabels[n])
+            paxs[n].legend()
+        paxs[-1].set_xlabel('Time (s)')
+        paxs[0].set_title("COM Configuration")
+        #Plot COM orientation rate and translational velocity
+        _, axs = plt.subplots(2,1)
+        for n in range(2):
+            for k in range(3):
+                axs[n].plot(t, v[3*n + k,:], linewidth=1.5, label=labels[n][k])
+            axs[n].set_ylabel(ylabels[n] + " Rate")
+            axs[n].legend()
+        axs[-1].set_xlabel('Time (s)')
+        axs[0].set_title("COM Velocities")
+        # Plot joint positions and velocities 
+        _, jaxs = plt.subplots(3,1)
+        _, jvaxs = plt.subplots(3,1)
+        # Loop over each joint angle
+        legs = ["FR", "FL", "BR", "BL"]
+        angles = ["Hip Roll", "Hip Pitch","Knee Pitch"]
+        for n in range(3):
+            # Loop over each leg
+            for k in range(4):
+                jaxs[n].plot(t, q[6+4*n+k,:], linewidth=1.5, label=legs[k])
+                jvaxs[n].plot(t, v[6+4*n+k, :], linewidth=1.5, label=legs[k])
+            jaxs[n].set_ylabel(angles[n])
+            jvaxs[n].set_ylabel(angles[n] + " Rate")
+        jaxs[-1].set_xlabel('Time (s)')
+        jvaxs[-1].set_xlabel('Time (s)')
+        jaxs[0].set_title("Joint Angles")
+        jvaxs[0].set_title("Joint Rates")
+        jaxs[0].legend()
+        jvaxs[0].legend()            
+        if show:
+            plt.show()
+
+
 if __name__ == "__main__":
     a1 = A1()
     a1.Finalize()

@@ -6,14 +6,13 @@ February 26, 2021
 import numpy as np
 import timeit
 from trajopt.contactimplicit import ContactImplicitDirectTranscription, OptimizationOptions 
-from systems.A1.a1 import A1
+from systems.A1.a1 import A1VirtualBase
 import utilities as utils
 from pydrake.all import PiecewisePolynomial
 from pydrake.solvers.snopt import SnoptSolver
 
 # Create the plant for A1 and the associated trajectory optimization
-a1 = A1()
-a1.useFloatingRPYJoint()
+a1 = A1VirtualBase()
 a1.terrain.friction = 1.0
 a1.Finalize()
 context = a1.multibody.CreateDefaultContext()
@@ -24,7 +23,7 @@ trajopt = ContactImplicitDirectTranscription(a1, context,
                                     minimum_timestep=0.01,
                                     maximum_timestep=0.1,
                                     options=options)
-trajopt.set_complementarity_cost_penalty(1)
+trajopt.complementarity_cost_weight = 1.
 # Create and set boundary conditions
 pose = a1.standing_pose()
 pose2 = pose.copy()

@@ -515,7 +515,7 @@ class TimeSteppingMultibodyPlant():
         l_var = prog.NewContinuousVariables(self.num_contacts(), name="forces")
         u_var = prog.NewContinuousVariables(self.multibody.num_actuators(), name="controls")
         # Ensure dynamics approximately satisfied
-        prog.AddL2NormCost(A = A, b = -G, vars=np.concatenate([u_var, l_var], axis=0))
+        prog.AddL2NormSquaredCost(A = A, b = -G, vars=np.concatenate([u_var, l_var], axis=0))
         # Enforce normal complementarity
         prog.AddBoundingBoxConstraint(np.zeros(l_var.shape), np.full(l_var.shape, np.inf), l_var)
         prog.AddConstraint(phi.dot(l_var) == 0)

@@ -19,7 +19,7 @@ class OptimizationOptions():
     """ Keeps track of optional settings for Contact Implicit Trajectory Optimization"""
     def __init__(self):
         """ Initialize the options to their default values"""
-        self.__complementarity_class = compl.NonlinearComplementarityConstantSlack
+        self.__complementarity_class = compl.NonlinearConstantSlackComplementarity
 
     def useLinearComplementarityWithVariableSlack(self):
         """ Use linear complementarity with equality constraints"""
@@ -27,7 +27,7 @@ class OptimizationOptions():
 
     def useNonlinearComplementarityWithVariableSlack(self):
         """ Use nonlinear complementarity """
-        self.__complementarity_class = compl.NonlinearComplementarityVariableSlack
+        self.__complementarity_class = compl.NonlinearVariableSlackComplementarity
 
     def useNonlinearComplementarityWithCost(self):
         """ Use nonlinear complementarity but enforce the equality constraint in a cost"""
@@ -35,7 +35,7 @@ class OptimizationOptions():
 
     def useNonlinearComplementarityWithConstantSlack(self):
         """ Use a constant slack in the complementarity constraints"""
-        self.__complementarity_class = compl.NonlinearComplementarityConstantSlack
+        self.__complementarity_class = compl.NonlinearConstantSlackComplementarity
 
     def useLinearComplementarityWithConstantSlack(self):
         """ Use a decision variable for the slack in the complementarity constraints"""
@@ -158,7 +158,7 @@ class ContactImplicitDirectTranscription():
         # Check for joint limits first
         if self.Jl is not None:
             # Create the joint limit constraint
-            self.joint_limit_cstr = compl.ConstantSlackNonlinearComplementarity(self._joint_limit, xdim=self.x.shape[0], zdim=self.jl.shape[0])
+            self.joint_limit_cstr = compl.NonlinearConstantSlackComplementarity(self._joint_limit, xdim=self.x.shape[0], zdim=self.jl.shape[0])
             for n in range(0, self.num_time_samples-1):
                 # Add timestep constraints
                 self.prog.AddBoundingBoxConstraint(self.minimum_timestep, self.maximum_timestep, self.h[n,:]).evaluator().set_description('TimestepConstraint')
@@ -251,7 +251,7 @@ class ContactImplicitDirectTranscription():
         # Check if the decision variables are floats
         plant, context = self._autodiff_or_float(state)
         # Calculate the normal distance
-        q, v = np.split(state, plant.multibody.num_positions())
+        q, v = np.split(state, [plant.multibody.num_positions()])
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate((q,v), axis=0))    
         return plant.GetNormalDistances(context)
 

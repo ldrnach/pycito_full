@@ -91,7 +91,7 @@ class ComplementarityConstraint(ABC):
     def cost_weight(self, val):
         warnings.warn(f"{type(self).__name__} does not have an associated cost. The value is ignored.")
 
-class NonlinearComplementarityConstantSlack(ComplementarityConstraint):
+class NonlinearConstantSlackComplementarity(ComplementarityConstraint):
     """
     Implements the nonlinear complementarity constraint with a constant slack variable
     Implements the problem as:
@@ -102,7 +102,7 @@ class NonlinearComplementarityConstantSlack(ComplementarityConstraint):
     """
     def __init__(self, fcn, xdim=1, zdim=1, slack=0.):
         self._prog = None
-        super(NonlinearComplementarityConstantSlack, self).__init__(fcn, xdim, zdim)
+        super(NonlinearConstantSlackComplementarity, self).__init__(fcn, xdim, zdim)
         self.slack = slack
         
     def eval(self, dvars):
@@ -125,7 +125,7 @@ class NonlinearComplementarityConstantSlack(ComplementarityConstraint):
 
     def addToProgram(self, prog, xvars, zvars):
         """Add the complementarity constraint to a mathematical program"""
-        super(NonlinearComplementarityConstantSlack, self).addToProgram(prog, xvars, zvars)
+        super(NonlinearConstantSlackComplementarity, self).addToProgram(prog, xvars, zvars)
         self._prog = prog
 
     @property
@@ -144,7 +144,7 @@ class NonlinearComplementarityConstantSlack(ComplementarityConstraint):
         else:
             raise ValueError("slack must be a nonnegative numeric value")
 
-class NonlinearComplementarityVariableSlack(ComplementarityConstraint):
+class NonlinearVariableSlackComplementarity(ComplementarityConstraint):
     """
     Implements the nonlinear complementarity constraint as
         f(x) >= 0
@@ -154,7 +154,7 @@ class NonlinearComplementarityVariableSlack(ComplementarityConstraint):
     the slack variable s is introduced and minimized in an associated cost.
     """
     def __init__(self, fcn, xdim=1, zdim=1):
-        super(NonlinearComplementarityVariableSlack, self).__init__(fcn, xdim, zdim)
+        super(NonlinearVariableSlackComplementarity, self).__init__(fcn, xdim, zdim)
         self.__slack_cost = []
         self.__cost_weight = 1.
         self.__slack = None
