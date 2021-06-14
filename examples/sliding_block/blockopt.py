@@ -11,7 +11,6 @@ October 15, 2020
 # Imports
 import timeit
 import numpy as np
-import matplotlib.pyplot as plt
 from trajopt.contactimplicit import ContactImplicitDirectTranscription, OptimizationOptions, ContactConstraintViewer
 from systems.block.block import Block
 from pydrake.solvers.snopt import SnoptSolver
@@ -36,6 +35,8 @@ def run_block_trajopt():
     #Check the problem for bugs in the constraints
     if not utils.CheckProgram(trajopt.prog):
         quit()
+    print(f"The optimization has {len(trajopt.prog.GetAllCosts())} costs and {len(trajopt.prog.GetAllConstraints())} constraints")
+    quit()
     # Solve the problem
     trajopt.enable_cost_display('terminal')
     result = solve_block_trajopt(trajopt)

@@ -11,13 +11,9 @@ import numpy as np
 from matplotlib import pyplot as plt
 from pydrake.all import MathematicalProgram, PiecewisePolynomial, Variable
 from pydrake.autodiffutils import AutoDiffXd
-from pydrake.multibody.tree import MultibodyForces_
 from utilities import MathProgIterationPrinter, plot_complementarity
 import trajopt.complementarity as compl
-from trajopt.quatutils import xyz_to_quaternion
-#TODO: Re-make decision variables to ease code understanding
 #TODO: Unit testing for whole-body and centrodial optimizers
-#TODO: Unit test complementarity constraints
 
 class OptimizationOptions():
     """ Keeps track of optional settings for Contact Implicit Trajectory Optimization"""
@@ -133,16 +129,20 @@ class ContactImplicitDirectTranscription():
 
             addDecisionVariables is called during object construction
         """
-        #TODO: Implement switch between quaternion and euler angles
         # Add time variables to the program
         self.h = self.prog.NewContinuousVariables(rows=self.num_time_samples-1, cols=1, name='h')
         # Add state variables to the program
+<<<<<<< Updated upstream
         nX = 2*self.plant_ad.multibody.num_velocities()
         # if self._has_quaternion_states() and self.options.orientationType == OrientationType.QUATERNION:
         #     nQuat = len(self.floating_mag)
         #     self.x = self.prog.NewContinuousVariables(rows=nX+nQuat, cols=self.num_time_samples, name='x')
         # else:
         self.x = self.prog.NewContinuousVariables(rows=nX, cols=self.num_time_samples, name='x')
+=======
+        num_states = self.plant_ad.multibody.num_positions() + self.plant_ad.multibody.num_velocities()
+        self.x = self.prog.NewContinuousVariables(rows = num_states, cols=self.num_time_samples, name='x')
+>>>>>>> Stashed changes
         # Add control variables to the program
         nU = self.plant_ad.multibody.num_actuators()
         self.u = self.prog.NewContinuousVariables(rows=nU, cols=self.num_time_samples, name='u')
@@ -230,9 +230,9 @@ class ContactImplicitDirectTranscription():
         p1, _ = np.split(x1, 2)
         p2, dp2 = np.split(x2, 2)
         fp = p2 - p1 - h*dp2
-        # Convert decision variables to Drake coordinates
-        _, v1 = self._dvars_to_coordinates(x1)
-        q2, v2 = self._dvars_to_coordinates(x2)
+        # Get positions and velocities
+        _, v1 = np.split(x1, [plant.multibody.num_positions()])
+        q2, v2 = np.split(x2, [plant.multibody.num_positions()])
         # Update the context - backward Euler integration
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate((q2,v2), axis=0))
         # Set mutlibodyForces to zero
@@ -255,46 +255,6 @@ class ContactImplicitDirectTranscription():
         fv = M.dot(v2 - v1) - h*forces
         return np.concatenate((fp, fv), axis=0)
 
-    def _dvars_to_coordinates(self, x):
-        """Convert the state vector (decision variables) to generalized coordinates"""
-        if self._has_quaternion_states():
-            coords = np.zeros((self.plant_f.multibody.num_positions()  + self.plant_f.multibody.num_velocities(),), dtype=x.dtype)
-            coordsmap = np.full(coords.shape, True)
-            xmap = np.full(x.shape, True)
-            for pidx, vidx in zip(self.floating_pos, self.floating_vel):
-                # Convert XYZ-Angles to quaternion
-                coords[pidx:pidx+4] = xyz_to_quaternion(x[pidx:pidx+3])
-                # Copy over angular velocity in world coordinates
-                coords[vidx:vidx+3] =  x[vidx:vidx+3]
-                # Mask out the orientation states
-                coordsmap[pidx:pidx+4] = False
-                coordsmap[vidx:vidx+3] = False
-                xmap[vidx:vidx+3] = False
-                xmap[pidx:pidx+3] = False
-            # Copy over the remaining states
-            coords[coordsmap] = x[xmap]
-            return coords
-        else:
-            return np.split(x, [self.plant_f.multibody.num_positions()])
-
-    def _dvar_to_gen_position(self, x):
-        """Convert decision variable position to generalized position"""
-        if self._has_quaternion_states():
-            coords = np.zeros((self.plant_f.multibody.num_positions(),), dtype=x.dtype)
-            coordsmap = np.full(coords.shape, True)
-            xmap = np.full(x.shape, True)
-            for pidx in self.floating_pos:
-                # Convert to quaternion
-                coords[pidx:pidx+4] = xyz_to_quaternion(x[pidx:pidx+3])
-                # Mask out remaining variables
-                coordsmap[pidx:pidx+4] = False
-                xmap[pidx:pidx+3] = False
-            # Map the remaining variables
-            coords[coordsmap] = x[xmap]
-            return coords
-        else:
-            return x
-
     # Complementarity Constraint functions for Contact
     def _normal_distance(self, state):
         """
@@ -307,7 +267,7 @@ class ContactImplicitDirectTranscription():
         # Check if the decision variables are floats
         plant, context, _ = self._autodiff_or_float(state)
         # Calculate the normal distance
-        q,v = self._dvars_to_coordinates(state)
+        q, v = np.split(state, plant.multibody.num_positions())
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate((q,v), axis=0))    
         return plant.GetNormalDistances(context)
 
@@ -327,8 +287,13 @@ class ContactImplicitDirectTranscription():
         Condition on the normal force being dissipative
         """
         state, force = np.split(vars, [self.x.shape[0]])
+<<<<<<< Updated upstream
         plant, context, _ = self._autodiff_or_float(state)
         q, v = self._dvars_to_coordinates(state)
+=======
+        plant, context = self._autodiff_or_float(state)
+        q, v = np.split(state, plant.multibody.num_positions())
+>>>>>>> Stashed changes
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate((q,v), axis=0))
         Jn, _ = plant.GetContactJacobians(context)
         return Jn.dot(v) * force
@@ -345,7 +310,7 @@ class ContactImplicitDirectTranscription():
         # Split variables from the decision list
         x, gam = np.split(vars, [self.x.shape[0]])
         # Get the velocity, and convert to qdot
-        q, v = self._dvars_to_coordinates(x)
+        q, v = np.split(x, plant.multibody.num_positions())
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate((q,v), axis=0))
         # Get the contact Jacobian
         _, Jt = plant.GetContactJacobians(context)
@@ -363,7 +328,7 @@ class ContactImplicitDirectTranscription():
         plant, context, _ = self._autodiff_or_float(vars)
         ind = np.cumsum([self.x.shape[0], self._normal_forces.shape[0]])
         x, fN, fT = np.split(vars, ind)
-        q, v = self._dvars_to_coordinates(x)
+        q, v = np.split(x, plant.multibody.num_positions())
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate((q,v), axis=0))
         mu = plant.GetFrictionCoefficients(context)
         mu = np.diag(mu)
@@ -381,7 +346,7 @@ class ContactImplicitDirectTranscription():
         """
         plant, _, _ = self._autodiff_or_float(dvars)
         # Get configuration and joint limit forces
-        q, _ = self._dvars_to_coordinates(dvars)
+        q, _ = np.split(dvars, plant.multibody.num_positions())
         # Calculate distance from limits
         qmax = plant.multibody.GetPositionUpperLimits()
         qmin = plant.multibody.GetPositionLowerLimits()
@@ -679,7 +644,6 @@ class ContactImplicitDirectTranscription():
         self.sliding_cstr.cost_weight = val
         self.friction_cstr.cost_weight = val
 
-
 class CentroidalContactTranscription(ContactImplicitDirectTranscription):
     #TODO: Unit testing for all contact-implicit problems (Block, DoublePendulum, A1)
 
@@ -694,7 +658,8 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
         # Add time variables to the program
         self.h = self.prog.NewContinuousVariables(rows=self.num_time_samples-1, cols=1, name='h')
         # Add state variables to the program
-        self.x = self.prog.NewContinuousVariables(rows=2*self.plant_ad.multibody.num_velocities(), cols=self.num_time_samples, name='x')
+        num_states = self.plant_ad.num_velocities() + self.plant_ad.num_positions()
+        self.x = self.prog.NewContinuousVariables(rows=num_states, cols=self.num_time_samples, name='x')
         # Add COM variables to the program
         self.com = self.prog.NewContinuousVariables(rows=6, cols=self.num_time_samples, name="com")
         # Add momentum variables
@@ -707,10 +672,9 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
         self._sliding_vel = self.prog.NewContinuousVariables(rows = numN, cols = self.num_time_samples, name='sliding_vels')
         # Add contact points
         self.contactpts = self.prog.NewContinuousVariables(rows = 3*numN, cols=self.num_time_samples, name='contact_pts')
-
-
         # store a matrix for organizing the friction forces
         self._e = self.plant_ad.duplicator_matrix()
+<<<<<<< Updated upstream
         # Add slack variables for complementarity problems
         # if self.options.ncc_implementation == NCCImplementation.LINEAR_EQUALITY: 
         #     if self.options.slacktype == NCCSlackType.VARIABLE_SLACK:
@@ -721,6 +685,9 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
         #     self.slacks = self.prog.NewContinuousVariables(rows=1,cols=self.num_time_samples, name='slacks')
         # else:
         #     self.slacks = []
+=======
+        
+>>>>>>> Stashed changes
 
     def _add_dynamic_constraints(self):
         """
@@ -784,8 +751,6 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
         plant, context, _ = self._autodiff_or_float(dvars)
         # Split the variables
         rCOM, q = np.split(dvars, [3])
-        # Calculate generalized position from state variables
-        q = self._dvar_to_gen_position(q)
         # Calculate COM position and return the constraint
         plant.multibody.SetPositions(context, q)
         return rCOM - plant.CalcCenterOfMassPositionInWorld(context)
@@ -799,7 +764,7 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
         plant, context, _ = self._autodiff_or_float(dvars)
         # Split the variables
         lCOM, state = np.split(dvars, [3])
-        q, v = self._dvars_to_coordinates(state)
+        q, v = np.split(state, [plant.multibody.num_positions()])
         # Update the context
         plant.multibody.SetPositionsAndVelocities(context, q, v)
         # Return the momentum error
@@ -816,8 +781,6 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
         plant, context, _ = self._autodiff_or_float(dvars)
         # Split the variables
         contact, q = np.split(dvars, [3*self.numN])
-        # Convert position variables to generalized coordinates
-        q = self._dvar_to_gen_position(q)
         # Get the contact positions
         plant.multibody.SetPositions(context, q)
         kin = plant.calc_contact_positions(context)
@@ -963,7 +926,10 @@ class ContactConstraintViewer():
         time = np.cumsum(np.hstack((0, self.all_vals[h_idx])))
         self.plot_dynamic_defects(time, cstr_vals['dynamics'])
         if self.trajopt.options.complementarity in [compl.LinearEqualityConstantSlackComplementarity, compl.LinearEqualityVariableSlackComplementarity]:
+<<<<<<< Updated upstream
         #if self.trajopt.options.ncc_implementation == NCCImplementation.LINEAR_EQUALITY:
+=======
+>>>>>>> Stashed changes
             self.plot_complementarity_linear(time, cstr_vals['normal_distance'], cstr_vals['sliding_velocity'], cstr_vals['friction_cone'])
         else:
             self.plot_complementarity_nonlinear(time, cstr_vals['normal_distance'], cstr_vals['sliding_velocity'], cstr_vals['friction_cone'])
