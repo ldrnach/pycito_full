@@ -1,5 +1,5 @@
 """
-Trajectory Optimization for A1: Goal is to jump high
+Trajectory Optimization for A1: Goal is to solve for a static pose
 Luke Drnach
 February 26, 2021
 """
@@ -29,8 +29,7 @@ trajopt.set_complementarity_cost_penalty(1)
 pose = a1.standing_pose()
 pose2 = pose.copy()
 # Append zeros to make a full state
-no_vel = np.zeros((a1.multibody.num_velocities() + 1, ))
-no_vel[0] = 1.
+no_vel = np.zeros((a1.multibody.num_velocities(), ))
 x0 = np.concatenate((pose, no_vel),axis=0)
 xf = np.concatenate((pose2, no_vel), axis=0)
 # linear interpolate so we can visualize
@@ -51,21 +50,6 @@ x_init = np.linspace(x0, xf, trajopt.num_time_samples).transpose()
 l_init = np.zeros(trajopt.l.shape)
 jl_init = np.zeros(trajopt.jl.shape)
 trajopt.set_initial_guess(xtraj=x_init, utraj=u_init, ltraj=l_init, jltraj=jl_init)
-# Create and add running costs
-# # Control cost
-# R = 0.1*np.eye(trajopt.u.shape[0])
-# trajopt.add_quadratic_running_cost(R, uref, vars=[trajopt.u], name='ControlCost')
-# # State Cost
-# numX = trajopt.x.shape[0]
-# pos_weights = [0., 0., 0., 0., 0., 0., 0., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.]
-# vel_weights = [0., 0., 0., 0.1, 0.1, 0.1, 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.]
-# Q = np.diag(np.concatenate((pos_weights, vel_weights), axis=0))
-# # Running costs on state and control effort
-# trajopt.add_quadratic_running_cost(Q, xf, vars=[trajopt.x], name='StateCost')
-# # Base tracking cost
-# base_ref = x_init[4:7,:]
-# Q = np.eye(3)
-# trajopt.add_tracking_cost(Q=Q, traj=base_ref, vars=[trajopt.x[4:7,:]], name="BaseTracking")
 # Check the program
 if not utils.CheckProgram(trajopt.prog):
     quit()

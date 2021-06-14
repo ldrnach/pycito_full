@@ -279,7 +279,7 @@ class A1(TimeSteppingMultibodyPlant):
         vis = Visualizer("systems/A1/A1_description/urdf/a1_no_collision.urdf")
         vis.visualize_trajectory(xtraj=trajectory)
 
-def test_rpy2quat():
+if __name__ == "__main__":
     a1 = A1()
     a1.Finalize()
     print(f"A1 effort limits {a1.get_actuator_limits()}")

@@ -82,11 +82,6 @@ class ContactImplicitDirectTranscription():
         self.plant_ad = self.plant_f.toAutoDiffXd()       
         self.context_ad = self.plant_ad.multibody.CreateDefaultContext()
         self.options = options
-        # Create MultibodyForces
-        MBF = MultibodyForces_[float]
-        self.mbf_f = MBF(self.plant_f.multibody)
-        MBF_AD = MultibodyForces_[AutoDiffXd]
-        self.mbf_ad = MBF_AD(self.plant_ad.multibody)
         # Create the mathematical program
         self.prog = MathematicalProgram()
         # Check for floating DOF
@@ -132,17 +127,8 @@ class ContactImplicitDirectTranscription():
         # Add time variables to the program
         self.h = self.prog.NewContinuousVariables(rows=self.num_time_samples-1, cols=1, name='h')
         # Add state variables to the program
-<<<<<<< Updated upstream
-        nX = 2*self.plant_ad.multibody.num_velocities()
-        # if self._has_quaternion_states() and self.options.orientationType == OrientationType.QUATERNION:
-        #     nQuat = len(self.floating_mag)
-        #     self.x = self.prog.NewContinuousVariables(rows=nX+nQuat, cols=self.num_time_samples, name='x')
-        # else:
-        self.x = self.prog.NewContinuousVariables(rows=nX, cols=self.num_time_samples, name='x')
-=======
         num_states = self.plant_ad.multibody.num_positions() + self.plant_ad.multibody.num_velocities()
         self.x = self.prog.NewContinuousVariables(rows = num_states, cols=self.num_time_samples, name='x')
->>>>>>> Stashed changes
         # Add control variables to the program
         nU = self.plant_ad.multibody.num_actuators()
         self.u = self.prog.NewContinuousVariables(rows=nU, cols=self.num_time_samples, name='u')
@@ -222,7 +208,7 @@ class ContactImplicitDirectTranscription():
             z = [h, x1, x2, u, l, jl]
         Returns the dynamics defect, evaluated using Backward Euler Integration. 
         """
-        plant, context, mbf = self._autodiff_or_float(z)
+        plant, context = self._autodiff_or_float(z)
         # Split the variables from the decision variables
         ind = np.cumsum([self.h.shape[1], self.x.shape[0], self.x.shape[0], self.u.shape[0], self._normal_forces.shape[0]])
         h, x1, x2, u, fN, fT = np.split(z, ind)
@@ -235,8 +221,6 @@ class ContactImplicitDirectTranscription():
         q2, v2 = np.split(x2, [plant.multibody.num_positions()])
         # Update the context - backward Euler integration
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate((q2,v2), axis=0))
-        # Set mutlibodyForces to zero
-        mbf.SetZero()
         # calculate generalized forces
         M = plant.multibody.CalcMassMatrixViaInverseDynamics(context)
         C = plant.multibody.CalcBiasTerm(context)
@@ -265,7 +249,7 @@ class ContactImplicitDirectTranscription():
                 vars = [state, normal_forces]
         """
         # Check if the decision variables are floats
-        plant, context, _ = self._autodiff_or_float(state)
+        plant, context = self._autodiff_or_float(state)
         # Calculate the normal distance
         q, v = np.split(state, plant.multibody.num_positions())
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate((q,v), axis=0))    
@@ -287,13 +271,8 @@ class ContactImplicitDirectTranscription():
         Condition on the normal force being dissipative
         """
         state, force = np.split(vars, [self.x.shape[0]])
-<<<<<<< Updated upstream
-        plant, context, _ = self._autodiff_or_float(state)
-        q, v = self._dvars_to_coordinates(state)
-=======
         plant, context = self._autodiff_or_float(state)
         q, v = np.split(state, plant.multibody.num_positions())
->>>>>>> Stashed changes
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate((q,v), axis=0))
         Jn, _ = plant.GetContactJacobians(context)
         return Jn.dot(v) * force
@@ -306,7 +285,7 @@ class ContactImplicitDirectTranscription():
             The decision variable list:
                 vars = [state, velocity_slacks]
         """
-        plant, context, _ = self._autodiff_or_float(vars)
+        plant, context= self._autodiff_or_float(vars)
         # Split variables from the decision list
         x, gam = np.split(vars, [self.x.shape[0]])
         # Get the velocity, and convert to qdot
@@ -325,7 +304,7 @@ class ContactImplicitDirectTranscription():
             The decision variable list is stored as :
                 vars = [state,normal_forces, friction_forces]
         """
-        plant, context, _ = self._autodiff_or_float(vars)
+        plant, context = self._autodiff_or_float(vars)
         ind = np.cumsum([self.x.shape[0], self._normal_forces.shape[0]])
         x, fN, fT = np.split(vars, ind)
         q, v = np.split(x, plant.multibody.num_positions())
@@ -344,7 +323,7 @@ class ContactImplicitDirectTranscription():
             Decision variable list:
                 vars = state
         """
-        plant, _, _ = self._autodiff_or_float(dvars)
+        plant, _ = self._autodiff_or_float(dvars)
         # Get configuration and joint limit forces
         q, _ = np.split(dvars, plant.multibody.num_positions())
         # Calculate distance from limits
@@ -358,9 +337,9 @@ class ContactImplicitDirectTranscription():
     def _autodiff_or_float(self, z):
         """Returns the autodiff or float implementation of model and context based on the dtype of the decision variables"""
         if z.dtype == "float":
-            return (self.plant_f, self.context_f, self.mbf_f)
+            return (self.plant_f, self.context_f)
         else:
-            return (self.plant_ad, self.context_ad, self.mbf_ad)
+            return (self.plant_ad, self.context_ad)
 
     def _set_initial_timesteps(self):
         """Set the initial timesteps to their maximum values"""
@@ -674,20 +653,7 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
         self.contactpts = self.prog.NewContinuousVariables(rows = 3*numN, cols=self.num_time_samples, name='contact_pts')
         # store a matrix for organizing the friction forces
         self._e = self.plant_ad.duplicator_matrix()
-<<<<<<< Updated upstream
-        # Add slack variables for complementarity problems
-        # if self.options.ncc_implementation == NCCImplementation.LINEAR_EQUALITY: 
-        #     if self.options.slacktype == NCCSlackType.VARIABLE_SLACK:
-        #         self.slacks = self.prog.NewContinuousVariables(rows = 1 + 2*self.numN + self.numT, cols=self.num_time_sampels, name='slacks')
-        #     else: 
-        #         self.slacks = self.prog.NewContinuousVariables(rows=2*self.numN + self.numT, cols=self.num_time_samples, name='slacks')
-        # elif self.options.ncc_implementation == NCCImplementation.NONLINEAR and self.options.slacktype == NCCSlackType.VARIABLE_SLACK:
-        #     self.slacks = self.prog.NewContinuousVariables(rows=1,cols=self.num_time_samples, name='slacks')
-        # else:
-        #     self.slacks = []
-=======
         
->>>>>>> Stashed changes
 
     def _add_dynamic_constraints(self):
         """
@@ -748,7 +714,7 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
         """
 
         # Get the necessary plant
-        plant, context, _ = self._autodiff_or_float(dvars)
+        plant, context = self._autodiff_or_float(dvars)
         # Split the variables
         rCOM, q = np.split(dvars, [3])
         # Calculate COM position and return the constraint
@@ -761,7 +727,7 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
             Decision variable list: [COM_MOMENTUM, GEN_POSITIONS, GEN_VELOCITIES]
         """
         # Get the appropriate plant model
-        plant, context, _ = self._autodiff_or_float(dvars)
+        plant, context = self._autodiff_or_float(dvars)
         # Split the variables
         lCOM, state = np.split(dvars, [3])
         q, v = np.split(state, [plant.multibody.num_positions()])
@@ -778,7 +744,7 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
             Decision Variable List: [CONTACT_POINTS, GEN_POSITIONS]
         """
         # Get the plant model
-        plant, context, _ = self._autodiff_or_float(dvars)
+        plant, context = self._autodiff_or_float(dvars)
         # Split the variables
         contact, q = np.split(dvars, [3*self.numN])
         # Get the contact positions
@@ -794,7 +760,7 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
             Decision Variables: [timestep, CoM(k), CoM(k+1), Forces(k+1), ContactPoints(k+1)]
         """
         # Get the plant
-        plant, _, _ = self._autodiff_or_float(dvars)
+        plant, _ = self._autodiff_or_float(dvars)
         # Split the variables
         h, rcom1, vcom1, rcom2, vcom2, forces, pts = np.split(dvars, np.cumsum([1, 3, 3, 3, 3, self.numN+self.numT]))
         # Position error (Midpoint Integration)
@@ -815,7 +781,7 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
             Decision Variables: [timestep, H(k), H(k+1), ContactPos(k), COM_POS(k), Forces(k)]
         """
         # Get the plant
-        plant, _, _ = self._autodiff_or_float(dvars)
+        plant, _ = self._autodiff_or_float(dvars)
         # Split the variables
         h, momentum1, momentum2, contact_pos, com_pos, contact_force = np.split(dvars, np.cumsum([1, 3, 3, self.numN, 3]))
         # Resolve the contact force variables into world coordinates, then angularize
@@ -926,10 +892,6 @@ class ContactConstraintViewer():
         time = np.cumsum(np.hstack((0, self.all_vals[h_idx])))
         self.plot_dynamic_defects(time, cstr_vals['dynamics'])
         if self.trajopt.options.complementarity in [compl.LinearEqualityConstantSlackComplementarity, compl.LinearEqualityVariableSlackComplementarity]:
-<<<<<<< Updated upstream
-        #if self.trajopt.options.ncc_implementation == NCCImplementation.LINEAR_EQUALITY:
-=======
->>>>>>> Stashed changes
             self.plot_complementarity_linear(time, cstr_vals['normal_distance'], cstr_vals['sliding_velocity'], cstr_vals['friction_cone'])
         else:
             self.plot_complementarity_nonlinear(time, cstr_vals['normal_distance'], cstr_vals['sliding_velocity'], cstr_vals['friction_cone'])
