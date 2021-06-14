@@ -8,8 +8,6 @@ import numpy as np
 import warnings
 from abc import ABC, abstractmethod
 
-#TODO: For constant slack, update constraint bounds when slack is set
-
 class ComplementarityConstraint(ABC):
     """
     Base class for implementing complementarity constraint functions of the form:
@@ -114,8 +112,8 @@ class NonlinearComplementarityConstantSlack(ComplementarityConstraint):
         The argument must be a numpy array of decision variables organized as [x, z]
         """
         x, z = np.split(dvars, [self.xdim])
-        f = self.fcn(x)
-        return np.concatenate([z, f, z*f], axis=0)
+        fcn_val = self.fcn(x)
+        return np.concatenate([fcn_val, z, fcn_val*z], axis=0)
 
     def lower_bound(self):
         """ Returns the lower bound of the constraint"""
@@ -157,8 +155,9 @@ class NonlinearComplementarityVariableSlack(ComplementarityConstraint):
     """
     def __init__(self, fcn, xdim=1, zdim=1):
         super(NonlinearComplementarityVariableSlack, self).__init__(fcn, xdim, zdim)
-        self.__slack_cost = None
+        self.__slack_cost = []
         self.__cost_weight = 1.
+        self.__slack = None
 
     def eval(self, vars):
         """
@@ -181,8 +180,8 @@ class NonlinearComplementarityVariableSlack(ComplementarityConstraint):
     def addToProgram(self, prog, xvars, zvars):
         """ Add the constraint with the slack variables to the mathematical program"""
         xvars, zvars = self._check_vars(xvars, zvars)
-        self.__slack = prog.NewContinuousVariables(rows=1, cols=zvars.shape[1], name=self.name+"_slacks")
-        dvars = np.concatenate([xvars, zvars, self.__slack], axis=0)
+        new_slack = prog.NewContinuousVariables(rows=1, cols=zvars.shape[1], name=self.name+"_slacks")
+        dvars = np.concatenate([xvars, zvars, new_slack], axis=0)
         for n in range(dvars.shape[1]):
             prog.AddConstraint(self, 
                             lb = self.lower_bound(),
@@ -190,8 +189,14 @@ class NonlinearComplementarityVariableSlack(ComplementarityConstraint):
                             vars = dvars[:,n],
                             description = self.name)
         # Add a cost on the slack variables
-        self.__slack_cost = prog.AddLinearCost(a = self.cost_weight * np.ones((self.__slack.shape[1]),), b=np.zeros((1,)), vars = self.__slack)
-        self.__slack_cost.evaluator().set_description(self.name + "SlackCost")
+        new_cost = prog.AddLinearCost(a = self.cost_weight * np.ones((new_slack.shape[1]),), b=np.zeros((1,)), vars = new_slack)
+        new_cost.evaluator().set_description(self.name + "SlackCost")
+        # concatenate the associated variables and cost
+        self.__slack_cost.append(new_cost)
+        if self.__slack is None:
+            self.__slack = new_slack
+        else:
+            self.__slack = np.row_stack([self.__slack, new_slack])
 
     @property
     def slack(self):
@@ -212,7 +217,9 @@ class NonlinearComplementarityVariableSlack(ComplementarityConstraint):
             self.__cost_weight = val
             # Update slack cost
             if self.__slack_cost is not None:
-                self.__slack_cost.evaluator().UpdateCoefficients(new_a = val*np.ones(self.slack.shape[1]))
+                for cost in self.__slack_cost:
+                    nvars = cost.variables().size
+                    cost.evaluator().UpdateCoefficients(new_a = val*np.ones((nvars,)))
         else:
             raise ValueError("cost_weight must be a nonnegative numeric value")
 
@@ -306,6 +313,7 @@ class LinearEqualityConstantSlackComplementarity(ComplementarityConstraint):
         self.__const_slack = slack     
         self._prog = None
         self.name = fcn.__name__
+        self.__slack_vars = None
 
     def eval(self, vars):
         """
@@ -328,14 +336,19 @@ class LinearEqualityConstantSlackComplementarity(ComplementarityConstraint):
     def addToProgram(self, prog, xvars, zvars):
         xvars, zvars = self._check_vars(xvars, zvars)
         # Create new slack variables
-        self.__slack_vars = prog.NewContinuousVariables(rows = zvars.shape[0], cols=zvars.shape[1], name=self.name + "_slacks")
+        new_slacks = prog.NewContinuousVariables(rows = zvars.shape[0], cols=zvars.shape[1], name=self.name + "_slacks")
         # All decision variables
-        dvars = np.concatenate([xvars, zvars, self.__slack_vars], axis=0)
+        dvars = np.concatenate([xvars, zvars, new_slacks], axis=0)
         # Add complementarity constraints
         for n in range(dvars.shape[1]):
             prog.AddConstraint(self, lb=self.lower_bound(), ub=self.upper_bound(), vars=dvars[:,n], description=self.name)
         # Store the reference to the program
         self._prog = prog
+        # Store the slack variables
+        if self.__slack_vars is None:
+            self.__slack_vars = new_slacks
+        else:
+            self.__slack_vars = np.row_stack([self.__slack_vars, new_slacks])
 
     @property
     def slack(self):
@@ -368,7 +381,7 @@ class LinearEqualityVariableSlackComplementarity(ComplementarityConstraint):
        self.zdim = zdim
        self.name = fcn.__name__
        self.__slack_vars = None
-       self.__slack_cost = None
+       self.__slack_cost = []
        self.__cost_weight = 1.
         
     def eval(self, vars):
@@ -392,15 +405,21 @@ class LinearEqualityVariableSlackComplementarity(ComplementarityConstraint):
     def addToProgram(self, prog, xvars, zvars):
         xvars, zvars = self._check_vars(xvars, zvars)
         # Create new slack variables
-        self.__slack_vars = prog.NewContinuousVariables(rows = zvars.shape[0]+1, cols=zvars.shape[1], name=self.name + "_slacks")
+        new_slacks = prog.NewContinuousVariables(rows = zvars.shape[0]+1, cols=zvars.shape[1], name=self.name + "_slacks")
         # Add bounding box constraints
-        dvars = np.concatenate([xvars, zvars, self.__slack_vars], axis=0)
+        dvars = np.concatenate([xvars, zvars, new_slacks], axis=0)
         # Add complementarity constraints
         for n in range(dvars.shape[1]):
             prog.AddConstraint(self,lb=self.lower_bound(), ub=self.upper_bound(), vars=dvars[:,n], description=self.name)
         # Add a cost on the slack variables
-        self.__slack_cost = prog.AddLinearCost(a = self.cost_weight * np.ones((self.__slack_vars.shape[1]),), b=np.zeros((1,)), vars = self.__slack_vars[-1,:])
-        self.__slack_cost.evaluator().set_description(self.name + "SlackCost")
+        new_cost = prog.AddLinearCost(a = self.cost_weight * np.ones((new_slacks.shape[1]),), b=np.zeros((1,)), vars = new_slacks[-1,:])
+        new_cost.evaluator().set_description(self.name+"SlackCost")
+        self.__slack_cost.append(new_cost)
+        # Store the variables
+        if self.__slack_vars is not None:
+            self.__slack_vars = np.row_stack([self.__slack_vars, new_slacks])
+        else:
+            self.__slack_vars = new_slacks
     
     @property
     def slack(self):
@@ -420,8 +439,9 @@ class LinearEqualityVariableSlackComplementarity(ComplementarityConstraint):
             #Store the cost weight value
             self.__cost_weight = val
             # Update slack cost
-            if self.__slack_cost is not None:
-                self.__slack_cost.evaluator().UpdateCoefficients(new_a = val*np.ones(self.slack.shape[1]))
+            for cost in self.__slack_cost:
+                nvars = cost.variables().size
+                cost.evaluator().UpdateCoefficients(new_a = val*np.ones(nvars))
         else:
             raise ValueError("cost_weight must be a nonnegative numeric value")
 
