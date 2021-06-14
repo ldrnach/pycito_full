@@ -289,7 +289,7 @@ class ContactImplicitDirectTranscription():
         # Split variables from the decision list
         x, gam = np.split(vars, [self.x.shape[0]])
         # Get the velocity, and convert to qdot
-        q, v = np.split(x, plant.multibody.num_positions())
+        q, v = np.split(x, [plant.multibody.num_positions()])
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate((q,v), axis=0))
         # Get the contact Jacobian
         _, Jt = plant.GetContactJacobians(context)
@@ -307,7 +307,7 @@ class ContactImplicitDirectTranscription():
         plant, context = self._autodiff_or_float(vars)
         ind = np.cumsum([self.x.shape[0], self._normal_forces.shape[0]])
         x, fN, fT = np.split(vars, ind)
-        q, v = np.split(x, plant.multibody.num_positions())
+        q, v = np.split(x, [plant.multibody.num_positions()])
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate((q,v), axis=0))
         mu = plant.GetFrictionCoefficients(context)
         mu = np.diag(mu)
@@ -325,7 +325,7 @@ class ContactImplicitDirectTranscription():
         """
         plant, _ = self._autodiff_or_float(dvars)
         # Get configuration and joint limit forces
-        q, _ = np.split(dvars, plant.multibody.num_positions())
+        q, _ = np.split(dvars, [plant.multibody.num_positions()])
         # Calculate distance from limits
         qmax = plant.multibody.GetPositionUpperLimits()
         qmin = plant.multibody.GetPositionLowerLimits()
