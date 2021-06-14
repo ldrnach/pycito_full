@@ -7,11 +7,7 @@ Includes classes for creating A1 MultibodyPlant and TimesteppingMultibodyPlant a
 # Library imports
 import numpy as np
 import matplotlib.pyplot as plt
-<<<<<<< HEAD
-from pydrake.all import PiecewisePolynomial, InverseKinematics, Solve
-=======
 from pydrake.all import PiecewisePolynomial, InverseKinematics, Solve, Body, PrismaticJoint, BallRpyJoint, SpatialInertia, UnitInertia
->>>>>>> master
 # Project Imports
 from utilities import FindResource, GetKnotsFromTrajectory, quat2rpy
 from systems.timestepping import TimeSteppingMultibodyPlant
@@ -286,44 +282,6 @@ class A1(TimeSteppingMultibodyPlant):
 def test_rpy2quat():
     a1 = A1()
     a1.Finalize()
-<<<<<<< HEAD
-    context = a1.multibody.CreateDefaultContext()
-    pos = a1.multibody.GetPositions(context)
-    t = np.linspace(0., 1., 101)
-    angle = np.linspace(0., np.pi / 2, 101)
-    traj = PiecewisePolynomial.FirstOrderHold([0., 1.], np.column_stack((pos, pos)))
-    pos = np.tile(pos, (101,1)).transpose()
-    rpy = np.zeros((3,))
-    for n in range(3):
-        pos_ = pos.copy()
-        for k in range(angle.shape[0]):
-            rpy[n] = angle[k]
-            pos_[0:4, k] = rpy2quat(rpy)
-        t_ = t + traj.end_time()
-        traj.ConcatenateInTime(PiecewisePolynomial.FirstOrderHold(t_, pos_))
-    a1.visualize(traj)
-
-if __name__ == "__main__":
-    test_rpy2quat()
-    # a1 = A1()
-    # a1.Finalize()
-    # print(f"A1 effort limits {a1.get_actuator_limits()}")
-    # qmin, qmax = a1.get_joint_limits()
-    # print(f"A1 has lower joint limits {qmin} and upper joint limits {qmax}")
-    # print(f"A1 has actuation matrix:")
-    # print(a1.multibody.MakeActuationMatrix())
-    # # Get the default A1 standing pose
-    # pose = a1.standing_pose()
-    # print(f"A1 standing pose{pose}")
-    # # Get a new standing pose using inverse kinematics
-    # pose2 = pose.copy()
-    # pose2[6] = pose[6]/2.
-    # pose2_ik, status = a1.standing_pose_ik(base_pose = pose2[0:7], guess = pose2.copy())
-    # print(f"IK Successful? {status}")
-    # print(f"Second A1 standing pose {pose2_ik}")
-    # #u, f = a1.static_controller(pose, verbose=True)
-    # print('Complete')
-=======
     print(f"A1 effort limits {a1.get_actuator_limits()}")
     qmin, qmax = a1.get_joint_limits()
     print(f"A1 has lower joint limits {qmin} and upper joint limits {qmax}")
@@ -340,7 +298,6 @@ if __name__ == "__main__":
     print(f"Second A1 standing pose {pose2_ik}")
     #u, f = a1.static_controller(pose, verbose=True)
     print('Complete')
->>>>>>> master
     #a1.configuration_sweep()
     # a1.print_frames()
     # pos = a1.standing_pose()
