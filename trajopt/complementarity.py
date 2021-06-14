@@ -8,7 +8,9 @@ import numpy as np
 import warnings
 from abc import ABC, abstractmethod
 
-class ComplementarityFunction(ABC):
+#TODO: For constant slack, update constraint bounds when slack is set
+
+class ComplementarityConstraint(ABC):
     """
     Base class for implementing complementarity constraint functions of the form:
         f(x) >= 0
@@ -23,9 +25,13 @@ class ComplementarityFunction(ABC):
         self.fcn = fcn
         self.xdim = xdim
         self.zdim = zdim
-        self.slack = 0.
+        self.__slack = 0.
         self.name = self.fcn.__name__
-    
+
+    def __call__(self, vars):
+        """Evaluate the constraint"""
+        return self.eval(vars)
+
     def set_description(self, name=None):
         """Set a string description for the constraint"""
         if name is None:
@@ -34,36 +40,30 @@ class ComplementarityFunction(ABC):
             self.name = name
 
     @abstractmethod
-    def eval_product(self, vars):
-        """Return the product of the complementarity function and variables"""
-        x, z  = np.split(vars, [self.xdim])
-        return z*self.fcn(x)
+    def eval(self, vars):
+        """Concrete implementation of evaluator"""
+
+    @abstractmethod
+    def lower_bound(self):
+        """Returns the lower bound of the constraint"""
+
+    @abstractmethod
+    def upper_bound(self):
+        """Returns the upper bound of the constraint"""
 
     def addToProgram(self, prog, xvars, zvars):
-        """Add the complementarity constraint to a program"""
-        self._check_vars(xvars, zvars)
-        # Add the linear nonnegativity constraint
-        self._addNonnegativityConstraint(prog, zvars)
-        # Add the non-linear constraints
-        for n in range(xvars.shape[1]):
-            prog.AddConstraint(self.eval_product, 
-                            lb = np.full((self.zdim,), -np.inf),
-                            ub = self.slack * np.ones((self.zdim,)),
-                            vars = np.concatenate([xvars[:,n], zvars[:,n]], axis=0),
-                            description = self.name + "_product")
-            prog.AddConstraint(self.fcn,
-                            lb = np.zeros((self.zdim,)),
-                            ub = np.full((self.zdim,), np.inf),
-                            vars = xvars[:,n],
-                            description = self.name + "_nonnegativity")
-
-    def _addNonnegativityConstraint(self, prog, zvars):
-        """Add the linear nonnegativity constraint on the complementarity variables"""
-        cstr = prog.AddBoundingBoxConstraint(lb = 0., ub = np.inf, vars = zvars.flatten())
-        cstr.evaluator().set_description(self.name + "_boundingbox")
+        """ Add the complementarity constraint to a mathematical program """
+        xvars, zvars = self._check_vars(xvars, zvars)
+        dvars = np.concatenate([xvars, zvars], axis=0)
+        for n in range(dvars.shape[1]):
+            prog.AddConstraint(self, lb=self.lower_bound(), ub=self.upper_bound(), vars=dvars[:,n], description=self.name)
 
     def _check_vars(self, xvars, zvars):
         """ Check that the decision variables are appropriately sized"""
+        if np.ndim(xvars) == 1:
+            xvars = np.expand_dims(xvars, axis=1)
+        if np.ndim(zvars) == 1:
+            zvars = np.expand_dims(zvars, axis=1)
         nX, N = xvars.shape
         nZ, M = zvars.shape
         if nX != self.xdim:
@@ -72,6 +72,7 @@ class ComplementarityFunction(ABC):
             raise ValueError(f"Expected {self.zdim} zvars but got {nZ} instead")
         if N != M:
             raise ValueError(f"expected xvars and zvars to have the same 2nd dimension. Instead, got {N} and {M}")
+        return xvars, zvars
 
     @property
     def slack(self):
@@ -92,7 +93,7 @@ class ComplementarityFunction(ABC):
     def cost_weight(self, val):
         warnings.warn(f"{type(self).__name__} does not have an associated cost. The value is ignored.")
 
-class NonlinearComplementarityConstantSlack(ComplementarityFunction):
+class NonlinearComplementarityConstantSlack(ComplementarityConstraint):
     """
     Implements the nonlinear complementarity constraint with a constant slack variable
     Implements the problem as:
@@ -102,38 +103,50 @@ class NonlinearComplementarityConstantSlack(ComplementarityFunction):
     In this implementation, the slack is pushed to the upper bound of the constraints
     """
     def __init__(self, fcn, xdim=1, zdim=1, slack=0.):
+        self._prog = None
         super(NonlinearComplementarityConstantSlack, self).__init__(fcn, xdim, zdim)
         self.slack = slack
+        
+    def eval(self, dvars):
+        """ 
+        Evaluates the original nonlinear complementarity constraint 
+        
+        The argument must be a numpy array of decision variables organized as [x, z]
+        """
+        x, z = np.split(dvars, [self.xdim])
+        f = self.fcn(x)
+        return np.concatenate([z, f, z*f], axis=0)
+
+    def lower_bound(self):
+        """ Returns the lower bound of the constraint"""
+        return np.concatenate([np.zeros((2*self.zdim,)), np.full((self.zdim,), -np.inf)], axis=0)
+
+    def upper_bound(self):
+        """ Returns the upper bound of the constraint"""
+        return np.concatenate([np.full((2*self.zdim, ), np.inf), self.slack * np.ones((self.zdim,))], axis=0)
 
     def addToProgram(self, prog, xvars, zvars):
-        """Add the complementarity constraint to a program"""
-        self._check_vars(xvars, zvars)
-        # Add the linear nonnegativity constraint
-        self._addNonnegativityConstraint(prog, zvars)
-        # Add the non-linear constraints
-        for n in range(xvars.shape[1]):
-            prog.AddConstraint(self.eval_product, 
-                            lb = np.full((self.zdim,), -np.inf),
-                            ub = self.slack * np.ones((self.zdim,)),
-                            vars = np.concatenate([xvars[:,n], zvars[:,n]], axis=0),
-                            description = self.name + "_product")
-            prog.AddConstraint(self.fcn,
-                            lb = np.zeros((self.zdim,)),
-                            ub = np.full((self.zdim,), np.inf),
-                            vars = xvars[:,n],
-                            description = self.name + "_nonnegativity")
+        """Add the complementarity constraint to a mathematical program"""
+        super(NonlinearComplementarityConstantSlack, self).addToProgram(prog, xvars, zvars)
+        self._prog = prog
 
-    def eval_product(self, vars):
-        """Return the product of the complementarity function and variables"""
-        x, z  = np.split(vars, [self.xdim])
-        return z*self.fcn(x)
+    @property
+    def slack(self):
+        return self.__slack
 
-    def _addNonnegativityConstraint(self, prog, zvars):
-        """Add the linear nonnegativity constraint on the complementarity variables"""
-        cstr = prog.AddBoundingBoxConstraint(lb = 0., ub = np.inf, vars = zvars.flatten())
-        cstr.evaluator().set_description(self.name + "_boundingbox")
+    @slack.setter
+    def slack(self, val):
+        if (type(val) is int or type(val) is float) and val >= 0.:
+            self.__slack = val
+            if self._prog is not None:
+                ub = np.concatenate([np.full((2*self.zdim, ), np.inf), val * np.ones((self.zdim,))], axis=0)
+                for cstr in self._prog.GetAllConstraints():
+                    if cstr.evaluator().get_description() == self.name:
+                        cstr.evaluator().UpdateUpperBound(new_ub = ub)
+        else:
+            raise ValueError("slack must be a nonnegative numeric value")
 
-class NonlinearComplementarityVariableSlack(NonlinearComplementarityConstantSlack):
+class NonlinearComplementarityVariableSlack(ComplementarityConstraint):
     """
     Implements the nonlinear complementarity constraint as
         f(x) >= 0
@@ -147,30 +160,37 @@ class NonlinearComplementarityVariableSlack(NonlinearComplementarityConstantSlac
         self.__slack_cost = None
         self.__cost_weight = 1.
 
-    def eval_product(self, vars):
-        """Return the product of the complementarity function and variables"""
-        x, z, s  = np.split(vars, [self.xdim, self.zdim])
-        return z*self.fcn(x) - s
+    def eval(self, vars):
+        """
+        Evaluate the complementarity constraint
+        
+        The argument must be a numpy array of decision variables [x, z, s]
+        """
+        x, z, s = np.split(vars, np.cumsum([self.xdim, self.zdim]))
+        fcn_val = self.fcn(x)
+        return np.concatenate([fcn_val, z, fcn_val*z -s], axis=0)
+
+    def upper_bound(self):
+        """Return the lower bound"""
+        return np.concatenate([np.full((2*self.zdim,), np.inf), np.zeros((self.zdim,))], axis=0)
+
+    def lower_bound(self):
+        """Return the upper bound"""
+        return np.concatenate([np.zeros((2*self.zdim,)), -np.full((self.zdim,), np.inf)], axis=0)
 
     def addToProgram(self, prog, xvars, zvars):
         """ Add the constraint with the slack variables to the mathematical program"""
-        self._check_vars(xvars, zvars)
+        xvars, zvars = self._check_vars(xvars, zvars)
         self.__slack = prog.NewContinuousVariables(rows=1, cols=zvars.shape[1], name=self.name+"_slacks")
-        # Add the complementarity constraints
-        self._addNonnegativityConstraint(prog, zvars)
-        for n in range(zvars.shape[1]):
-            prog.AddConstraint(self.eval_product, 
-                            lb = np.full((self.zdim,), -np.inf),
-                            ub = np.zeros((self.zdim,)),
-                            vars = np.concatenate([xvars[:,n], zvars[:,n], self.__slack[:,n]], axis=0),
-                            description = self.name + "_product")
-            prog.AddConstraint(self.fcn, 
-                            lb = np.zeros((self.zdim, )),
-                            ub = np.full((self.zdim,), np.inf),
-                            vars = xvars[:,n],
-                            description = self.name+"_nonnegativity")
+        dvars = np.concatenate([xvars, zvars, self.__slack], axis=0)
+        for n in range(dvars.shape[1]):
+            prog.AddConstraint(self, 
+                            lb = self.lower_bound(),
+                            ub = self.upper_bound(),
+                            vars = dvars[:,n],
+                            description = self.name)
         # Add a cost on the slack variables
-        self.__slack_cost = prog.AddLinearCost(a = self.cost_weight * np.ones((self.__slack.shape[1]),), b=np.zeros((1,)), vars = self.__slacks)
+        self.__slack_cost = prog.AddLinearCost(a = self.cost_weight * np.ones((self.__slack.shape[1]),), b=np.zeros((1,)), vars = self.__slack)
         self.__slack_cost.evaluator().set_description(self.name + "SlackCost")
 
     @property
@@ -196,7 +216,7 @@ class NonlinearComplementarityVariableSlack(NonlinearComplementarityConstantSlac
         else:
             raise ValueError("cost_weight must be a nonnegative numeric value")
 
-class CostRelaxedNonlinearComplementarity(ComplementarityFunction):
+class CostRelaxedNonlinearComplementarity(ComplementarityConstraint):
     """
         For the nonlinear complementarity constraint:
             f(x) >= 0
@@ -209,32 +229,48 @@ class CostRelaxedNonlinearComplementarity(ComplementarityFunction):
             z*f(x) = 0
         as a cost. The parameter cost_weight sets the penalty parameter for the cost function 
     """
-    def __init__(self, fcn, xdim=0, zdim=1):
-        """ initialize the constraint"""
-        super().__init__(fcn, xdim, zdim)
-        self.cost_weight =  1.
+    def __init__(self, fcn=None, xdim=0, zdim=1):
+        """
+            Creates the complementarity constraint function. Stores a reference to the nonlinear function, the dimensions of the x and z variables, and sets the slack to 0
+        """
+        self.fcn = fcn
+        self.xdim = xdim
+        self.zdim = zdim
+        self.dvars = None
+        self.name=self.fcn.__name__
+        self.cost_weight = 1.
     
-    def addToProgram(self, prog, xvars, zvars):
-        """ Add the constraint and costs to the program """
-        self._check_vars(xvars, zvars)
-        self._addNonnegativityConstraint(prog, zvars)
-        for n in range(zvars.shape[1]):
-            prog.AddConstraint(self.fcn, 
-                                lb=np.zeros((self.zdim,)), 
-                                ub=np.full((self.zdim,), np.inf),
-                                vars = xvars[:,n],
-                                description=self.name + "_Nonnegativity")
-            # Product as cost
-            prog.AddCost(self.eval_product, vars=np.concatenate([xvars[:,n], zvars[:,n]], axis=0), description=self.name+"_cost")
+    def eval(self, vars):
+        """
+        Evaluate the inequality constraints only
+        
+        The argument must be a numpy array of decision variables ordered as [x, z]
+        """
+        x, z = np.split(vars, [self.xdim])
+        return np.concatenate([self.fcn(x), z], axis=0)
 
-    def eval_product(self, vars):
+    def lower_bound(self):
+        """Return the lower bound"""
+        return np.zeros((2*self.zdim))
+
+    def upper_bound(self):
+        """Return the upper bound"""
+        return np.full((2*self.zdim,), np.inf)
+
+    def product_cost(self, vars):
         """
         Returns the product constraint as a scalar for use as a cost
-
         The argument must be a numpy array of decision variables organized as [x, z]
         """
         x, z = np.split(vars, [self.xdim])
         return self.cost_weight * z.dot(self.fcn(x))
+
+    def addToProgram(self, prog, xvars, zvars):
+        xvars, zvars = self._check_vars(xvars, zvars)
+        dvars = np.concatenate([xvars, zvars], axis=0)
+        for n in range(dvars.shape[1]):
+            prog.AddConstraint(self, lb = self.lower_bound(), ub=self.upper_bound(), vars=dvars[:,n], description=self.name)
+            prog.AddCost(self.product_cost, vars=dvars[:,n], description=self.name+"Cost")
 
     @property
     def slack(self):
@@ -255,7 +291,7 @@ class CostRelaxedNonlinearComplementarity(ComplementarityFunction):
         else:
             raise ValueError("cost_weight must be a nonnegative numeric value")       
 
-class LinearEqualityConstantSlackComplementarity(ComplementarityFunction):
+class LinearEqualityConstantSlackComplementarity(ComplementarityConstraint):
     """
     Introduces new variables and an equality constraint to implement the nonlinear constraint as a linear complementarity constraint with a nonlinear equality constraint. The original problem is implemented as:
         r - f(x) = 0
@@ -264,42 +300,43 @@ class LinearEqualityConstantSlackComplementarity(ComplementarityFunction):
     where r is the extra set of variables and s is a constant slack added to the upper bound
     """
     def __init__(self, fcn, xdim=1, zdim=1, slack=0):
-        super().__init__(fcn, xdim, zdim)
-        self.__const_slack = slack
+        self.fcn = fcn
+        self.xdim = xdim
+        self.zdim = zdim
+        self.__const_slack = slack     
+        self._prog = None
+        self.name = fcn.__name__
+
+    def eval(self, vars):
+        """
+        Evaluate the constraint
+        
+        The argument must be a numpy array of decision variables ordered as [x, z, r]
+        """
+        x, z, r = np.split(vars, np.cumsum([self.xdim, self.zdim]))
+        fcn_val = self.fcn(x)
+        return np.concatenate((r-fcn_val, r, z, r*z), axis=0)
+
+    def upper_bound(self):
+        """Return the upper bound of the constraint"""
+        return np.concatenate([np.zeros((self.zdim,)), np.full((2*self.zdim,), np.inf), self.__const_slack*np.ones((self.zdim,))], axis=0)
+
+    def lower_bound(self):
+        """Return the lower bound of the constraint"""
+        return np.concatenate([np.zeros((3*self.zdim,)), -np.full((self.zdim,), np.inf)], axis=0)
 
     def addToProgram(self, prog, xvars, zvars):
-        self._check_vars(xvars, zvars)
+        xvars, zvars = self._check_vars(xvars, zvars)
         # Create new slack variables
-        self.__slack_vars = prog.NewContinuousVariables(rows = zvars.shape[0], cols=zvars.shape[1], description=self.name + "_slacks")
-        # Add bounding box constraints
-        self._addNonnegativityConstraint(prog, zvars)
-        self._addNonnegativityConstraint(prog, self.__slack_vars)
+        self.__slack_vars = prog.NewContinuousVariables(rows = zvars.shape[0], cols=zvars.shape[1], name=self.name + "_slacks")
+        # All decision variables
+        dvars = np.concatenate([xvars, zvars, self.__slack_vars], axis=0)
         # Add complementarity constraints
-        for n in range(zvars.shape[1]):
-            prog.AddConstraint(self.eval_product, 
-                                lb = np.full((self.zdim,), -np.inf),
-                                ub = self.__const_slack * np.ones((self.zdim,)),
-                                vars = np.concatenate([self.__slack_vars[:,n], zvars[:,n]], axis=0),
-                                description=self.name+"_product")
-            prog.AddConstraint(self.eval_equality,
-                                lb = np.zeros((self.zdim,)),
-                                ub = np.zeros((self.zdim,)),
-                                vars = np.concatenate([xvars[:,n], self.__slack_vars[:,n]], axis=0),
-                                description = self.name+"_slack")
-            prog.AddConstraint(self.fcn,
-                                lb = np.zeros((self.zdim,)),
-                                ub = np.full((self.zdim,), np.inf),
-                                vars = xvars[:,n],
-                                description = self.name +"_nonnegativity")        
+        for n in range(dvars.shape[1]):
+            prog.AddConstraint(self, lb=self.lower_bound(), ub=self.upper_bound(), vars=dvars[:,n], description=self.name)
+        # Store the reference to the program
+        self._prog = prog
 
-    def eval_product(self, dvars):
-        r, z = np.split(dvars, [self.zdim])
-        return r*z
-
-    def eval_equality(self, dvars):
-        x, r = np.split(dvars, [self.xdim])
-        return r - self.fcn(x) 
-    
     @property
     def slack(self):
         return self.__slack_vars
@@ -309,11 +346,15 @@ class LinearEqualityConstantSlackComplementarity(ComplementarityFunction):
         #Set the CONSTANT Slack value
         if type(val) is int or type(val) is float and val >=0:
             self.__const_slack = val
+            if self._prog is not None:
+                ub = np.concatenate([np.zeros((self.zdim,)), np.full((2*self.zdim,), np.inf), val*np.ones((self.zdim,))], axis=0)
+                for cstr in self._prog.GetAllConstraints():
+                    if cstr.evaluator().get_description() == self.name:
+                        cstr.evaluator().UpdateUpperBound(new_ub = ub)
         else:
             raise ValueError("slack must be a nonnegative numeric value")
 
-
-class LinearEqualityVariableSlackComplementarity(LinearEqualityConstantSlackComplementarity):
+class LinearEqualityVariableSlackComplementarity(ComplementarityConstraint):
     """
     Introduces new variables and an equality constraint to implement the nonlinear constraint as a linear complementarity constraint with a nonlinear equality constraint. The original problem is implemented as:
         r - f(x) = 0
@@ -325,44 +366,45 @@ class LinearEqualityVariableSlackComplementarity(LinearEqualityConstantSlackComp
        self.fcn = fcn
        self.xdim = xdim
        self.zdim = zdim
-       self.__slack = None
+       self.name = fcn.__name__
+       self.__slack_vars = None
        self.__slack_cost = None
+       self.__cost_weight = 1.
         
-    def eval_product(self, dvars):
-        r,s,z = np.split(dvars,[self.zdim, self.zdim+1])
-        return r*z - s
+    def eval(self, vars):
+        """
+        Evaluate the constraint. 
+        The arguments must be a numpy array of decision variables including:
+            [x, z, r, s]
+        """
+        x, z, r, s = np.split(vars, np.cumsum([self.xdim, self.zdim, self.zdim]))
+        fcn_val = self.fcn(x)
+        return np.concatenate((r-fcn_val, r, z, r*z - s), axis=0)
+
+    def upper_bound(self):
+        """Return the upper bound of the constraint"""
+        return np.concatenate([np.zeros((self.zdim,)), np.full((2*self.zdim,), np.inf), np.zeros((self.zdim,))], axis=0)
+
+    def lower_bound(self):
+        """Return the lower bound of the constraint"""
+        return np.concatenate([np.zeros((3*self.zdim,)), -np.full((self.zdim,), np.inf)], axis=0)
 
     def addToProgram(self, prog, xvars, zvars):
-        self._check_vars(xvars, zvars)
+        xvars, zvars = self._check_vars(xvars, zvars)
         # Create new slack variables
-        self.__slack = prog.NewContinuousVariables(rows = zvars.shape[0]+1, cols=zvars.shape[1], description=self.name + "_slacks")
+        self.__slack_vars = prog.NewContinuousVariables(rows = zvars.shape[0]+1, cols=zvars.shape[1], name=self.name + "_slacks")
         # Add bounding box constraints
-        self._addNonnegativityConstraint(prog, zvars)
-        self._addNonnegativityConstraint(prog, self.__slack[:-1,:])
+        dvars = np.concatenate([xvars, zvars, self.__slack_vars], axis=0)
         # Add complementarity constraints
-        for n in range(zvars.shape[1]):
-            prog.AddConstraint(self.eval_product, 
-                                lb = np.full((self.zdim,), -np.inf),
-                                ub = np.zeros((self.zdim,)),
-                                vars = np.concatenate([self.__slack_vars[:,n], zvars[:,n]], axis=0),
-                                description=self.name+"_product")
-            prog.AddConstraint(self.eval_equality,
-                                lb = np.zeros((self.zdim,)),
-                                ub = np.zeros((self.zdim,)),
-                                vars = np.concatenate([xvars[:,n], self.__slack_vars[:,n]], axis=0),
-                                description = self.name+"_slack")
-            prog.AddConstraint(self.fcn,
-                                lb = np.zeros((self.zdim,)),
-                                ub = np.full((self.zdim,), np.inf),
-                                vars = xvars[:,n],
-                                description = self.name +"_nonnegativity")  
+        for n in range(dvars.shape[1]):
+            prog.AddConstraint(self,lb=self.lower_bound(), ub=self.upper_bound(), vars=dvars[:,n], description=self.name)
         # Add a cost on the slack variables
-        self.__slack_cost = prog.AddLinearCost(a = self.cost_weight * np.ones((self.__slack.shape[1]),), b=np.zeros((1,)), vars = self.__slacks[-1,:])
+        self.__slack_cost = prog.AddLinearCost(a = self.cost_weight * np.ones((self.__slack_vars.shape[1]),), b=np.zeros((1,)), vars = self.__slack_vars[-1,:])
         self.__slack_cost.evaluator().set_description(self.name + "SlackCost")
     
     @property
     def slack(self):
-        return self.__slack
+        return self.__slack_vars
 
     @slack.setter
     def slack(self, val):

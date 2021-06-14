@@ -6,56 +6,48 @@ contactimplicit: Implements Contact Implicit Trajectory Optimization using Backw
 Luke Drnach
 October 5, 2020
 """
-from enum import Enum
+
 import numpy as np 
 from matplotlib import pyplot as plt
-from pydrake.all import MathematicalProgram, PiecewisePolynomial
+from pydrake.all import MathematicalProgram, PiecewisePolynomial, Variable
 from pydrake.autodiffutils import AutoDiffXd
 from pydrake.multibody.tree import MultibodyForces_
 from utilities import MathProgIterationPrinter, plot_complementarity
-from trajopt.constraints import ConstantSlackNonlinearComplementarity, ComplementarityFactory, NCCImplementation, NCCSlackType
+import trajopt.complementarity as compl
 from trajopt.quatutils import xyz_to_quaternion
 #TODO: Re-make decision variables to ease code understanding
 #TODO: Unit testing for whole-body and centrodial optimizers
-
-class OrientationType(Enum):
-    QUATERNION = 1
-    FIXEDANGLES = 2
+#TODO: Unit test complementarity constraints
 
 class OptimizationOptions():
     """ Keeps track of optional settings for Contact Implicit Trajectory Optimization"""
     def __init__(self):
         """ Initialize the options to their default values"""
-        self.slacktype = NCCSlackType.CONSTANT_SLACK
-        self.ncc_implementation = NCCImplementation.NONLINEAR
-        self.orientationtype = OrientationType.FIXEDANGLES
+        self.__complementarity_class = compl.NonlinearComplementarityConstantSlack
 
-    def useLinearComplementarity(self):
+    def useLinearComplementarityWithVariableSlack(self):
         """ Use linear complementarity with equality constraints"""
-        self.ncc_implementation = NCCImplementation.LINEAR_EQUALITY
+        self.__complementarity_class = compl.LinearEqualityVariableSlackComplementarity
 
-    def useNonlinearComplementarity(self):
+    def useNonlinearComplementarityWithVariableSlack(self):
         """ Use nonlinear complementarity """
-        self.ncc_implementation = NCCImplementation.NONLINEAR
+        self.__complementarity_class = compl.NonlinearComplementarityVariableSlack
 
-    def useCostComplementarity(self):
+    def useNonlinearComplementarityWithCost(self):
         """ Use nonlinear complementarity but enforce the equality constraint in a cost"""
-        self.ncc_implementation = NCCImplementation.COST
+        self.__complementarity_class = compl.CostRelaxedNonlinearComplementarity
 
-    def useConstantSlack(self):
+    def useNonlinearComplementarityWithConstantSlack(self):
         """ Use a constant slack in the complementarity constraints"""
-        self.slacktype = NCCSlackType.CONSTANT_SLACK
+        self.__complementarity_class = compl.NonlinearComplementarityConstantSlack
 
-    def useVariableSlack(self):
+    def useLinearComplementarityWithConstantSlack(self):
         """ Use a decision variable for the slack in the complementarity constraints"""
-        self.slacktype = NCCSlackType.VARIABLE_SLACK
+        self.__complementarity_class = compl.LinearEqualityConstantSlackComplementarity
 
-    def useQuaternionOrientation(self):
-        """ Use quaternions to represent orientation """
-        self.orientationtype = OrientationType.QUATERNION
-    
-    def useFixedAngleOrientation(self):
-        self.orientationtype = OrientationType.FIXEDANGLES
+    @property
+    def complementarity(self):
+        return self.__complementarity_class
 
 class DecisionVariableList():
     """Helper class for adding a list of decision variables to a cost/constraint"""
@@ -173,24 +165,14 @@ class ContactImplicitDirectTranscription():
             self.jl = self.prog.NewContinuousVariables(rows = 2*nJL, cols=self.num_time_samples, name="jl")
         else:
             self.jl = False
-        # Add slack variables for complementarity problems
-        if self.options.ncc_implementation == NCCImplementation.LINEAR_EQUALITY: 
-            if self.options.slacktype == NCCSlackType.VARIABLE_SLACK:
-                self.slacks = self.prog.NewContinuousVariables(rows = 1 + 2*numN + numT, cols=self.num_time_sampels, name='slacks')
-            else: 
-                self.slacks = self.prog.NewContinuousVariables(rows=2*numN + numT, cols=self.num_time_samples, name='slacks')
-        elif self.options.ncc_implementation == NCCImplementation.NONLINEAR and self.options.slacktype == NCCSlackType.VARIABLE_SLACK:
-            self.slacks = self.prog.NewContinuousVariables(rows=1,cols=self.num_time_samples, name='slacks')
-        else:
-            self.slacks = None
-            
+                    
     def _add_dynamic_constraints(self):
         """Add constraints to enforce rigid body dynamics and joint limits"""
         dynamics_bound = np.zeros((self.x.shape[0],1))
         # Check for joint limits first
         if self.Jl is not None:
             # Create the joint limit constraint
-            self.joint_limit_cstr = ConstantSlackNonlinearComplementarity(self._joint_limit, xdim=self.x.shape[0], zdim=self.jl.shape[0])
+            self.joint_limit_cstr = compl.ConstantSlackNonlinearComplementarity(self._joint_limit, xdim=self.x.shape[0], zdim=self.jl.shape[0])
             for n in range(0, self.num_time_samples-1):
                 # Add timestep constraints
                 self.prog.AddBoundingBoxConstraint(self.minimum_timestep, self.maximum_timestep, self.h[n,:]).evaluator().set_description('TimestepConstraint')
@@ -220,61 +202,17 @@ class ContactImplicitDirectTranscription():
     def _add_contact_constraints(self):
         """ Add complementarity constraints for contact to the optimization problem"""
         # Create the constraint according to the implementation and slacktype options
-        numN = self._normal_forces.shape[0]
-        numT = self._tangent_forces.shape[0]
-        factory = ComplementarityFactory(self.options.ncc_implementation, self.options.slacktype)
-        self.distance_cstr = factory.create(self._normal_distance, xdim=self.x.shape[0], zdim=numN)
-        self.sliding_cstr = factory.create(self._sliding_velocity, xdim = self.x.shape[0] + numN, zdim=numT)
-        self.friccone_cstr = factory.create(self._friction_cone, self.x.shape[0] + numN + numT, numN)
-        # Determine the variables according to implementation and slacktype options
-        distance_vars = DecisionVariableList([self.x, self._normal_forces])
-        sliding_vars = DecisionVariableList([self.x,  self._sliding_vel, self._tangent_forces])
-        friccone_vars = DecisionVariableList([self.x, self._normal_forces, self._tangent_forces, self._sliding_vel])
-        # Check and add slack variables
-        if self.options.ncc_implementation == NCCImplementation.LINEAR_EQUALITY:
-            distance_vars.add(self.slacks[0:numN,:])
-            sliding_vars.add(self.slacks[numN:numN+numT,:])
-            friccone_vars.add(self.slacks[numN+numT:2*numN+numT,:])
-        if self.options.ncc_implementation != NCCImplementation.COST and self.options.slacktype == NCCSlackType.VARIABLE_SLACK:
-            distance_vars.add(self.slacks[-1:,:])
-            sliding_vars.add(self.slacks[-1:,:])
-            friccone_vars.add(self.slacks[-1:,:])
-        # At each knot point, add constraints for normal distance, sliding velocity, and friction cone
-        for n in range(0, self.num_time_samples):
-            # Add complementarity constraints for contact
-            self.prog.AddConstraint(self.distance_cstr, 
-                        lb=self.distance_cstr.lower_bound(),
-                        ub=self.distance_cstr.upper_bound(),
-                        vars=distance_vars.get(n),
-                        description="normal_distance")
-            # Sliding velocity constraint 
-            self.prog.AddConstraint(self.sliding_cstr,
-                        lb=self.sliding_cstr.lower_bound(),
-                        ub=self.sliding_cstr.upper_bound(),
-                        vars=sliding_vars.get(n),
-                        description="sliding_velocity")
-            # Friction cone constraint
-            self.prog.AddConstraint(self.friccone_cstr, 
-                        lb=self.friccone_cstr.lower_bound(),
-                        ub=self.friccone_cstr.upper_bound(),
-                        vars=friccone_vars.get(n),
-                        description="friction_cone")
-        # Check for the case of cost-relaxed complementarity
-        if self.options.ncc_implementation == NCCImplementation.COST:
-            for n in range(0, self.num_time_samples-1):
-                # Normal distance cost
-                self.prog.AddCost(self.distance_cstr.product_cost, vars=distance_vars.get(n), description = "DistanceProductCost")
-                # Sliding velocity cost
-                self.prog.AddCost(self.sliding_cstr.product_cost, vars=sliding_vars.get(n), description = "VelocityProductCost")
-                # Friction cone cost
-                self.prog.AddCost(self.friccone_cstr.product_cost, vars=friccone_vars.get(n), description = "FricConeProductCost")
-            self.slack_cost = []
-        elif self.options.slacktype == NCCSlackType.VARIABLE_SLACK:
-            a = np.ones(self.slacks.shape[1],)
-            self.slack_cost = self.prog.AddLinearCost(a=a, b=np.zeros((1,)), vars=self.slacks[-1,:])
-            self.slack_cost.evaluator().set_description("SlackCost")
-        else:
-            self.slack_cost = []
+        self.distance_cstr = self.options.complementarity(self._normal_distance, xdim=self.x.shape[0], zdim=self.numN)
+        self.sliding_cstr = self.options.complementarity(self._sliding_velocity, xdim=self.x.shape[0]+self.numN, zdim = self.numT)
+        self.friction_cstr = self.options.complementarity(self._friction_cone, xdim=self.x.shape[0]+self.numN + self.numT, zdim=self.numN)
+        # Update the names
+        self.distance_cstr.set_description("normal_distance")
+        self.sliding_cstr.set_description("sliding_velocity")
+        self.friction_cstr.set_description("friction_cone")
+        # Add to program
+        self.distance_cstr.addToProgram(self.prog, xvars=self.x, zvars=self._normal_forces)
+        self.sliding_cstr.addToProgram(self.prog, xvars=np.concatenate([self.x, self._sliding_vel], axis=0), zvars=self._tangent_forces)
+        self.friction_cstr.addToProgram(self.prog, xvars=np.concatenate([self.x, self._normal_forces, self._tangent_forces], axis=0), zvars=self._sliding_vel)
 
     def _backward_dynamics(self, z):  
         """
@@ -615,9 +553,12 @@ class ContactImplicitDirectTranscription():
             return None
 
     def reconstruct_slack_trajectory(self, soln):
-        if self.slacks is not None:
-            t = self.get_solution_times(soln)
-            return PiecewisePolynomial.FirstOrderHold(t, soln.GetSolution(self.slacks))
+        
+        # Get the slack variables from the complementarity problems
+        if any(isinstance(slack, Variable) for slack in self.var_slack.flatten()):
+            #Filter out 'Variable' types
+            slack_vars = np.row_stack([slack_var for slack_var in self.var_slack if isinstance(slack_var[0], Variable)])
+            return self.reconstruct_trajectory(slack_vars, soln)
         else:
             return None
 
@@ -656,52 +597,7 @@ class ContactImplicitDirectTranscription():
                     "final_cost": soln.get_optimal_cost()
                     }
         return soln_dict
-
-    def set_slack(self, val):
-        """ Update the slack variables in the nonlinear complementarity constraints"""
-        # Set the slack in the constraint classes
-        self.distance_cstr.slack = val
-        self.sliding_cstr.slack = val
-        self.friccone_cstr.slack = val
-        # Update the bounds for the program constraints
-        cstrs = self.prog.GetAllConstraints()
-        for cstr in cstrs:
-            if cstr.evaluator().get_description() == "normal_distance":
-                cstr.evaluator().UpdateUpperBound(self.distance_cstr.upper_bound())
-            elif cstr.evaluator().get_description() == "sliding_velocity":
-                cstr.evaluator().UpdateUpperBound(self.sliding_cstr.upper_bound())
-            elif cstr.evaluator().get_description() == "friction_cone":
-                cstr.evaluator().UpdateUpperBound(self.friccone_cstr.upper_bound())
-            else:
-                continue
     
-    def set_slack_cost_weight(self, val):
-        """
-            Set the weight scalar for the slack cost. 
-
-            This method can only be called when options.slacktype is NCCSlackType.VARIABLE_SLACK and options.ncc_implementation is not NCCImplementation.COST. Otherwise, the method throws an exception.
-        """
-        if self.options.slacktype == NCCSlackType.VARIABLE_SLACK and self.options.ncc_implementation != NCCImplementation.COST:
-            if (type(val) == int or type(val) == float) and val >= 0: 
-                self.slack_cost.evaluator().UpdateCoefficients(new_a = val*np.ones(self.slacks.shape[1],))
-            else:
-                raise ValueError("slack cost weight must be a nonnegative numeric value")
-        else:
-            raise NotImplementedError("Setting the slack cost weight is only implemented when the NCC implementation is not COST and the SlackType option is VARIABLE_SLACK")
-
-    def set_complementarity_cost_penalty(self, weight):
-        """
-        Sets the penalty parameter for the complementarity cost
-        
-        Requires options.ncc_implementation == NCCImplementation.COST
-        """
-        if self.options.ncc_implementation == NCCImplementation.COST:
-            self.distance_cstr.cost_weight = weight
-            self.sliding_cstr.cost_weight = weight
-            self.friccone_cstr.cost_weight = weight
-        else:
-            raise NotImplementedError("Setting cost penalty is only implemented for option NCCImplementation.COST")
-
     def enable_cost_display(self, display='terminal'):
         """
         Add a visualization callback to print/show the cost values and constraint violations at each iteration
@@ -752,7 +648,37 @@ class ContactImplicitDirectTranscription():
     @property
     def numT(self):
         return self._tangent_forces.shape[0]
+
+    @property
+    def var_slack(self):
+        """Variable slack for contact complementarity constraints"""
+        return np.vstack([self.distance_cstr.slack, self.sliding_cstr.slack, self.friction_cstr.slack])
     
+    @property
+    def const_slack(self):
+        """Constant slack for contact complementarity constraints"""
+        return self.distance_cstr.slack
+
+    @const_slack.setter
+    def slack(self, val):
+        """ Set the constant slack variable in the complementarity constraints """
+        self.distance_cstr.slack = val
+        self.sliding_cstr.slack = val
+        self.friction_cstr.slack = val
+
+    @property
+    def complementarity_cost_weight(self):
+        """Generic cost weight for complementarity constraints"""
+        return self.distance_cstr.cost_weight
+
+    @complementarity_cost_weight.setter
+    def complementarity_cost_weight(self, val):
+        """Set cost weight for complementarity cost """
+        self.distance_cstr.cost_weight = val
+        self.sliding_cstr.cost_weight = val
+        self.friction_cstr.cost_weight = val
+
+
 class CentroidalContactTranscription(ContactImplicitDirectTranscription):
     #TODO: Unit testing for all contact-implicit problems (Block, DoublePendulum, A1)
 
