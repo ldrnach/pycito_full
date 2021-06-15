@@ -11,7 +11,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from pydrake.all import MathematicalProgram, PiecewisePolynomial, Variable
 from pydrake.autodiffutils import AutoDiffXd
-from utilities import MathProgIterationPrinter, plot_complementarity
+import utilities as utils
 import trajopt.complementarity as compl
 #TODO: Unit testing for whole-body and centrodial optimizers
 
@@ -545,7 +545,8 @@ class ContactImplicitDirectTranscription():
                     "solver": soln.get_solver_id().name(),
                     "success": soln.is_success(),
                     "exit_code": soln.get_solver_details().info,
-                    "final_cost": soln.get_optimal_cost()
+                    "final_cost": soln.get_optimal_cost(),
+                    "duals": utils.getDualSolutionDict(self.prog, soln)
                     }
         return soln_dict
     
@@ -558,7 +559,7 @@ class ContactImplicitDirectTranscription():
                      "figure" prints the costs and constraints to a figure window
                      "all"    prints the costs and constraints to the terminal and to a figure window
         """
-        printer = MathProgIterationPrinter(prog=self.prog, display=display)
+        printer = utils.MathProgIterationPrinter(prog=self.prog, display=display)
         all_vars = self.prog.decision_variables()
         self.prog.AddVisualizationCallback(printer, all_vars)
 
@@ -583,6 +584,7 @@ class ContactImplicitDirectTranscription():
 
     def initialize_from_previous(self, result):
         """ Initialize the program from a previous solution to the same program """
+        # Initialize the primal variables
         dvars = self.prog.decision_variables()
         dvals = result.GetSolution(dvars)
         self.prog.SetInitialGuess(dvars, dvals)
@@ -891,8 +893,11 @@ class ContactConstraintViewer():
         # Add in slack variables (if any)
         if 'slacks' in result_dict and result_dict['slacks'] is not None:
             self.all_vals[Finder(self.trajopt.slacks.flatten())] = result_dict['slacks'].flatten()
+        # Store the dual variables
+        if 'duals' in result_dict:
+            self.duals = result_dict['duals']
 
-    def plot_constraints(self):
+    def plot_constraints(self, show_duals=True):
         cstr_vals = self.calc_constraint_values()
         h_idx = self.trajopt.prog.FindDecisionVariableIndices(self.trajopt.h.flatten()) 
         time = np.cumsum(np.hstack((0, self.all_vals[h_idx])))
@@ -903,8 +908,30 @@ class ContactConstraintViewer():
             self.plot_complementarity_nonlinear(time, cstr_vals['normal_distance'], cstr_vals['sliding_velocity'], cstr_vals['friction_cone'])
         if len(self.trajopt.floating_pos) > 0:
             self.plot_quaternion_constraints(time, cstr_vals['unit_quaternion'], cstr_vals['unit_velocity_axis'], cstr_vals['quaternion_dynamics'])
+        if show_duals:
+            self.plot_duals(time)
         # Show the plot
         plt.show()
+
+    def plot_duals(self, time):
+        """Plot the dual solutions """
+        # Transpose all results in dual solution
+        for key in self.duals:
+            self.duals[key] = self.duals[key].transpose()
+        # Plot the dual solutions and update figure labels
+        _, axs = self.plot_dynamic_defects(time, self.duals['dynamics'])
+        axs[0].set_title('Dynamics Dual Variables')
+        if self.trajopt.options.complementarity in [compl.LinearEqualityConstantSlackComplementarity, compl.LinearEqualityVariableSlackComplementarity]:
+            naxs, taxs = self.plot_complementarity_linear(time, self.duals['normal_distance'], self.duals['sliding_velocity'], self.duals['friction_cone'])
+        else:
+            naxs, taxs = self.plot_complementarity_nonlinear(time, self.duals['normal_distance'], self.duals['sliding_velocity'], self.duals['friction_cone'])
+        for n in range(self.trajopt.numN):
+            naxs[2*n].set_title(f"Contact point {n} Dual Variables")
+            taxs[n*4*self.trajopt.plant_f.dlevel].set_title(f"Contact point {n} Dual Variables")
+        # Check for quaternion constraints
+        if len(self.trajopt.floating_pos) > 0:
+            q_fig, q_axs = self.plot_quaternion_constraints(time, self.duals['unit_quaternion'], self.duals['unit_velocity_axis'],self.duals['quaternion_dynamics'])
+            q_axs[0].set_title('Dual Variables')
 
     def calc_constraint_values(self):
         """Return a dictionary of all constraint values"""
@@ -936,6 +963,7 @@ class ContactConstraintViewer():
         axs[2].plot(time[1:], dynamics.transpose(), linewidth=1.5)
         axs[2].set_xlabel("Time (s)")
         axs[2].set_ylabel("Quaterion Dynamics")
+        return fig, axs
 
     def plot_dynamic_defects(self, time, cstr_vals):
         fig, axs = plt.subplots(2,1)
@@ -948,6 +976,7 @@ class ContactConstraintViewer():
         axs[1].set_ylabel('Velocity')
         axs[1].set_xlabel('Time (s)')
         axs[0].set_title('Dynamics Constraint Defects')
+        return fig, axs
 
     def plot_complementarity_linear(self, time, distance, velocity, friction):
         # Split the slack variable defects from the results
@@ -963,7 +992,8 @@ class ContactConstraintViewer():
             normal_axs[2*n+1].plot(time, Fslack[n,:], linewidth=1.5, color=color)
             for k in range(0, 4*self.trajopt.plant_f.dlevel):
                 tangent_axs[n*4*self.trajopt.plant_f.dlevel + k].plot(time, Tslack[n*4*self.trajopt.plant_f.dlevel + k,:], linewidth=1.5, color=color)
-        
+        return normal_axs, tangent_axs
+
     def plot_complementarity_nonlinear(self, time, distance, velocity, friction):
         # Get the variables
         norm_dist = distance[0:self.trajopt.numN,:]
@@ -980,14 +1010,14 @@ class ContactConstraintViewer():
             _, naxs = plt.subplots(2,1)
             _, taxs = plt.subplots(4*self.trajopt.plant_f.dlevel,1)
             # Normal distance complementarity
-            plot_complementarity(naxs[0], time,norm_dist[n,:], norm_force[n,:], 'distance','normal force')
+            utils.plot_complementarity(naxs[0], time,norm_dist[n,:], norm_force[n,:], 'distance','normal force')
             # Friction force complementarity
             for k in range(0, 4*self.trajopt.plant_f.dlevel):
-                plot_complementarity(taxs[k], time, fric_force[n*4*self.trajopt.plant_f.dlevel + k,:], slide_vel[n*4*self.trajopt.plant_f.dlevel + k,:], 'Friction force','Tangent velocity')
+                utils.plot_complementarity(taxs[k], time, fric_force[n*4*self.trajopt.plant_f.dlevel + k,:], slide_vel[n*4*self.trajopt.plant_f.dlevel + k,:], 'Friction force','Tangent velocity')
             taxs[0].set_title(f"Contact point {n}")
             taxs[-1].set_xlabel('Time (s)')
             # Friction cone complementarity
-            plot_complementarity(naxs[1], time,fric_cone[n,:], vel_slack[n,:], 'friction cone','sliding velocity')
+            utils.plot_complementarity(naxs[1], time,fric_cone[n,:], vel_slack[n,:], 'friction cone','sliding velocity')
             naxs[1].set_xlabel('Time (s)')
             naxs[0].set_title(f"Contact point {n}")
             #Collect the axes

@@ -365,3 +365,18 @@ def align_axes(ax, ax2):
     ax.set_ylim(lim_range[0]*new_frac)
     ax2.set_ylim(lim_range[1]*new_frac)
 
+def getDualSolutionDict(prog, result):
+    """ Returns the dual solutions of all constraints in a dictionary"""
+    duals = {}
+    # Get the dual solutions and add them to a dictionary
+    for cstr in prog.GetAllConstraints():
+        name = cstr.evaluator().get_description()
+        dual = result.GetDualSolution(cstr)
+        if name in duals:
+            duals[name].append(dual)
+        else:
+            duals[name] = [dual]
+    # Stack all repeating duals along the rows
+    for name in duals.keys():
+        duals[name] = np.row_stack(duals[name])
+    return duals
