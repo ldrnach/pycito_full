@@ -20,7 +20,7 @@ options = OptimizationOptions()
 options.useNonlinearComplementarityWithCost()
 trajopt = ContactImplicitDirectTranscription(a1, context,
                                     num_time_samples=21,
-                                    minimum_timestep=0.01,
+                                    minimum_timestep=0.1,
                                     maximum_timestep=0.1,
                                     options=options)
 trajopt.complementarity_cost_weight = 1.
@@ -49,6 +49,9 @@ x_init = np.linspace(x0, xf, trajopt.num_time_samples).transpose()
 l_init = np.zeros(trajopt.l.shape)
 jl_init = np.zeros(trajopt.jl.shape)
 trajopt.set_initial_guess(xtraj=x_init, utraj=u_init, ltraj=l_init, jltraj=jl_init)
+# Add a running cost on the controls - without the cost, A1 might not remain static
+R = 0.01*np.eye(uref.shape[0])
+trajopt.add_quadratic_running_cost(R, uref, vars=trajopt.u, name="ControlCost")
 # Check the program
 if not utils.CheckProgram(trajopt.prog):
     quit()
@@ -56,10 +59,6 @@ if not utils.CheckProgram(trajopt.prog):
 trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Iterations Limit", 1000000)
 trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Major Feasibility Tolerance", 1e-6)
 trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Major Optimality Tolerance", 1e-6)
-trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Major Iterations Limit", 10000)
-trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Minor Iterations Limit", 200000)
-trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Superbasics Limit", 10000)
-trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Elastic Weight", 10000)
 trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Scale Option", 2)
 trajopt.enable_cost_display('figure')
 #trajopt.enable_iteration_visualizer()
@@ -71,8 +70,8 @@ stop = timeit.default_timer()
 print(f"Elapsed time: {stop-start}")
 # Print details of solution
 utils.printProgramReport(result, trajopt.get_program())
-file = 'data/a1/a1_static_opt.pkl'
-#utils.save(file, trajopt.result_to_dict(result))
-x, u, l,jl = trajopt.reconstruct_all_trajectories(result)
+file = 'data/a1/a1_virtual_static_regularized_opt_06152021.pkl'
+utils.save(file, trajopt.result_to_dict(result))
+x, u, l, jl, s = trajopt.reconstruct_all_trajectories(result)
 a1.plot_trajectories(x, u, l, jl)
 a1.visualize(x)

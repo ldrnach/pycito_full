@@ -299,6 +299,35 @@ class A1VirtualBase(A1):
         self.multibody.AddJoint(ztrans)
         self.multibody.AddJoint(rpyrotation)
     
+    def configuration_sweep(self):
+        """Create a visualization that sweeps through the configuration variables"""
+        # Get the configuration vector
+        context = self.multibody.CreateDefaultContext()
+        pos = self.multibody.GetPositions(context)
+        # Make a trajectory that sweeps each of the configuration variables
+        # The expected order is (Orientation) (COM translation) (Leg Joints)
+        t = np.linspace(0., 1., 101)
+        angle = np.linspace(0., np.pi / 2, 101)
+        trans = np.linspace(0., 1., 101)
+        trajectory = PiecewisePolynomial.FirstOrderHold([0.,1.],np.column_stack((pos, pos)))
+        pos = np.tile(pos, (101,1)).transpose()
+                
+        # Sweep the COM translation
+        for n in range(3):
+            pos_ = pos.copy()
+            pos_[n,:] = trans
+            t_ = t + trajectory.end_time()
+            trajectory.ConcatenateInTime(PiecewisePolynomial.FirstOrderHold(t_, pos_))
+
+        # Sweep the joint positions
+        for n in range(3,pos.shape[0]):
+            pos_ = pos.copy()
+            pos_[n,:] = angle
+            t_ = t + trajectory.end_time()
+            trajectory.ConcatenateInTime(PiecewisePolynomial.FirstOrderHold(t_, pos_))
+
+        A1VirtualBase.visualize(trajectory)
+
     def standing_pose(self):
         # Get the default configuration vector
         context = self.multibody.CreateDefaultContext()
@@ -363,7 +392,7 @@ class A1VirtualBase(A1):
             paxs[n].set_ylabel(ylabels[n])
             paxs[n].legend()
         paxs[-1].set_xlabel('Time (s)')
-        paxs[0].set_title("COM Configuration")
+        paxs[0].set_title("Base Configuration")
         #Plot COM orientation rate and translational velocity
         _, axs = plt.subplots(2,1)
         for n in range(2):
@@ -372,7 +401,7 @@ class A1VirtualBase(A1):
             axs[n].set_ylabel(ylabels[n] + " Rate")
             axs[n].legend()
         axs[-1].set_xlabel('Time (s)')
-        axs[0].set_title("COM Velocities")
+        axs[0].set_title("Base Velocities")
         # Plot joint positions and velocities 
         _, jaxs = plt.subplots(3,1)
         _, jvaxs = plt.subplots(3,1)
@@ -395,6 +424,26 @@ class A1VirtualBase(A1):
         if show:
             plt.show()
 
+    @staticmethod
+    def visualize(trajectory=None):
+        vis = Visualizer("systems/A1/A1_description/urdf/a1_no_collision.urdf")
+        # Add in virtual joints to represent the floating base
+        zeroinertia = SpatialInertia(0, np.zeros((3,)), UnitInertia(0., 0., 0.))
+        # Create virtual, zero-mass
+        xlink = vis.plant.AddRigidBody('xlink', vis.model_index, zeroinertia)
+        ylink = vis.plant.AddRigidBody('ylink', vis.model_index, zeroinertia)
+        zlink = vis.plant.AddRigidBody('zlink', vis.model_index, zeroinertia)
+        # Create the translational and rotational joints
+        xtrans = PrismaticJoint("xtranslation", vis.plant.world_frame(), xlink.body_frame(), [1., 0., 0.])
+        ytrans = PrismaticJoint("ytranslation", xlink.body_frame(), ylink.body_frame(), [0., 1., 0.])
+        ztrans = PrismaticJoint("ztranslation", ylink.body_frame(), zlink.body_frame(), [0., 0., 1.])
+        rpyrotation = BallRpyJoint("baseorientation", zlink.body_frame(), vis.plant.GetBodyByName('base').body_frame())
+        # Add the joints to the multibody plant
+        vis.plant.AddJoint(xtrans)
+        vis.plant.AddJoint(ytrans)
+        vis.plant.AddJoint(ztrans)
+        vis.plant.AddJoint(rpyrotation)
+        vis.visualize_trajectory(xtraj=trajectory)
 
 if __name__ == "__main__":
     a1 = A1()

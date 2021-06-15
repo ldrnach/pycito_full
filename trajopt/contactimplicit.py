@@ -403,6 +403,12 @@ class ContactImplicitDirectTranscription():
             vars (list): a list of program decision variables subject to the cost
             name (str, optional): a description of the cost function
         """
+        # Input checking
+        if vars is None:
+            return
+        if type(vars) != list:
+            vars = [vars]
+        # Add the cost
         integrated_cost = lambda z: z[0]*(z[1:]-b).dot(Q.dot(z[1:]-b))
         for n in range(0, self.num_time_samples-1):
             new_vars = [var[:,n] for var in vars]
