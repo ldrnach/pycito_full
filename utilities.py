@@ -153,13 +153,14 @@ class MathProgIterationPrinter():
 
     def print_to_figure(self, costs, cstrs):
         """ Print costs and constraints to a figure window"""
-
+        kEps = np.finfo(float).eps
+        kExp = int(np.log10(kEps)) + 2  # Set the floor to 100 times machine precision
         # Note: Initialize the lines
         if self.iteration == 1:
             for name, value in costs.items():
-                self.cost_lines[name] = self.axs[0].semilogy([self.iteration], [value], linewidth=1.5, label=name)[0]
+                self.cost_lines[name] = self.axs[0].plot([self.iteration], [value], linewidth=1.5, label=name)[0]
             for name, value in cstrs.items():
-                self.cstr_lines[name] = self.axs[1].semilogy([self.iteration], [value], linewidth=1.5, label=name)[0]
+                self.cstr_lines[name] = self.axs[1].plot([self.iteration], [value], linewidth=1.5, label=name)[0]
             self.axs[0].legend()
             self.axs[1].legend()
         else:
@@ -171,7 +172,7 @@ class MathProgIterationPrinter():
                 ymax = max(value, ymax)
             #Set new axis limits
             self.axs[0].set_xlim([1, self.iteration])
-            self.axs[0].set_ylim([0, ymax])
+            self.axs[0].set_ylim([10**kExp, ymax])
 
             ymax = self.axs[1].get_ylim()[1]
             for name, value in cstrs.items():
@@ -181,7 +182,7 @@ class MathProgIterationPrinter():
                 ymax = max(value, ymax)
             # Set new axis limits
             self.axs[1].set_xlim([1,self.iteration])
-            self.axs[1].set_ylim([0, ymax])
+            self.axs[1].set_ylim([10**kExp, ymax])
         # Draw the figure
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
@@ -191,8 +192,10 @@ class MathProgIterationPrinter():
     def figure_setup(self):
         self.fig, self.axs = plt.subplots(2,1)
         self.axs[0].set_ylabel('Cost')
+        self.axs[0].set_yscale('symlog', linthresh=1e-6)
         self.axs[1].set_ylabel('Constraint Violation')
         self.axs[1].set_xlabel('Iteration')
+        self.axs[0].set_yscale('symlog', linthresh=1e-6)
         self.cost_lines = {}
         self.cstr_lines = {}
 
@@ -284,12 +287,12 @@ def GetKnotsFromTrajectory(trajectory):
     values = trajectory.vector_values(breaks)
     return (breaks, values)
 
-def printProgramReport(result, prog=None, filename=None):
+def printProgramReport(result, prog=None, filename=None, verbose=False):
     """print out information about the result of the mathematical program """
     # Print out general information
-    report = f"Optimization successful? {result.is_success()}\n"
-    report += f"Optimal cost = {result.get_optimal_cost()}\n"
-    report += f"Solved with {result.get_solver_id().name()}\n"
+    report = f"Solved with {result.get_solver_id().name()}\n"
+    report += f"Optimization successful? {result.is_success()}\n"
+    report += f"Optimal cost = {result.get_optimal_cost()}\n" 
     # Print out SNOPT specific information
     if result.get_solver_id().name() == "SNOPT/fortran":
         exit_code = result.get_solver_details().info
@@ -299,6 +302,19 @@ def printProgramReport(result, prog=None, filename=None):
             infeasibles = result.GetInfeasibleConstraintNames(prog)
             infeas = [name.split("[")[0] for name in infeasibles]
             report += f"Infeasible constraints: {set(infeas)}\n"
+    # Print out verbose cost and constraint information
+    if verbose:
+        printer = MathProgIterationPrinter(prog)
+        all_vars = result.GetSolution(prog.decision_variables())
+        costs = printer.calc_costs(all_vars)
+        cstrs = printer.calc_constraints(all_vars)
+        report += "Individual Costs: \n"
+        for key in costs:
+            report += f"{key}: \t {costs[key]:.4E}\n"
+        report += "\nConstraint Violations: \n"
+        for key in cstrs:
+            report += f"{key}: \t {cstrs[key]:.4E}\n"
+
     if filename is None:
         print(report)
     else:

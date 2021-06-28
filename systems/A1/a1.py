@@ -355,12 +355,12 @@ class A1VirtualBase(A1):
         q_0[0:6] = base_pose
         self.multibody.SetPositions(context, q_0)
         # Constrain the foot positions
+        #TODO: FIX IK so that all points on the collision sphere are above the terrain. Current implementation only constrains the bottom of  the sphere, which is only valid if the legs are straight - ie knees locked
         world = self.multibody.world_frame()
         for pose, frame, radius in zip(self.collision_poses, self.collision_frames, self.collision_radius):
             point = pose.translation().copy()
-            point[-1] -= radius
             point_w = self.multibody.CalcPointsPositions(context, frame, point, world)
-            point_w[-1] = 0.
+            point_w[-1] = radius
             IK.AddPositionConstraint(frame, point, world, point_w, point_w)
         # Set the base position as a constraint
         q_vars = IK.q()
