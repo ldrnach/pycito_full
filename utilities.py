@@ -52,8 +52,10 @@ class MathProgIterationPrinter():
         """
         self._prog = prog
         self.iteration = 0
+        self._thresh = 1e-10
         self.display_func = self._get_display_func(display)
         self.title_iter = 50 #Print titles to terminal every title_iter iterations
+        
 
     def __call__(self, x):
         costs = self.calc_costs(x)
@@ -153,8 +155,8 @@ class MathProgIterationPrinter():
 
     def print_to_figure(self, costs, cstrs):
         """ Print costs and constraints to a figure window"""
-        kEps = np.finfo(float).eps
-        kExp = int(np.log10(kEps)) + 2  # Set the floor to 100 times machine precision
+        # kEps = np.finfo(float).eps
+        # kExp = int(np.log10(kEps)) + 2  # Set the floor to 100 times machine precision
         # Note: Initialize the lines
         if self.iteration == 1:
             for name, value in costs.items():
@@ -172,7 +174,7 @@ class MathProgIterationPrinter():
                 ymax = max(value, ymax)
             #Set new axis limits
             self.axs[0].set_xlim([1, self.iteration])
-            self.axs[0].set_ylim([10**kExp, ymax])
+            self.axs[0].set_ylim([self._thresh, ymax])
 
             ymax = self.axs[1].get_ylim()[1]
             for name, value in cstrs.items():
@@ -182,7 +184,7 @@ class MathProgIterationPrinter():
                 ymax = max(value, ymax)
             # Set new axis limits
             self.axs[1].set_xlim([1,self.iteration])
-            self.axs[1].set_ylim([10**kExp, ymax])
+            self.axs[1].set_ylim([self._thresh, ymax])
         # Draw the figure
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
@@ -192,10 +194,10 @@ class MathProgIterationPrinter():
     def figure_setup(self):
         self.fig, self.axs = plt.subplots(2,1)
         self.axs[0].set_ylabel('Cost')
-        self.axs[0].set_yscale('symlog', linthresh=1e-6)
+        self.axs[0].set_yscale('symlog', linthresh=self._thresh)
         self.axs[1].set_ylabel('Constraint Violation')
         self.axs[1].set_xlabel('Iteration')
-        self.axs[0].set_yscale('symlog', linthresh=1e-6)
+        self.axs[1].set_yscale('symlog', linthresh=self._thresh)
         self.cost_lines = {}
         self.cstr_lines = {}
 
