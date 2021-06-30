@@ -41,6 +41,17 @@ class TimeSteppingMultibodyPlant():
         self.collision_poses = []
         self.collision_radius = []
         self.collision_index = []
+        #Store the urdf files
+        self.files = [file]
+
+    def str(self):
+        """ String describing the timestepping plant"""
+        text = f"{type(self).__name__} on {self.terrain.str()}\n"
+        text += f"Source files:\n"
+        for file in self.files:
+            text += f"\t{file}\n"
+        text += f"Friction discretization level: {self._dlevel}\n"
+        return text
 
     def add_model(self, urdf_file=None, name=None):
         """ Adds a model, specified by urdf file, to the plant"""
@@ -49,7 +60,8 @@ class TimeSteppingMultibodyPlant():
                 self.model_index.append(Parser(self.multibody).AddModelFromFile(FindResource(urdf_file), model_name=name))
             else:
                 self.model_index.append(Parser(self.multibody).AddModelFromFile(FindResource(urdf_file)))
-
+            self.file.append(urdf_file)
+    
     def Finalize(self):
         """
         Cements the topology of the MultibodyPlant and identifies all available collision geometries. 

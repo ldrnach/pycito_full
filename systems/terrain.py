@@ -47,6 +47,9 @@ class Terrain(ABC):
             fric_coeff: a scalar friction coefficients
         """
 
+    def str(self):
+        return f"{type(self).__name__}"
+
 class FlatTerrain2D(Terrain):
     """
     Implementation of a 2-dimensional terrain with flat geometry
@@ -55,6 +58,9 @@ class FlatTerrain2D(Terrain):
         """ Construct the terrain, set it's height and friction coefficient"""
         self.height = height
         self.friction  = friction
+
+    def str(self):
+        return super(FlatTerrain2D, self).str() + f"with height {self.height} and friction {self.friction}"
 
     def nearest_point(self, x):
         """
@@ -96,6 +102,9 @@ class FlatTerrain(Terrain):
         self.height = height
         self.friction = friction
     
+    def str(self):
+        return super(FlatTerrain, self).str() + f"with height {self.height} and friction {self.friction}"
+
     def nearest_point(self, x):
         """
         Returns the nearest point on the terrain to the supplied point x
@@ -139,6 +148,9 @@ class StepTerrain(FlatTerrain):
         self.step_height = step_height
         self.step_location = step_location
 
+    def str(self):
+        return super(StepTerrain, self).str() + f"with height {self.height}, step height {self.step_height} and location {self.step_location} and friction {self.friction}"
+
     def nearest_point(self, x):
         """
         Returns the nearest point on the terrain to the supplied point x
@@ -162,6 +174,9 @@ class SlopeStepTerrain(FlatTerrain):
         super().__init__(height, friction)
         self.slope = slope
         self.slope_location = slope_location
+
+    def str(self):
+        return super(SlopeStepTerrain, self).str() + f"with height {self.height} and slope {self.slope} starting at {self.slope_location} and friction {self.friction}"
 
     def nearest_point(self, x):
         """
@@ -207,6 +222,9 @@ class VariableFrictionFlatTerrain(FlatTerrain):
         else:
             self.friction = fric_func
 
+    def str(self):
+        return super(VariableFrictionFlatTerrain, self).str() + f"with height {self.height} and variable friction defined by {self.fric_func.__name__}"
+
     def get_friction(self, x):
         """
         Returns the value of terrain friction coefficient at the supplied point
@@ -234,6 +252,9 @@ class GaussianProcessTerrain(FlatTerrain):
         # Set up the terrain heightmap GP
         self.height = height_gp
         self.friction = friction_gp
+
+    def str(self):
+        return super(GaussianProcessTerrain, self).str() + f"with height defined by {str(self.height)} and friction defined by {str(self.friction)}"
 
     def nearest_point(self, x):
         """
@@ -296,6 +317,9 @@ def ConstantFunc():
             return AutoDiffXd(self.const, 0.*x[0].derivatives())
         else:
             return self.const
+
+    def str(self):
+        return f"{type(self}.__name__}"
 
 if __name__ == "__main__":
     print("Hello world")
