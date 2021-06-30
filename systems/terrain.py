@@ -319,7 +319,7 @@ def ConstantFunc():
             return self.const
 
     def str(self):
-        return f"{type(self}.__name__}"
+        return f"{type(self).__name__}"
 
 if __name__ == "__main__":
     print("Hello world")
