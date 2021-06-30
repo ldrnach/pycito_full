@@ -131,10 +131,31 @@ class ContactImplicitDirectTranscription():
         # Initialize the timesteps
         self._set_initial_timesteps()
         # Create a string for recording the optimization parameters
-        self._text = {"header": f"{type(self).__name__} with {type(self.plant_f).__name__}\n",
-        }
+        self._text = {"header": f"{type(self).__name__} with {self.plant_f.str()}\n",
+        "StateConstraints": '',
+        "RunningCosts": '',
+        "FinalCosts": '',
+        "NormalDissipation": 'False',
+        "EqualTime": 'False'}
         self._text['header'] += f"\tKnot points: {num_time_samples}\n\tTime range: [{(num_time_samples-1)*minimum_timestep},{(num_time_samples-1)*maximum_timestep}]\n\t"
-    
+
+    def generate_report(self):
+        # Generate a report string. Start with the header
+        report = self._text['header']
+        # Add the total number of variables, the number of costs, and the number of constraints
+        report += f"\nProblem has {self.prog.num_vars()} variables, {len(self.prog.GetAllCosts())} cost terms, and {len(self.prog.GetAllConstraints())} constraints\n\n"
+        # Next add the report strings of the complementarity constraints
+        report += self.distance_cstr.str()
+        report += self.sliding_cstr.str()
+        report += self.friction_cstr.str()
+        report += f"\nNormal Dissipation Enforced? {self._text['NormalDissipation']}"
+        report += f"\nEqual time steps enforced? {self._text['EqualTime']}\n"
+        # Add state constraints
+        report += f"\nState Constraints: {self._text['StateConstraints']}\n"
+        report += f"\nRunning Costs: {self._text['RunningCosts']}\n"
+        report += f"\nFinal Costs: {self._text['FinalCosts']}\n"
+        return report
+
     def _check_floating_dof(self):
         # Get the floating bodies
         floating = self.plant_f.multibody.GetFloatingBaseBodies()
@@ -302,6 +323,7 @@ class ContactImplicitDirectTranscription():
                                 ub = np.zeros((self.numN,)),
                                 vars=np.concatenate([self.x[:,n], self._normal_forces[:,n]], axis=0),
                                 description="NormalDissipationConstraint")
+        self._text['NormalDissipation'] = 'True'
 
     def _normal_dissipation(self, vars):
         """
@@ -400,6 +422,9 @@ class ContactImplicitDirectTranscription():
             new_vars = [var[:,n] for var in vars]
             new_vars.insert(0, self.h[n,:])
             self.prog.AddCost(integrated_cost, np.concatenate(new_vars,axis=0), description=name)
+        # Add string representing the cost
+        varnames = ', '.join([var[0].get_name().split('(')[0] for var in vars])
+        self._text['RunningCosts'] += f"\n\t{name}: {cost_func.__name__} on {varnames}"
 
     def add_tracking_cost(self, Q, traj, vars=None, name="TrackingCost"):
         """ 
@@ -429,6 +454,9 @@ class ContactImplicitDirectTranscription():
             self.prog.AddCost(cost_func, vars, description=name)
         else:
             self.prog.AddCost(cost_func,description=name)
+        # Add string representing the cost
+        varnames = ', '.join([var[0].get_name().split('(')[0] for var in vars])
+        self._text['FinalCosts'] += f"\n\t{name}: {cost_func.__name__} on {varnames}"
             
     def add_quadratic_running_cost(self, Q, b, vars=None, name="QuadraticCost"):
         """
@@ -451,6 +479,9 @@ class ContactImplicitDirectTranscription():
             new_vars = [var[:,n] for var in vars]
             new_vars.insert(0, self.h[n,:])
             self.prog.AddCost(integrated_cost, np.concatenate(new_vars,axis=0), description=name)
+        # Add string representing the cost
+        varnames = ", ".join([var[0].get_name().split('(')[0] for var in vars])
+        self._text['RunningCosts'] += f"\n\t{name}: Quadratic cost on {varnames} with weights Q = \n{Q} \tand bias b = {b}"
 
     def add_equal_time_constraints(self):
         """impose that all timesteps be equal"""
@@ -459,7 +490,8 @@ class ContactImplicitDirectTranscription():
         M = np.eye(num_h-1, num_h) - np.eye(num_h-1, num_h, 1)
         b = np.zeros((num_h-1,))
         self.prog.AddLinearEqualityConstraint(Aeq=M, beq=b, vars=self.h).evaluator().set_description('EqualTimeConstraints')
-        
+        self._text['EqualTime'] = 'True'
+
     def add_state_constraint(self, knotpoint, value, subset_index=None):
         """
         add a constraint to the state vector at a particular knotpoint
@@ -485,7 +517,9 @@ class ContactImplicitDirectTranscription():
         # Create the constraint
         A = np.eye(value.shape[0])   
         self.prog.AddLinearEqualityConstraint(Aeq=A, beq=value, vars=self.x[subset_index, knotpoint]).evaluator().set_description("StateConstraint")
-            
+        # Add string representing the state constraint
+        self._text['StateConstraints'] += f"\n\tx[{knotpoint}, {subset_index}] = {value}"
+
     def add_control_limits(self, umin, umax):
         """
         adds acutation limit constraints to all knot pints

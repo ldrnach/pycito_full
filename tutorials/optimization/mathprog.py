@@ -17,7 +17,7 @@ prog = MathematicalProgram()
 
 # Add 2 continuous decision variables
 # x is a numpy array - we can use an optional second argument to name the variables
-x = prog.NewContinuousVariables(2)
+x = prog.NewContinuousVariables(2, name='worlds')
 #print(x)
 prog.AddConstraint(x[0] + x[1] == 1).evaluator().set_description("equality constraint")
 prog.AddConstraint(x[0] <= x[1]).evaluator().set_description("inequality constraint")
