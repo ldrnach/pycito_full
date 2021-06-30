@@ -15,16 +15,28 @@ import decorators as deco
 
 class SystemOptimizer(abc.ABC):
     def __init__(self):
-        pass
-    
+        self.make_system()
+        self.options = self.defaultOptimizationOptions()
+
     @abc.abstractmethod
     def make_system(self):
         raise NotImplementedError
 
+    @staticmethod
+    def defaultOptimizationOptions():
+        return ci.OptimizationOptions()    
+    
     def solve(self):
         result = self._solve_program()
         utils.printProgramReport(result, self.prog)
+        return result
 
     @deco.timer
     def _solve_program(self):
         return self.solver(self.prog)
+
+    def set_solver_options(self, **kwargs):
+        pass
+
+    def generateReport(self):
+        

@@ -9,10 +9,11 @@ October 5, 2020
 
 import numpy as np 
 from matplotlib import pyplot as plt
-from pydrake.all import MathematicalProgram, PiecewisePolynomial, Variable
+from pydrake.all import MathematicalProgram, PiecewisePolynomial, Variable, SnoptSolver, IpoptSolver
 from pydrake.autodiffutils import AutoDiffXd
 import utilities as utils
 import trajopt.complementarity as compl
+from decorators import timer
 #TODO: Unit testing for whole-body and centrodial optimizers
 
 class OptimizationOptions():
@@ -56,6 +57,38 @@ class DecisionVariableList():
     def get(self, n):
         return np.concatenate([var[:,n] for var in self.var_list], axis=0)
 
+class OptimizationBase():
+    def __init__(self):
+        self.prog = MathematicalProgram()
+        self.solver = SnoptSolver()
+        self.solveroptions = {}
+
+    def useSnoptSolver(self):
+        self.solver = SnoptSolver()
+
+    def useIpoptSolver(self):
+        self.solver = IpoptSolver()
+
+    def setSolverOptions(self, **kwargs):
+        for key in kwargs:
+            self.prog.SetSolverOption(self.solver.solver_id(), key, kwargs[key])
+            self.solveroptions[key] = kwargs[key]
+       
+    @timer
+    def solve(self):
+        print("Solving optimization:")
+        result = self.solver.Solve(self.prog)
+        print(f"Elapsed time: {self.solve.total_time}")
+        return result
+
+    def report(self):
+        text = f"Solved with: {type(self.solver).__name__}\n"
+        text += f"Solver options:\n"
+        if self._config['solveroptions'] is not {}:
+            for key in self.solveroptions:
+                text += f"\t {key}: {self.solveroptions[key]}"
+        return text
+
 class ContactImplicitDirectTranscription():
     """
     Implements contact-implicit trajectory optimization using Direct Transcription
@@ -97,7 +130,11 @@ class ContactImplicitDirectTranscription():
         self._add_contact_constraints()
         # Initialize the timesteps
         self._set_initial_timesteps()
-
+        # Create a string for recording the optimization parameters
+        self._text = {"header": f"{type(self).__name__} with {type(self.plant_f).__name__}\n",
+        }
+        self._text['header'] += f"\tKnot points: {num_time_samples}\n\tTime range: [{(num_time_samples-1)*minimum_timestep},{(num_time_samples-1)*maximum_timestep}]\n\t"
+    
     def _check_floating_dof(self):
         # Get the floating bodies
         floating = self.plant_f.multibody.GetFloatingBaseBodies()

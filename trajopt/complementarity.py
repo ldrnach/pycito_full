@@ -30,6 +30,9 @@ class ComplementarityConstraint(ABC):
         """Evaluate the constraint"""
         return self.eval(vars)
 
+    def str(self):
+        return f"{type(self).__name__} on the function {self.fcn.__name__} with input dimension {self.xdim} and output dimension {self.zdim}\n"
+
     def set_description(self, name=None):
         """Set a string description for the constraint"""
         if name is None:
@@ -104,7 +107,12 @@ class NonlinearConstantSlackComplementarity(ComplementarityConstraint):
         self._prog = None
         super(NonlinearConstantSlackComplementarity, self).__init__(fcn, xdim, zdim)
         self.slack = slack
-        
+
+    def str(self):
+        text = super(NonlinearConstantSlackComplementarity, self).str()
+        text += f"\tConstant Slack = {self.slack}\n"
+        return text
+
     def eval(self, dvars):
         """ 
         Evaluates the original nonlinear complementarity constraint 
@@ -158,6 +166,11 @@ class NonlinearVariableSlackComplementarity(ComplementarityConstraint):
         self.__slack_cost = []
         self.__cost_weight = 1.
         self.__slack = None
+
+    def str(self):
+        text = super(NonlinearVariableSlackComplementarity, self).str()
+        text += f"\tVariable slack cost weight = {self.__cost_weight}\n"
+        return text
 
     def eval(self, vars):
         """
@@ -247,6 +260,11 @@ class CostRelaxedNonlinearComplementarity(ComplementarityConstraint):
         self.name=self.fcn.__name__
         self.cost_weight = 1.
     
+    def str(self):
+        text = super(CostRelaxedNonlinearComplementarity, self).str()
+        text += f"\tCost weight: {self.cost_weight}"
+        return text
+
     def eval(self, vars):
         """
         Evaluate the inequality constraints only
@@ -314,6 +332,11 @@ class LinearEqualityConstantSlackComplementarity(ComplementarityConstraint):
         self._prog = None
         self.name = fcn.__name__
         self.__slack_vars = None
+
+    def str(self):
+        text = super(LinearEqualityConstantSlackComplementarity, self).str()
+        text += f"\tConstant Slack: {self.__const_slack}\n"
+        return text
 
     def eval(self, vars):
         """
@@ -383,7 +406,12 @@ class LinearEqualityVariableSlackComplementarity(ComplementarityConstraint):
        self.__slack_vars = None
        self.__slack_cost = []
        self.__cost_weight = 1.
-        
+
+    def str(self):
+        text = super(LinearEqualityVariableSlackComplementarity, self).str()
+        text += f"\tSlack cost weight: {self.__cost_weight}\n"
+        return text
+
     def eval(self, vars):
         """
         Evaluate the constraint. 
@@ -465,6 +493,9 @@ class NonlinearComplementarityFcn():
         x, z, s = self.split_vars(vars, [self.xdim, self.zdim])
         fcn_val = self.fcn(x)
         return np.concatenate((fcn_val,z, fcn_val * z - self.slack), axis=0)
+
+    def str(self):
+        return f"{type(self).__name__} on function {self.fcn.__name__} with input dimension {self.xdim} and output dimension {self.zdim}\n"
 
     def lower_bound(self):
         return np.concatenate((np.zeros((2*self.zdim,)), -np.full((self.zdim,), np.inf)), axis=0)
