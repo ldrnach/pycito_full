@@ -15,6 +15,13 @@ from systems.visualization import Visualizer
 from systems.terrain import FlatTerrain
 from trajopt.quatutils import rpy2quat
 
+def make_filename(savename, insert):
+    if savename is None:
+        return savename
+    else:
+        parts = savename.split('.')
+        return parts[0] + insert + "." + ".".join(parts[0])
+
 class A1(TimeSteppingMultibodyPlant):
     def __init__(self, urdf_file="systems/A1/A1_description/urdf/a1_foot_collision.urdf", terrain=FlatTerrain()):
         # Initialize the time-stepping multibody plant
@@ -150,25 +157,26 @@ class A1(TimeSteppingMultibodyPlant):
         # Return the configuration vector
         return result.GetSolution(IK.q()), result.is_success()
 
-    def plot_trajectories(self, xtraj=None, utraj=None, ftraj=None, jltraj=None):
+    def plot_trajectories(self, xtraj=None, utraj=None, ftraj=None, jltraj=None, show=False, savename=None):
         """ Plot all the trajectories for A1 """
+        # Edit the save string
         show_all = False
         if xtraj:
-            self.plot_state_trajectory(xtraj, show=False)
+            self.plot_state_trajectory(xtraj, show, savename=savename)
             show_all = True
         if utraj:
-            self.plot_control_trajectory(utraj, show=False)
+            self.plot_control_trajectory(utraj, show, savename=make_filename(savename, '_control'))
             show_all = True
         if ftraj:
-            self.plot_force_trajectory(ftraj, show=False)
+            self.plot_force_trajectory(ftraj, show, savename=make_filename(savename, '_reactions'))
             show_all = True
         if jltraj:
-            self.plot_limit_trajectory(jltraj, show=False)
+            self.plot_limit_trajectory(jltraj, show, savename=make_filename(savename, '_limits'))
             show_all = True
         if show_all:
             plt.show()
 
-    def plot_state_trajectory(self, xtraj, show=True):
+    def plot_state_trajectory(self, xtraj, show=True, savename=None):
         """ Plot the state trajectory for A1"""
         # Get the configuration and velocity trajectories as arrays
         t, x = GetKnotsFromTrajectory(xtraj)
@@ -177,7 +185,7 @@ class A1(TimeSteppingMultibodyPlant):
         # Get orientation from quaternion
         q[1:4] = quat2rpy(q[0:4,:])
         # Plot COM orientation and position
-        _, paxs = plt.subplots(2,1)
+        compos, paxs = plt.subplots(2,1)
         labels=[["Roll", "Pitch", "Yaw"],["X", "Y", "Z"]]
         ylabels = ["Orientation","Position"]
         for n in range(2):
@@ -188,7 +196,7 @@ class A1(TimeSteppingMultibodyPlant):
         paxs[-1].set_xlabel('Time (s)')
         paxs[0].set_title("COM Configuration")
         #Plot COM orientation rate and translational velocity
-        _, axs = plt.subplots(2,1)
+        comvel, axs = plt.subplots(2,1)
         for n in range(2):
             for k in range(3):
                 axs[n].plot(t, v[3*n + k,:], linewidth=1.5, label=labels[n][k])
@@ -197,8 +205,8 @@ class A1(TimeSteppingMultibodyPlant):
         axs[-1].set_xlabel('Time (s)')
         axs[0].set_title("COM Velocities")
         # Plot joint positions and velocities 
-        _, jaxs = plt.subplots(3,1)
-        _, jvaxs = plt.subplots(3,1)
+        jpos, jaxs = plt.subplots(3,1)
+        jvel, jvaxs = plt.subplots(3,1)
         # Loop over each joint angle
         legs = ["FR", "FL", "BR", "BL"]
         angles = ["Hip Roll", "Hip Pitch","Knee Pitch"]
@@ -217,13 +225,18 @@ class A1(TimeSteppingMultibodyPlant):
         jvaxs[0].legend()            
         if show:
             plt.show()
+        if savename is not None:
+            compos.savefig(make_filename(savename, "_Base_Position"), dpi=compos.dpi)
+            comvel.savefig(make_filename(savename, "_Base_Velocity"), dpi=comvel.dpi)
+            jpos.savefig(make_filename(savename, "_Joint_Positions"), dpi=jpos.dpi)
+            jvel.savefig(make_filename(savename,"_Joint_Velocities"), dpi=jvel.dpi)
 
-    def plot_control_trajectory(self, utraj, show=True):
+    def plot_control_trajectory(self, utraj, show=True, savename=None):
         """Plot joint actuation torque trajectories"""
         # Get the knot points from the trajectory
         t, u = GetKnotsFromTrajectory(utraj)
         # Plot the actuation torques, organized by joint angle
-        _, axs = plt.subplots(3,1)
+        ctrl, axs = plt.subplots(3,1)
         leg = ['FR','FL','BR','BL']
         angles = ['Hip Roll','Hip Pitch','Knee Pitch']
         for n in range(3):
@@ -237,12 +250,14 @@ class A1(TimeSteppingMultibodyPlant):
         # Show the plot 
         if show:
             plt.show()
+        if savename is not None:
+            ctrl.savefig(savename, dpi=ctrl.dpi)
 
-    def plot_force_trajectory(self, ftraj, show=True):
+    def plot_force_trajectory(self, ftraj, show=True, savename=None):
         """ Plot reaction force trajectories"""
         t, f = GetKnotsFromTrajectory(ftraj)
         f = self.resolve_forces(f)  
-        _, axs = plt.subplots(3,1)
+        rxn, axs = plt.subplots(3,1)
         legs = ['FR', 'FL', 'BR', 'BL']
         labels = ['Normal', 'Friction-1', 'Friction-2']
         for k in range(3):
@@ -254,8 +269,10 @@ class A1(TimeSteppingMultibodyPlant):
         axs[0].legend()
         if show:
             plt.show()
+        if savename is not None:
+            rxn.savefig(savename, dpi=rxn.dpi)
 
-    def plot_limit_trajectory(self, jltraj, show=True):
+    def plot_limit_trajectory(self, jltraj, show=True, savename=None):
         """
         Plot the joint limit torque trajectories
         """
@@ -263,7 +280,7 @@ class A1(TimeSteppingMultibodyPlant):
         jl = self.resolve_limit_forces(jl)
         leg = ['FR','FL','BR','BL']
         angle = ['Hip Roll','Hip Pitch','Knee Pitch']
-        _, axs = plt.subplots(3,1)
+        lim, axs = plt.subplots(3,1)
         for n in range(3):
             for k in range(4):
                 axs[n].plot(t, jl[4*n + k,:], linewidth=1.5, label=leg[k])
@@ -273,6 +290,8 @@ class A1(TimeSteppingMultibodyPlant):
         axs[0].legend()
         if show:
             plt.show()
+        if savename is not None:
+            lim.savefig(savename, dpi=lim.savefig)
 
     @staticmethod
     def visualize(trajectory=None):
@@ -355,12 +374,12 @@ class A1VirtualBase(A1):
         q_0[0:6] = base_pose
         self.multibody.SetPositions(context, q_0)
         # Constrain the foot positions
+        #TODO: FIX IK so that all points on the collision sphere are above the terrain. Current implementation only constrains the bottom of  the sphere, which is only valid if the legs are straight - ie knees locked
         world = self.multibody.world_frame()
         for pose, frame, radius in zip(self.collision_poses, self.collision_frames, self.collision_radius):
             point = pose.translation().copy()
-            point[-1] -= radius
             point_w = self.multibody.CalcPointsPositions(context, frame, point, world)
-            point_w[-1] = 0.
+            point_w[-1] = radius
             IK.AddPositionConstraint(frame, point, world, point_w, point_w)
         # Set the base position as a constraint
         q_vars = IK.q()
@@ -375,7 +394,7 @@ class A1VirtualBase(A1):
         # Return the configuration vector
         return result.GetSolution(IK.q()), result.is_success()
 
-    def plot_state_trajectory(self, xtraj, show=True):
+    def plot_state_trajectory(self, xtraj, show=True, savename=None):
         """ Plot the state trajectory for A1"""
         # Get the configuration and velocity trajectories as arrays
         t, x = GetKnotsFromTrajectory(xtraj)
@@ -383,7 +402,7 @@ class A1VirtualBase(A1):
         q, v = np.split(x, [nq])
         # Get orientation from quaternion
         # Plot COM orientation and position
-        _, paxs = plt.subplots(2,1)
+        compos, paxs = plt.subplots(2,1)
         labels=[["X", "Y", "Z"],["Roll", "Pitch", "Yaw"]]
         ylabels = ["Position","Orientation"]
         for n in range(2):
@@ -394,7 +413,7 @@ class A1VirtualBase(A1):
         paxs[-1].set_xlabel('Time (s)')
         paxs[0].set_title("Base Configuration")
         #Plot COM orientation rate and translational velocity
-        _, axs = plt.subplots(2,1)
+        comvel, axs = plt.subplots(2,1)
         for n in range(2):
             for k in range(3):
                 axs[n].plot(t, v[3*n + k,:], linewidth=1.5, label=labels[n][k])
@@ -403,8 +422,8 @@ class A1VirtualBase(A1):
         axs[-1].set_xlabel('Time (s)')
         axs[0].set_title("Base Velocities")
         # Plot joint positions and velocities 
-        _, jaxs = plt.subplots(3,1)
-        _, jvaxs = plt.subplots(3,1)
+        jpos, jaxs = plt.subplots(3,1)
+        jvel, jvaxs = plt.subplots(3,1)
         # Loop over each joint angle
         legs = ["FR", "FL", "BR", "BL"]
         angles = ["Hip Roll", "Hip Pitch","Knee Pitch"]
@@ -423,6 +442,11 @@ class A1VirtualBase(A1):
         jvaxs[0].legend()            
         if show:
             plt.show()
+        if savename is not None:
+            compos.savefig(make_filename(savename, '_Base_Positions'), dpi=compos.dpi)
+            comvel.savefig(make_filename(savename, '_Base_Velocities'), dpi=comvel.dpi)
+            jpos.savefig(make_filename(savename, '_Joint_Positions'), dpi=jpos.dpi)
+            jvel.savefig(make_filename(savename,'_Joint_Velocities'), dpi=jvel.dpi)
 
     @staticmethod
     def visualize(trajectory=None):

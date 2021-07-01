@@ -339,7 +339,7 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         """
         state, force = np.split(vars, [self.x.shape[0]])
         plant, context = self._autodiff_or_float(state)
-        q, v = np.split(state, plant.multibody.num_positions())
+        q, v = np.split(state, [plant.multibody.num_positions()])
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate((q,v), axis=0))
         Jn, _ = plant.GetContactJacobians(context)
         return Jn.dot(v) * force
