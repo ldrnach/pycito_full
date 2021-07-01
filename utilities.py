@@ -41,7 +41,7 @@ SNOPT_DECODER = {
     141: "wrong number of basic variables",
     142: "error in basis package"
 }
-
+#TODO: Add "save_and_close" to MathProgIterationPrinter for saving cost figure
 class MathProgIterationPrinter():
     def __init__(self, prog = None, display='terminal'):
         """
@@ -55,7 +55,7 @@ class MathProgIterationPrinter():
         self._thresh = 1e-10
         self.display_func = self._get_display_func(display)
         self.title_iter = 50 #Print titles to terminal every title_iter iterations
-        
+        self.fig = None
 
     def __call__(self, x):
         costs = self.calc_costs(x)
@@ -205,6 +205,12 @@ class MathProgIterationPrinter():
         self.print_to_terminal(costs, cstrs)
         self.print_to_figure(costs, cstrs)
 
+    def save_and_close(self, savename="CostsAndConstraints.png"):
+        """Save and close the figure created by MathematicalProgram's VisualizeCallback function"""
+        if self.fig is not None:
+            self.fig.savefig(savename, dpi = self.fig.dpi)
+            plt.close(self.fig)
+
     @property
     def title_iter(self):
         return self._title_iter
@@ -297,7 +303,7 @@ def GetKnotsFromTrajectory(trajectory):
     values = trajectory.vector_values(breaks)
     return (breaks, values)
 
-def printProgramReport(result, prog=None, print=True, filename=None, verbose=False):
+def printProgramReport(result, prog=None, terminal=True, filename=None, verbose=False):
     """print out information about the result of the mathematical program """
     # Print out general information
     report = f"Solved with {result.get_solver_id().name()}\n"
@@ -324,15 +330,17 @@ def printProgramReport(result, prog=None, print=True, filename=None, verbose=Fal
         report += "\nConstraint Violations: \n"
         for key in cstrs:
             report += f"{key}: \t {cstrs[key]:.4E}\n"
-
-    if print:
+    # Print the report to terminal
+    if terminal:
         print(report)
+    #Save to file 
     if filename is not None:
         dir = os.path.dirname(filename)
         if not os.path.exists(dir):
             os.makedirs(dir)
         with open(filename, "w") as file:
             file.write(report)
+    #Return the report as a text string
     return report
 
 def quat2rpy(quat):

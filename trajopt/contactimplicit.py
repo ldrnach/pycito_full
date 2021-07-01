@@ -8,6 +8,7 @@ October 5, 2020
 """
 
 import numpy as np 
+from datetime import date
 from matplotlib import pyplot as plt
 from pydrake.all import MathematicalProgram, PiecewisePolynomial, Variable, SnoptSolver, IpoptSolver
 from pydrake.autodiffutils import AutoDiffXd
@@ -69,10 +70,10 @@ class OptimizationBase():
     def useIpoptSolver(self):
         self.solver = IpoptSolver()
 
-    def setSolverOptions(self, **kwargs):
-        for key in kwargs:
-            self.prog.SetSolverOption(self.solver.solver_id(), key, kwargs[key])
-            self.solveroptions[key] = kwargs[key]
+    def setSolverOptions(self, options_dict):
+        for key in options_dict:
+            self.prog.SetSolverOption(self.solver.solver_id(), key, options_dict[key])
+            self.solveroptions[key] = options_dict[key]
        
     @deco.timer
     def solve(self):
@@ -86,7 +87,7 @@ class OptimizationBase():
         text = f"Solver: {type(self.solver).__name__}\n"
         text += f"Solver halted after {self.solve.total_time} seconds\n"
         if result is not None:
-            text += utils.printProgramReport(result, self.prog, print=False, filename=None)
+            text += utils.printProgramReport(result, self.prog, terminal=False, filename=None, verbose=True)
         text += f"Solver options:\n"
         if self._config['solveroptions'] is not {}:
             for key in self.solveroptions:
@@ -145,6 +146,8 @@ class ContactImplicitDirectTranscription(OptimizationBase):
     def generate_report(self, result=None):
         # Generate a report string. Start with the header
         report = self._text['header']
+        # Add in the date
+        report += f"\Date: {date.today().strftime('%B %d, %Y')}"
         # Add the total number of variables, the number of costs, and the number of constraints
         report += f"\nProblem has {self.prog.num_vars()} variables, {len(self.prog.GetAllCosts())} cost terms, and {len(self.prog.GetAllConstraints())} constraints\n\n"
         # Next add the report strings of the complementarity constraints
