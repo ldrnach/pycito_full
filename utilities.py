@@ -1,4 +1,4 @@
-import os
+import os, errno
 from sys import exit
 from pydrake.autodiffutils import AutoDiffXd
 from matplotlib import pyplot as plt
@@ -211,6 +211,14 @@ class MathProgIterationPrinter():
         else:
             raise ValueError(f"title_iter must be a nonnegative integer")
 
+def append_filename(name, append_str):
+    if name is None:
+        return None
+    else:
+        parts = name.split(".")
+        parts[0] += append_str
+        return ".".join(parts)
+
 def save(filename, data):
     """ pickle data in the specified filename """
     dir = os.path.dirname(filename)
@@ -227,7 +235,7 @@ def load(filename):
 
 def FindResource(filename):
     if not os.path.isfile(filename):
-        exit(f"{filename} not found")
+        raise FileNotFoundError(errno.ENOENT, os.streerror(errno.ENOENT), filename)
     else:
         return os.path.abspath(filename)
     
