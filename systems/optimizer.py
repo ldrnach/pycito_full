@@ -40,7 +40,8 @@ class OptimizationConfiguration():
         self.final_state_cost = None
         # Initial guess type
         self.initial_guess_type = 'zeros'
-        # 
+        # Solver options
+        self.solver_options = {}
     
     @classmethod
     def load(cls, filename=None):

@@ -292,12 +292,12 @@ def GetKnotsFromTrajectory(trajectory):
     values = trajectory.vector_values(breaks)
     return (breaks, values)
 
-def printProgramReport(result, prog=None, filename=None):
+def printProgramReport(result, prog=None, print=True, filename=None):
     """print out information about the result of the mathematical program """
     # Print out general information
-    report = f"Optimization successful? {result.is_success()}\n"
+    report = f"Solved with {result.get_solver_id().name()}\n"
+    report += f"Optimization successful? {result.is_success()}\n"
     report += f"Optimal cost = {result.get_optimal_cost()}\n"
-    report += f"Solved with {result.get_solver_id().name()}\n"
     # Print out SNOPT specific information
     if result.get_solver_id().name() == "SNOPT/fortran":
         exit_code = result.get_solver_details().info
@@ -307,11 +307,15 @@ def printProgramReport(result, prog=None, filename=None):
             infeasibles = result.GetInfeasibleConstraintNames(prog)
             infeas = [name.split("[")[0] for name in infeasibles]
             report += f"Infeasible constraints: {set(infeas)}\n"
-    if filename is None:
+    if print:
         print(report)
-    else:
+    if filename is not None:
+        dir = os.path.dirname(filename)
+        if not os.path.exists(dir):
+            os.makedirs(dir)
         with open(filename, "w") as file:
             file.write(report)
+    return report
 
 def quat2rpy(quat):
     """

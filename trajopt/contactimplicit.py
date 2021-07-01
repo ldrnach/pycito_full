@@ -15,7 +15,6 @@ import utilities as utils
 import trajopt.complementarity as compl
 import decorators as deco
 #TODO: Unit testing for whole-body and centrodial optimizers
-#TODO: Move append_filename to utils and finish ContactConstraintViewer
 
 class OptimizationOptions():
     """ Keeps track of optional settings for Contact Implicit Trajectory Optimization"""
@@ -83,14 +82,15 @@ class OptimizationBase():
         return result
 
     def generate_report(self, result=None):
-        text = f"Solved with: {type(self.solver).__name__}\n"
+        """Generate a solution report from the solver"""
+        text = f"Solver: {type(self.solver).__name__}\n"
+        text += f"Solver halted after {self.solve.total_time} seconds\n"
+        if result is not None:
+            text += utils.printProgramReport(result, self.prog, print=False, filename=None)
         text += f"Solver options:\n"
         if self._config['solveroptions'] is not {}:
             for key in self.solveroptions:
                 text += f"\t {key}: {self.solveroptions[key]}"
-        if result is not None:
-            pass
-
         return text
 
 class ContactImplicitDirectTranscription(OptimizationBase):
@@ -119,6 +119,7 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         self.plant_ad = self.plant_f.toAutoDiffXd()       
         self.context_ad = self.plant_ad.multibody.CreateDefaultContext()
         self.options = options
+        self.printer=None
         # Check for floating DOF
         self._check_floating_dof()
         # Add decision variables to the program
@@ -141,7 +142,7 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         "EqualTime": 'False'}
         self._text['header'] += f"\tKnot points: {num_time_samples}\n\tTime range: [{(num_time_samples-1)*minimum_timestep},{(num_time_samples-1)*maximum_timestep}]\n\t"
 
-    def generate_report(self):
+    def generate_report(self, result=None):
         # Generate a report string. Start with the header
         report = self._text['header']
         # Add the total number of variables, the number of costs, and the number of constraints
@@ -156,7 +157,11 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         report += f"\nState Constraints: {self._text['StateConstraints']}\n"
         report += f"\nRunning Costs: {self._text['RunningCosts']}\n"
         report += f"\nFinal Costs: {self._text['FinalCosts']}\n"
-
+        # Concatenate the report from the solver
+        report += super(ContactImplicitDirectTranscription, self).generate_report(result)
+        # Add the number of iterations, if possible
+        if self.printer is not None:
+            report += f"\nSolver halted after {self.printer.iteration} iterations\n"
         return report
 
     def _check_floating_dof(self):
@@ -633,9 +638,9 @@ class ContactImplicitDirectTranscription(OptimizationBase):
                      "figure" prints the costs and constraints to a figure window
                      "all"    prints the costs and constraints to the terminal and to a figure window
         """
-        printer = utils.MathProgIterationPrinter(prog=self.prog, display=display)
+        self.printer = utils.MathProgIterationPrinter(prog=self.prog, display=display)
         all_vars = self.prog.decision_variables()
-        self.prog.AddVisualizationCallback(printer, all_vars)
+        self.prog.AddVisualizationCallback(self.printer, all_vars)
 
     def enable_iteration_visualizer(self):
         """
