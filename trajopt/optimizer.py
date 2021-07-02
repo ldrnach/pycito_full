@@ -4,22 +4,16 @@ General methods for creating optimizers for multibody systems
 Luke Drnach
 June 28, 2021
 """
-#TODO: Make a configuration class to hold standard details, like cost weights, boundary constraints, SnoptOptions, etc. Make the class saveable and loadable - DONE
-#TODO: Create special instances for A1 and sliding block, with routines for static, lifting, and walking for A1
 
-#TODO: Write scripts to create configurations
-#TODO: Write scripts to load a sequence of configurations, run the optimization, and save the output to a subdirectory (optimization problem/date/run number)
-#TODO: To the output directory, save the configuration, the trajectory data, the figures, and the trajectory optimization report
-
+#TODO: In general, initialize slack variable trajectories, timesteps
+#TODO: Debug this entire file framework (HARD)
 
 import numpy as np
-import matplotlib.pyplot as plt
 import abc, os
 import pickle as pkl
 # Custom imports
 from trajopt import contactimplicit as ci
 import utilities as utils
-import decorators as deco
 from systems.A1.a1 import A1VirtualBase
 from systems.block.block import Block
 # Drake imports
@@ -31,29 +25,35 @@ def create_guess_from_data(time, data, num_samples):
     new_time = np.linspace(0, traj.end_time(), num_samples)
     return traj.vector_values(new_time)
 
-class OptimizationConfiguration():
+#TODO: (Minor) add setter methods to input check the optimization configurations
+class OptimizerConfiguration():
     def __init__(self):
         """Set the default configuration variables for trajectory optimization"""
         # Trajectory optimization settings
-        self.num_time_samples = None
-        self.maximum_time = None
-        self.minimum_time = None
+        self.num_time_samples = 101
+        self.maximum_time = 1
+        self.minimum_time = 1
         # Complementarity settings
+        self.complementarity = 'useNonlinearComplementarityWithConstantSlack'
         self.complementarity_cost_weight = None
-        self.complementarity_slack = None
+        self.complementarity_slack = 0
         # Boundary Conditions
-        self.state_constraints = None
+        self.initial_state = None
+        self.final_state = None
         # Control and State Cost Weights
-        self.control_cost = None
-        self.state_cost = None
+        self.quadratic_control_cost = None
+        self.quadratic_state_cost = None
         # Final cost weights
         self.final_time_cost = None
         self.final_state_cost = None
         # Initial guess type
-        self.initial_guess_type = 'zeros'
+        self.initial_guess = 'useZeroGuess'
         # Solver options
         self.solver_options = {}
-    
+        #Other
+        self.useFixedTimesteps = False
+        self.useCostDisplay = None
+
     @classmethod
     def load(cls, filename=None):
         """Load a configuration file from disk"""
@@ -72,9 +72,8 @@ class OptimizationConfiguration():
         if not os.path.exists(dir):
             os.makedirs(dir)
         # Save the configuration to the file
-        with(filename, 'wb') as output:
+        with open(filename, 'wb') as output:
             pkl.dump(self, output, pkl.HIGHEST_PROTOCOL)
-
 
 class SystemOptimizer(abc.ABC):
     """Boilerplate class for handling common trajectory optimization requests """
@@ -93,11 +92,10 @@ class SystemOptimizer(abc.ABC):
                                 maximum_timestep = max_time/(num_time_samples-1),
                                 options=options)
         # Set solver options
-        self.trajopt.setSolverOptions("Iterations"
-        ) = {"Iterations Limit":10000,
+        self.trajopt.setSolverOptions({"Iterations Limit":10000,
                                 "Major Feasibility Tolerance": 1e-6,
                                 "Major Optimality Tolerance": 1e-6,
-                                "Scale Option": 2}
+                                "Scale Option": 2})
         # Default initial and final conditions
         self._initial_condition = None
         self._final_condition = None
@@ -113,8 +111,62 @@ class SystemOptimizer(abc.ABC):
         raise NotImplementedError
 
     @classmethod
-    def loadConfig(cls, file):
-        config = OptimizationConfiguration.load(file)
+    def buildFromConfig(cls, file):
+        config = OptimizerConfiguration.load(file)
+        # Check the complementarity option
+        options = ci.OptimizationOptions()
+        if hasattr(options, config.complementarity):
+            options = eval(f"options.{config.complementarity}()")
+        else:
+            raise RuntimeError(f"{config.complementarity} is not an attribute of {type(options).__name__}")
+        # Create the optimzer
+        optimizer = cls(options, config.minimum_time, config.maximum_time, config.num_time_samples)
+        # Update the complementarity information from the configuration file
+        if config.complementarity_cost_weight is not None:
+            optimizer.trajopt.complementarity_cost_weight = config.complementarity_cost_weight
+        if config.complementarity_slack is not None:
+            optimizer.trajopt.slack = config.complementarity_slack
+        # Add boundary conditions
+        optimizer.setBoundaryConditions(initial = config.initial_condition, final=config.final_condition)
+        # Set final cost weight, if desired
+        if config.final_state_cost is not None:
+            optimizer.useFinalStateCost(config.final_state_cost)
+        # Add final time cost, if desired
+        if config.final_time_cost is not None:
+            optimizer.useFinalTimeCost(config.final_time_cost)
+        # Use fixed timesteps
+        if config.useFixedTimesteps:
+            optimizer.enforceEqualTimesteps()
+        # Add control cost if desired
+        if config.quadratic_control_cost is not None:
+            R, ref = config.quadratic_control_cost
+            optimizer.setControlWeights(R, ref)
+        # Add state cost if desired
+        if config.quadratic_state_cost is not None:
+            Q, xref = config.quadratic_state_cost
+            optimizer.setStateWeights(Q, xref)
+        # Add cost display
+        if config.useCostDisplay is not None:
+            optimizer.enableDebugging(config.useCostDisplay)
+        # Update the solver options
+        if config.solver_options is not {}:
+            optimizer.trajopt.setSolverOptions(config.solver_options)
+        # Set the initial guess
+        if isinstance(config.initial_guess, str):
+            if hasattr(optimizer, config.initial_guess):
+                eval(f"optimizer.{config.initial_guess}()")
+            else:
+                raise AttributeError(f"{type(optimizer).__name__} has no attribute {config.initial_guess}")
+        elif isinstance(config.initial_guess[0], str):
+            if hasattr(optimizer, config.initial_guess):
+                fcnstr, *args, = config.initial_guess
+                eval(f"optimizer.{fcnstr}(*args)")
+            else:
+                raise AttributeError(f"{type(optimizer).__name__} has no attribute {config.initial_guess[0]}")
+        else:
+            optimizer.useZeroGuess()
+
+        return optimizer
 
     @staticmethod
     def defaultOptimizationOptions():
@@ -320,3 +372,112 @@ class A1VirtualBaseOptimizer(SystemOptimizer):
         a1.terrain.friction = 1.0
         a1.Finalize()
         return a1
+    
+    def useZeroGuess(self):
+        """
+        Initializes the decision variables using:
+            1. Zeros for states, controls, and forces
+            2. Maximum timestep for timesteps
+        """
+        x_init = np.zeros(self.trajopt.x.shape)
+        u_init = np.zeros(self.trajopt.u.shape)
+        l_init = np.zeros(self.trajopt.l.shape)
+        jl_init = np.zeros(self.trajopt.jl.shape)
+        t_init = np.ones(self.trajopt.h.shape) * self.trajopt.maximum_timestep
+        # Set the initial guess
+        self.trajopt.set_initial_guess(xtraj=x_init, utraj=u_init, ltraj=l_init, jltraj=jl_init)
+        # Set the initial guess for the timesteps
+        self.trajopt.prog.SetInitialGuess(self.trajopt.h, t_init)
+
+    def useCustomGuess(self, x_init=None, u_init=None, l_init=None, jl_init=None):
+        """
+        Initialize the decision variables using custom values. Values not given are initialized using useZeroGuess
+        """
+        self.useZeroGuess()
+        self.trajopt.set_initial_guess(xtraj=x_init, utraj=u_init, ltraj=l_init, jl_init=jl_init)
+
+    def useGuessFromFile(self, filename):
+        data = utils.load(filename)
+        # Re-sample to create the initial guess
+        x_init = create_guess_from_data(data['time'], data['state'], self.trajopt.num_time_samples)
+        u_init = create_guess_from_data(data['time'], data['state'], self.trajopt.num_time_samples)
+        l_init = create_guess_from_data(data['time'], data['state'], self.trajopt.num_time_samples)
+        jl_init = create_guess_from_data(data['time'], data['jointlimit'], self.trajopt.num_time_samples)
+        # Add the guess to the program
+        self.useCustomGuess(x_init=x_init, u_init=u_init, l_init=l_init, jl_init=jl_init)
+
+    def plot(self, result, show=True, savename=None):
+        """Plot the results of optimization"""
+        xtraj, utraj, ftraj, jltraj, *_, = self.trajopt.reconstruct_all_trajectories(result)
+        self.plant.plot_trajectories(xtraj, utraj, ftraj, jltraj, show, savename)
+
+class A1OptimizerConfiguration(OptimizerConfiguration):
+    @classmethod
+    def defaultStandingConfig(cls):
+        """Return the default optimization configuration for A1 static standing optimization"""
+        config = cls()
+        a1 = A1VirtualBase()
+        a1.Finalize()
+        # Discretization parameters
+        config.num_time_samples = 21
+        config.maximum_time = 2
+        config.minimum_time = 2
+        # Complementarity parameters
+        config.complementarity = 'useNonlinearComplementarityWithCost'
+        config.complementarity_cost_weight = 1
+        # State constraints
+        pose = a1.standing_pose()
+        no_vel = np.zeros((a1.multibody.num_velocities(), ))
+        x0 = np.concatenate((pose, no_vel), axis=0)
+        xf = x0.copy()
+        config.initial_state = x0
+        config.final_state = xf 
+        # Cost weights
+        uref, _  = a1.static_controller(qref = pose)
+        R = 0.01 * np.eye(uref.shape[0])
+        config.control_cost = (R, uref)
+        # Set the initial guess type
+        config.initial_guess = 'useLinearGuess'
+        # Solver options
+        config.solver_options = {"Iterations Limit": 1000000,
+                                "Major Feasibility Tolerance": 1e-6,
+                                "Major Optimality Tolerance": 1e-6,
+                                "Scale Option": 2}
+        # Enable cost display
+        config.useCostDisplay = 'figure'
+        # Return the configuration
+        return config
+    
+    @classmethod
+    def defaultLiftingConfig(cls):
+        config = cls.defaultStandingConfig()
+        a1 = A1VirtualBase()
+        a1.Finalize()
+        # Update the discretization
+        config.minimum_time = 1
+        # Update the boundary constraints
+        pose2 = config.initial_state[:a1.multibody.num_positions()].copy()
+        pose2[2] = pose2[2]/2
+        # Solve for a feasible pose
+        pose2_ik, _ = a1.standing_pose_ik(pose2[:6], guess=pose2.copy())
+        config.final_state[:a1.multibody.num_positions()] = pose2_ik
+        # Update the state cost
+        Q = 10*np.eye(config.final_state.shape[0])
+        config.quadratic_state_cost = (Q, config.final_state)
+        # Return the configuration
+
+    @classmethod
+    def defaultWalkingConfig(cls):
+        """Default optimization configuration for a1 walking"""
+        config = cls.defaultStandingConfig()
+        # Update the discretization
+        config.minimum_time = 0.5
+        # Update the final constraint
+        xf = config.initial_state.copy()
+        xf[0] = 1.
+        config.final_state = xf
+        # Add state cost
+        Q = 10*np.eye(config.final_state.shape[0])
+        config.quadratic_state_cost = (Q, config.final_state)
+        # Return 
+        return config

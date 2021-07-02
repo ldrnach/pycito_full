@@ -7,20 +7,15 @@ Includes classes for creating A1 MultibodyPlant and TimesteppingMultibodyPlant a
 # Library imports
 import numpy as np
 import matplotlib.pyplot as plt
+from numpy.lib.function_base import append
 from pydrake.all import PiecewisePolynomial, InverseKinematics, Solve, Body, PrismaticJoint, BallRpyJoint, SpatialInertia, UnitInertia
 # Project Imports
 from utilities import FindResource, GetKnotsFromTrajectory, quat2rpy
 from systems.timestepping import TimeSteppingMultibodyPlant
 from systems.visualization import Visualizer
 from systems.terrain import FlatTerrain
-from trajopt.quatutils import rpy2quat
-
-def make_filename(savename, insert):
-    if savename is None:
-        return savename
-    else:
-        parts = savename.split('.')
-        return parts[0] + insert + "." + ".".join(parts[0])
+import decorators as deco
+import utilities as utils
 
 class A1(TimeSteppingMultibodyPlant):
     def __init__(self, urdf_file="systems/A1/A1_description/urdf/a1_foot_collision.urdf", terrain=FlatTerrain()):
@@ -165,13 +160,13 @@ class A1(TimeSteppingMultibodyPlant):
             self.plot_state_trajectory(xtraj, show, savename=savename)
             show_all = True
         if utraj:
-            self.plot_control_trajectory(utraj, show, savename=make_filename(savename, '_control'))
+            self.plot_control_trajectory(utraj, show, savename=utils.append_filename(savename, '_control'))
             show_all = True
         if ftraj:
-            self.plot_force_trajectory(ftraj, show, savename=make_filename(savename, '_reactions'))
+            self.plot_force_trajectory(ftraj, show, savename=utils.append_filename(savename, '_reactions'))
             show_all = True
         if jltraj:
-            self.plot_limit_trajectory(jltraj, show, savename=make_filename(savename, '_limits'))
+            self.plot_limit_trajectory(jltraj, show, savename=utils.append_filename(savename, '_limits'))
             show_all = True
         if show_all:
             plt.show()
@@ -184,59 +179,91 @@ class A1(TimeSteppingMultibodyPlant):
         q, v = np.split(x, [nq])
         # Get orientation from quaternion
         q[1:4] = quat2rpy(q[0:4,:])
-        # Plot COM orientation and position
-        compos, paxs = plt.subplots(2,1)
+        # Plot Base orientation and position
+        self._plot_base_position(t, q[1:7,:], show, savename=utils.append_filename(savename, 'BaseConfiguration'))
+        # Plot Base Velocity
+        self._plot_base_velocity(t, v[0:6,:], show, savename=utils.append_filename(savename, 'BaseVelocity'))
+        # Plot Joint Angles
+        self._plot_joint_position(t, q[7:, :], show, savename=utils.append_filename(savename, 'JointAngles'))
+        # Plot joint velocities
+        self._plot_joint_velocity(t, v[6:,:], show, savename=utils.append_filename(savename, 'JointVelocity'))
+        
+    @deco.showable_fig
+    @deco.saveable_fig
+    def _plot_base_position(self, t, pos):
+        """Make a plot of the position and orientation of the base"""
+        fig, axs = plt.subplots(2,1)
         labels=[["Roll", "Pitch", "Yaw"],["X", "Y", "Z"]]
         ylabels = ["Orientation","Position"]
         for n in range(2):
             for k in range(3):
-                paxs[n].plot(t, q[1 + 3*n + k,:], linewidth=1.5, label=labels[n][k])
-            paxs[n].set_ylabel(ylabels[n])
-            paxs[n].legend()
-        paxs[-1].set_xlabel('Time (s)')
-        paxs[0].set_title("COM Configuration")
-        #Plot COM orientation rate and translational velocity
-        comvel, axs = plt.subplots(2,1)
+                axs[n].plot(t, pos[3*n + k,:], linewidth=1.5, label=labels[n][k])
+            axs[n].set_ylabel(ylabels[n])
+            axs[n].legend()
+        axs[-1].set_xlabel('Time (s)')
+        axs[0].set_title("Base Configuration")
+        return fig, axs
+
+    @deco.showable_fig
+    @deco.saveable_fig
+    def _plot_base_velocity(self, t, vel):
+        """Plot COM orientation rate and translational velocity"""
+        fig, axs = plt.subplots(2,1)
+        labels=[["Roll", "Pitch", "Yaw"],["X", "Y", "Z"]]
+        ylabels = ["Orientation","Position"]
         for n in range(2):
             for k in range(3):
-                axs[n].plot(t, v[3*n + k,:], linewidth=1.5, label=labels[n][k])
+                axs[n].plot(t, vel[3*n + k,:], linewidth=1.5, label=labels[n][k])
             axs[n].set_ylabel(ylabels[n] + " Rate")
             axs[n].legend()
         axs[-1].set_xlabel('Time (s)')
         axs[0].set_title("COM Velocities")
-        # Plot joint positions and velocities 
-        jpos, jaxs = plt.subplots(3,1)
-        jvel, jvaxs = plt.subplots(3,1)
+        return fig, axs
+
+    @deco.showable_fig
+    @deco.saveable_fig
+    def _plot_joint_position(self, t, jpos):
+        """Plot joint positions"""
+        fig, axs = plt.subplots(3,1)
         # Loop over each joint angle
         legs = ["FR", "FL", "BR", "BL"]
         angles = ["Hip Roll", "Hip Pitch","Knee Pitch"]
         for n in range(3):
             # Loop over each leg
             for k in range(4):
-                jaxs[n].plot(t, q[7+4*n+k,:], linewidth=1.5, label=legs[k])
-                jvaxs[n].plot(t, v[6+4*n+k, :], linewidth=1.5, label=legs[k])
-            jaxs[n].set_ylabel(angles[n])
-            jvaxs[n].set_ylabel(angles[n] + " Rate")
-        jaxs[-1].set_xlabel('Time (s)')
-        jvaxs[-1].set_xlabel('Time (s)')
-        jaxs[0].set_title("Joint Angles")
-        jvaxs[0].set_title("Joint Rates")
-        jaxs[0].legend()
-        jvaxs[0].legend()            
-        if show:
-            plt.show()
-        if savename is not None:
-            compos.savefig(make_filename(savename, "_Base_Position"), dpi=compos.dpi)
-            comvel.savefig(make_filename(savename, "_Base_Velocity"), dpi=comvel.dpi)
-            jpos.savefig(make_filename(savename, "_Joint_Positions"), dpi=jpos.dpi)
-            jvel.savefig(make_filename(savename,"_Joint_Velocities"), dpi=jvel.dpi)
+                axs[n].plot(t, jpos[4*n+k,:], linewidth=1.5, label=legs[k])
+            axs[n].set_ylabel(angles[n])
+        axs[-1].set_xlabel('Time (s)')
+        axs[0].set_title("Joint Angles")
+        axs[0].legend()
+        return fig, axs   
 
-    def plot_control_trajectory(self, utraj, show=True, savename=None):
+    @deco.showable_fig
+    @deco.saveable_fig
+    def _plot_joint_velocity(self, t, jvel):
+        """Plot the joint velocities"""
+        fig, axs = plt.subplots(3,1)
+        # Loop over each joint angle
+        legs = ["FR", "FL", "BR", "BL"]
+        angles = ["Hip Roll", "Hip Pitch","Knee Pitch"]
+        for n in range(3):
+            # Loop over each leg
+            for k in range(4):
+                axs[n].plot(t, jvel[4*n+k, :], linewidth=1.5, label=legs[k])
+            axs[n].set_ylabel(angles[n] + " Rate")
+        axs[-1].set_xlabel('Time (s)')
+        axs[0].set_title("Joint Rates")
+        axs[0].legend() 
+        return fig, axs
+
+    @deco.showable_fig
+    @deco.saveable_fig
+    def plot_control_trajectory(self, utraj):
         """Plot joint actuation torque trajectories"""
         # Get the knot points from the trajectory
         t, u = GetKnotsFromTrajectory(utraj)
         # Plot the actuation torques, organized by joint angle
-        ctrl, axs = plt.subplots(3,1)
+        fig, axs = plt.subplots(3,1)
         leg = ['FR','FL','BR','BL']
         angles = ['Hip Roll','Hip Pitch','Knee Pitch']
         for n in range(3):
@@ -248,16 +275,15 @@ class A1(TimeSteppingMultibodyPlant):
         axs[0].set_title("Joint Actuation Torques")   
         axs[0].legend()
         # Show the plot 
-        if show:
-            plt.show()
-        if savename is not None:
-            ctrl.savefig(savename, dpi=ctrl.dpi)
+        return fig, axs
 
-    def plot_force_trajectory(self, ftraj, show=True, savename=None):
+    @deco.showable_fig
+    @deco.saveable_fig
+    def plot_force_trajectory(self, ftraj):
         """ Plot reaction force trajectories"""
         t, f = GetKnotsFromTrajectory(ftraj)
         f = self.resolve_forces(f)  
-        rxn, axs = plt.subplots(3,1)
+        fig, axs = plt.subplots(3,1)
         legs = ['FR', 'FL', 'BR', 'BL']
         labels = ['Normal', 'Friction-1', 'Friction-2']
         for k in range(3):
@@ -267,12 +293,11 @@ class A1(TimeSteppingMultibodyPlant):
         axs[-1].set_xlabel('Time (s)')
         axs[0].set_title('Reaction Forces')
         axs[0].legend()
-        if show:
-            plt.show()
-        if savename is not None:
-            rxn.savefig(savename, dpi=rxn.dpi)
+        return fig, axs
 
-    def plot_limit_trajectory(self, jltraj, show=True, savename=None):
+    @deco.showable_fig
+    @deco.saveable_fig
+    def plot_limit_trajectory(self, jltraj):
         """
         Plot the joint limit torque trajectories
         """
@@ -280,7 +305,7 @@ class A1(TimeSteppingMultibodyPlant):
         jl = self.resolve_limit_forces(jl)
         leg = ['FR','FL','BR','BL']
         angle = ['Hip Roll','Hip Pitch','Knee Pitch']
-        lim, axs = plt.subplots(3,1)
+        fig, axs = plt.subplots(3,1)
         for n in range(3):
             for k in range(4):
                 axs[n].plot(t, jl[4*n + k,:], linewidth=1.5, label=leg[k])
@@ -288,10 +313,7 @@ class A1(TimeSteppingMultibodyPlant):
         axs[-1].set_xlabel('Time (s)')
         axs[0].set_title('Joint Limit Torques')
         axs[0].legend()
-        if show:
-            plt.show()
-        if savename is not None:
-            lim.savefig(savename, dpi=lim.savefig)
+        return fig, axs
 
     @staticmethod
     def visualize(trajectory=None):
@@ -400,53 +422,14 @@ class A1VirtualBase(A1):
         t, x = GetKnotsFromTrajectory(xtraj)
         nq = self.multibody.num_positions()
         q, v = np.split(x, [nq])
-        # Get orientation from quaternion
-        # Plot COM orientation and position
-        compos, paxs = plt.subplots(2,1)
-        labels=[["X", "Y", "Z"],["Roll", "Pitch", "Yaw"]]
-        ylabels = ["Position","Orientation"]
-        for n in range(2):
-            for k in range(3):
-                paxs[n].plot(t, q[3*n + k,:], linewidth=1.5, label=labels[n][k])
-            paxs[n].set_ylabel(ylabels[n])
-            paxs[n].legend()
-        paxs[-1].set_xlabel('Time (s)')
-        paxs[0].set_title("Base Configuration")
-        #Plot COM orientation rate and translational velocity
-        comvel, axs = plt.subplots(2,1)
-        for n in range(2):
-            for k in range(3):
-                axs[n].plot(t, v[3*n + k,:], linewidth=1.5, label=labels[n][k])
-            axs[n].set_ylabel(ylabels[n] + " Rate")
-            axs[n].legend()
-        axs[-1].set_xlabel('Time (s)')
-        axs[0].set_title("Base Velocities")
-        # Plot joint positions and velocities 
-        jpos, jaxs = plt.subplots(3,1)
-        jvel, jvaxs = plt.subplots(3,1)
-        # Loop over each joint angle
-        legs = ["FR", "FL", "BR", "BL"]
-        angles = ["Hip Roll", "Hip Pitch","Knee Pitch"]
-        for n in range(3):
-            # Loop over each leg
-            for k in range(4):
-                jaxs[n].plot(t, q[6+4*n+k,:], linewidth=1.5, label=legs[k])
-                jvaxs[n].plot(t, v[6+4*n+k, :], linewidth=1.5, label=legs[k])
-            jaxs[n].set_ylabel(angles[n])
-            jvaxs[n].set_ylabel(angles[n] + " Rate")
-        jaxs[-1].set_xlabel('Time (s)')
-        jvaxs[-1].set_xlabel('Time (s)')
-        jaxs[0].set_title("Joint Angles")
-        jvaxs[0].set_title("Joint Rates")
-        jaxs[0].legend()
-        jvaxs[0].legend()            
-        if show:
-            plt.show()
-        if savename is not None:
-            compos.savefig(make_filename(savename, '_Base_Positions'), dpi=compos.dpi)
-            comvel.savefig(make_filename(savename, '_Base_Velocities'), dpi=comvel.dpi)
-            jpos.savefig(make_filename(savename, '_Joint_Positions'), dpi=jpos.dpi)
-            jvel.savefig(make_filename(savename,'_Joint_Velocities'), dpi=jvel.dpi)
+        # Plot Base orientation and position
+        self._plot_base_position(t, q[0:6,:], show, savename=utils.append_filename(savename, 'BaseConfiguration'))
+        # Plot Base Velocity
+        self._plot_base_velocity(t, v[0:6,:], show, savename=utils.append_filename(savename, 'BaseVelocity'))
+        # Plot Joint Angles
+        self._plot_joint_position(t, q[6:, :], show, savename=utils.append_filename(savename, 'JointAngles'))
+        # Plot joint velocities
+        self._plot_joint_velocity(t, v[6:,:], show, savename=utils.append_filename(savename, 'JointVelocity'))
 
     @staticmethod
     def visualize(trajectory=None):
