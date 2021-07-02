@@ -8,6 +8,7 @@ October 5, 2020
 """
 
 import numpy as np 
+import timeit
 from datetime import date
 from matplotlib import pyplot as plt
 from pydrake.all import MathematicalProgram, PiecewisePolynomial, Variable, SnoptSolver, IpoptSolver
@@ -63,6 +64,7 @@ class OptimizationBase():
         self.prog = MathematicalProgram()
         self.solver = SnoptSolver()
         self.solveroptions = {}
+        self._elapsed = 0
 
     def useSnoptSolver(self):
         self.solver = SnoptSolver()
@@ -70,26 +72,28 @@ class OptimizationBase():
     def useIpoptSolver(self):
         self.solver = IpoptSolver()
 
-    def setSolverOptions(self, options_dict):
+    def setSolverOptions(self, options_dict={}):
         for key in options_dict:
             self.prog.SetSolverOption(self.solver.solver_id(), key, options_dict[key])
             self.solveroptions[key] = options_dict[key]
-       
-    @deco.timer
+
     def solve(self):
         print("Solving optimization:")
+        start = timeit.default_timer()
         result = self.solver.Solve(self.prog)
-        print(f"Elapsed time: {self.solve.total_time}")
+        stop = timeit.default_timer()
+        self._elapsed = stop - start
+        print(f"Elapsed time: {self._elapsed}")
         return result
 
     def generate_report(self, result=None):
         """Generate a solution report from the solver"""
         text = f"Solver: {type(self.solver).__name__}\n"
-        text += f"Solver halted after {self.solve.total_time} seconds\n"
+        text += f"Solver halted after {self._elapsed} seconds\n"
         if result is not None:
             text += utils.printProgramReport(result, self.prog, terminal=False, filename=None, verbose=True)
         text += f"Solver options:\n"
-        if self._config['solveroptions'] is not {}:
+        if self.solveroptions is not {}:
             for key in self.solveroptions:
                 text += f"\t {key}: {self.solveroptions[key]}"
         return text
@@ -109,6 +113,7 @@ class ContactImplicitDirectTranscription(OptimizationBase):
                 minimum_timestep: (float) the minimum timestep between knot points
                 maximum_timestep: (float) the maximum timestep between knot points
         """
+        super(ContactImplicitDirectTranscription, self).__init__()
         # Store parameters
         self.plant_f = plant
         self.context_f = context

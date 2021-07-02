@@ -13,13 +13,13 @@ def timer(func):
     """Print the runtime of the decorated function. The decorator also records the time in the total_time attribute"""
     @functools.wraps(func)
     def wrapper_timer(*args, **kwargs):
-        wrapper_timer.total_time = 0.
         start = timeit.default_timer()
         value = func(*args, **kwargs)
         stop = timeit.default_timer()
         wrapper_timer.total_time = stop - start
         print(f"Finished {func.__name__!r} in {wrapper_timer.total_time:.4f} seconds")
         return value
+    wrapper_timer.total_time = 0
     return wrapper_timer
 
 def saveable_fig(func):
@@ -27,7 +27,7 @@ def saveable_fig(func):
     @functools.wraps(func)
     def wrapper_saveable_fig(*args, **kwargs):
         # Pull the "filename" key from kwargs, if it exists
-        savename = kwargs.pop('savename')
+        savename = kwargs.pop('savename', False)
         # Get the figure from the function
         fig, *axs, = func(*args, **kwargs)
         # Check kwargs for a savename and save the figure
@@ -48,9 +48,9 @@ def showable_fig(func):
     @functools.wraps(func)
     def wrapper_showable_fig(*args, **kwargs):
         # Check for the 'show' keyword and remove it
-        show = kwargs.pop('show')
+        show = kwargs.pop('show', False)
         # Create  the figures and axes
-        *out, = func(*args, **kwargs)
+        out = func(*args, **kwargs)
         # Show the figure if desired
         if show:
             plt.show()
@@ -68,6 +68,14 @@ def testfig():
     axs2[1].plot(2,2)
     return [fig, fig2], [axs, axs2]
 
+@timer
+def waste_time(num_times):
+    for _ in range(num_times):
+        sum([i**2 for i in range(10000)])
+
 if __name__ == '__main__':
     fig, axs = testfig(show=True, savename='TestFigures.png')
     print(f"Got two outputs: fig = {fig} and axs = {axs}")
+    print(f"Wasting time")
+    waste_time(100)
+    print(f"Wasted {waste_time.total_time}")

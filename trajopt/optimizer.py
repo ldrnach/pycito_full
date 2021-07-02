@@ -60,7 +60,7 @@ class OptimizerConfiguration():
         # Check that the file exists
         filename = utils.FindResource(filename)
         # Load the configuration data from the file
-        with(filename, 'rb') as input:
+        with open(filename, 'rb') as input:
             config = pkl.load(input)
         # Return the new configuration
         return config
@@ -102,6 +102,8 @@ class SystemOptimizer(abc.ABC):
         # Default control and state weights
         self._control_cost = None
         self._state_cost = None
+        self.final_state_cost = None
+        self.final_time_cost = None
         # Flag for debugging
         self.debugging_enabled = False
 
@@ -116,7 +118,7 @@ class SystemOptimizer(abc.ABC):
         # Check the complementarity option
         options = ci.OptimizationOptions()
         if hasattr(options, config.complementarity):
-            options = eval(f"options.{config.complementarity}()")
+            eval(f"options.{config.complementarity}()")
         else:
             raise RuntimeError(f"{config.complementarity} is not an attribute of {type(options).__name__}")
         # Create the optimzer
@@ -127,7 +129,7 @@ class SystemOptimizer(abc.ABC):
         if config.complementarity_slack is not None:
             optimizer.trajopt.slack = config.complementarity_slack
         # Add boundary conditions
-        optimizer.setBoundaryConditions(initial = config.initial_condition, final=config.final_condition)
+        optimizer.setBoundaryConditions(initial = config.initial_state, final=config.final_state)
         # Set final cost weight, if desired
         if config.final_state_cost is not None:
             optimizer.useFinalStateCost(config.final_state_cost)
@@ -177,7 +179,7 @@ class SystemOptimizer(abc.ABC):
         if type(weights) is list and len(weights) == numvals:
             W = np.diag(weights)
         elif type(weights) is np.ndarray and weights.shape[0] == numvals:
-            if weights.ndim() == 1:
+            if weights.ndim == 1:
                 W = np.diag(weights)
             elif weights.shape[1] == numvals:
                 W = weights
@@ -190,7 +192,7 @@ class SystemOptimizer(abc.ABC):
             b = np.zeros((numvals,))
         elif type(ref) is list and len(ref) == numvals:
             b = np.asarray(ref)
-        elif type(ref) is np.ndarray and ref.shape[0] == numvals and ref.ndim() == 1:
+        elif type(ref) is np.ndarray and ref.shape[0] == numvals and ref.ndim == 1:
             b = ref
         else:
             raise ValueError(f"If ref is not None, it must be a list or array with {numvals} elements")
@@ -224,7 +226,7 @@ class SystemOptimizer(abc.ABC):
         # Now use linear interpolation to set the states
         if self._initial_condition is None or self._final_condition is None:
             raise RuntimeError("Boundary conditions must be set to use a linear guess")
-        x_init = np.linspace(self._initial_condition,  self._final_condition,  self.trajopt.num_time_samples)
+        x_init = np.linspace(self._initial_condition,  self._final_condition,  self.trajopt.num_time_samples).transpose()
         # Check if there is a reference for the controls
         if self._control_cost is not None:
             R, ref = self._control_cost
@@ -305,8 +307,9 @@ class SystemOptimizer(abc.ABC):
         self._set_boundary_conditions()
         # Set cost weights
         self._set_running_costs()
-        # Set Solver options
-        self.trajopt.setSolverOptions(**self.solver_options)
+    
+    def setSolverOptions(self, options_dict={}):
+        self.trajopt.setSolverOptions(options_dict)
 
     def solve(self):
         return self.trajopt.solve()
@@ -326,8 +329,7 @@ class SystemOptimizer(abc.ABC):
             self.trajopt.printer.save_and_close(savename)
 
     def saveResults(self, result, name="trajoptresults.pkl"):
-        file = "data/" + name
-        utils.save(file, self.trajopt.result_to_dict(result))
+        utils.save(name, self.trajopt.result_to_dict(result))
 
     def saveReport(self, result=None, savename=None):
         text = self.trajopt.generate_report(result)
@@ -359,7 +361,7 @@ class SystemOptimizer(abc.ABC):
 
 class BlockOptimizer(SystemOptimizer):
     @staticmethod
-    def make_system():
+    def make_plant():
         plant = Block()
         plant.Finalize()
         return plant
@@ -367,7 +369,7 @@ class BlockOptimizer(SystemOptimizer):
 class A1VirtualBaseOptimizer(SystemOptimizer):
     #TODO: Add joint limits to initial guess methods
     @staticmethod
-    def make_system():
+    def make_plant():
         a1 = A1VirtualBase()
         a1.terrain.friction = 1.0
         a1.Finalize()
@@ -425,6 +427,7 @@ class A1OptimizerConfiguration(OptimizerConfiguration):
         # Complementarity parameters
         config.complementarity = 'useNonlinearComplementarityWithCost'
         config.complementarity_cost_weight = 1
+        config.complementarity_slack = None
         # State constraints
         pose = a1.standing_pose()
         no_vel = np.zeros((a1.multibody.num_velocities(), ))
@@ -435,7 +438,7 @@ class A1OptimizerConfiguration(OptimizerConfiguration):
         # Cost weights
         uref, _  = a1.static_controller(qref = pose)
         R = 0.01 * np.eye(uref.shape[0])
-        config.control_cost = (R, uref)
+        config.quadratic_control_cost = (R, uref)
         # Set the initial guess type
         config.initial_guess = 'useLinearGuess'
         # Solver options

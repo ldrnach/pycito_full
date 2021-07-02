@@ -53,9 +53,10 @@ class MathProgIterationPrinter():
         self._prog = prog
         self.iteration = 0
         self._thresh = 1e-10
+        self.fig = None
         self.display_func = self._get_display_func(display)
         self.title_iter = 50 #Print titles to terminal every title_iter iterations
-        self.fig = None
+        
 
     def __call__(self, x):
         costs = self.calc_costs(x)
@@ -246,7 +247,7 @@ def load(filename):
 
 def FindResource(filename):
     if not os.path.isfile(filename):
-        raise FileNotFoundError(errno.ENOENT, os.streerror(errno.ENOENT), filename)
+        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), filename)
     else:
         return os.path.abspath(filename)
     

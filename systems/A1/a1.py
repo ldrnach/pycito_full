@@ -155,20 +155,15 @@ class A1(TimeSteppingMultibodyPlant):
     def plot_trajectories(self, xtraj=None, utraj=None, ftraj=None, jltraj=None, show=False, savename=None):
         """ Plot all the trajectories for A1 """
         # Edit the save string
-        show_all = False
         if xtraj:
-            self.plot_state_trajectory(xtraj, show, savename=savename)
-            show_all = True
+            self.plot_state_trajectory(xtraj, show=False, savename=savename)
         if utraj:
-            self.plot_control_trajectory(utraj, show, savename=utils.append_filename(savename, '_control'))
-            show_all = True
+            self.plot_control_trajectory(utraj, show=False, savename=utils.append_filename(savename, '_control'))
         if ftraj:
-            self.plot_force_trajectory(ftraj, show, savename=utils.append_filename(savename, '_reactions'))
-            show_all = True
+            self.plot_force_trajectory(ftraj, show=False, savename=utils.append_filename(savename, '_reactions'))
         if jltraj:
-            self.plot_limit_trajectory(jltraj, show, savename=utils.append_filename(savename, '_limits'))
-            show_all = True
-        if show_all:
+            self.plot_limit_trajectory(jltraj, show=False, savename=utils.append_filename(savename, '_limits'))
+        if show:
             plt.show()
 
     def plot_state_trajectory(self, xtraj, show=True, savename=None):
@@ -180,13 +175,13 @@ class A1(TimeSteppingMultibodyPlant):
         # Get orientation from quaternion
         q[1:4] = quat2rpy(q[0:4,:])
         # Plot Base orientation and position
-        self._plot_base_position(t, q[1:7,:], show, savename=utils.append_filename(savename, 'BaseConfiguration'))
+        self._plot_base_position(t, q[1:7,:], show=show, savename=utils.append_filename(savename, 'BaseConfiguration'))
         # Plot Base Velocity
-        self._plot_base_velocity(t, v[0:6,:], show, savename=utils.append_filename(savename, 'BaseVelocity'))
+        self._plot_base_velocity(t, v[0:6,:], show=show, savename=utils.append_filename(savename, 'BaseVelocity'))
         # Plot Joint Angles
-        self._plot_joint_position(t, q[7:, :], show, savename=utils.append_filename(savename, 'JointAngles'))
+        self._plot_joint_position(t, q[7:, :], show=show, savename=utils.append_filename(savename, 'JointAngles'))
         # Plot joint velocities
-        self._plot_joint_velocity(t, v[6:,:], show, savename=utils.append_filename(savename, 'JointVelocity'))
+        self._plot_joint_velocity(t, v[6:,:], show=show, savename=utils.append_filename(savename, 'JointVelocity'))
         
     @deco.showable_fig
     @deco.saveable_fig
@@ -423,13 +418,13 @@ class A1VirtualBase(A1):
         nq = self.multibody.num_positions()
         q, v = np.split(x, [nq])
         # Plot Base orientation and position
-        self._plot_base_position(t, q[0:6,:], show, savename=utils.append_filename(savename, 'BaseConfiguration'))
+        self._plot_base_position(t, q[0:6,:], show=show, savename=utils.append_filename(savename, 'BaseConfiguration'))
         # Plot Base Velocity
-        self._plot_base_velocity(t, v[0:6,:], show, savename=utils.append_filename(savename, 'BaseVelocity'))
+        self._plot_base_velocity(t, v[0:6,:], show=show, savename=utils.append_filename(savename, 'BaseVelocity'))
         # Plot Joint Angles
-        self._plot_joint_position(t, q[6:, :], show, savename=utils.append_filename(savename, 'JointAngles'))
+        self._plot_joint_position(t, q[6:, :], show=show, savename=utils.append_filename(savename, 'JointAngles'))
         # Plot joint velocities
-        self._plot_joint_velocity(t, v[6:,:], show, savename=utils.append_filename(savename, 'JointVelocity'))
+        self._plot_joint_velocity(t, v[6:,:], show=show, savename=utils.append_filename(savename, 'JointVelocity'))
 
     @staticmethod
     def visualize(trajectory=None):
