@@ -4,8 +4,10 @@ Run all A1 optimization configurations saved in "examples/a1/runs"
 """
 
 import os
+from matplotlib import pyplot as plt
 from datetime import date
 from trajopt.optimizer import A1VirtualBaseOptimizer
+import utilities as utils
 
 def make_output_directory(configfile):
     """Create the output directory for the current run"""
@@ -18,12 +20,14 @@ def make_output_directory(configfile):
     if not os.path.isdir(targetdir):
         os.mkdir(targetdir)
     # Make the subdirectory for this run - increment the number until a new directory needs to be created
-    subdir = "run"
-    n = 1
-    while os.path.isdir(os.path.join(targetdir, f"{subdir}_{n}")):
-        n+=1
-    # Make the new subdirectory
-    target = os.path.join(targetdir, f"{subdir}_{n}")
+    subdir = filename.split(".")[0]
+    if os.path.isdir(os.path.join(targetdir, subdir)):
+        n = 1
+        while os.path.isdir(os.path.join(targetdir, f"{subdir}_({n})")):
+            n += 1  
+        target = os.path.join(targetdir, f"{subdir}_({n})")
+    else:
+        target = os.path.join(targetdir, subdir)
     os.mkdir(target)
     # Return the target directory and the filename
     return target, filename
@@ -43,7 +47,7 @@ def run_optimization(configfile):
     # Save the figures
     optimizer.saveDebugFigure(savename = os.path.join(directory, "CostsAndConstraints.png"))
     optimizer.plot(result, show=False, savename=os.path.join(directory, "trajopt.png"))
-    optimizer.plotConstraints(result, show=False, savename=os.path.join(directory, "debug.png"))
+    #optimizer.plotConstraints(result, show=False, savename=os.path.join(directory, "debug.png"))
 
     # Move the configuration file to the new directory
     os.rename(configfile, os.path.join(directory, filename))
@@ -53,13 +57,16 @@ def run_optimization(configfile):
 if __name__ == "__main__":
     dirname = os.path.join("examples", "a1", "runs")
     files = [file for file in os.listdir(dirname) if file.endswith(".pkl")]
+    files = utils.alphanumeric_sort(files)
     num_files = len(files)
     n = 1
     successes = 0
     for file in files:
-        print(f"Running file {n} of {num_files}")
+        print(f"Running file {n} of {num_files}: {file}")
         status = run_optimization(os.path.join(dirname, file))
         print(f"Completed successfully? {status}")
+        plt.close('all')
         if status:
             successes += 1
+        n += 1
     print(f"{successes} of {num_files} solved successfully")

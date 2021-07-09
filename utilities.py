@@ -4,6 +4,7 @@ from pydrake.autodiffutils import AutoDiffXd
 from matplotlib import pyplot as plt
 import pickle
 import numpy as np
+import re
 
 SNOPT_DECODER = {
     0: "finished successfully",
@@ -52,7 +53,7 @@ class MathProgIterationPrinter():
         """
         self._prog = prog
         self.iteration = 0
-        self._thresh = 1e-10
+        self._thresh = 1e-6
         self.fig = None
         self.display_func = self._get_display_func(display)
         self.title_iter = 50 #Print titles to terminal every title_iter iterations
@@ -175,7 +176,7 @@ class MathProgIterationPrinter():
                 ymax = max(value, ymax)
             #Set new axis limits
             self.axs[0].set_xlim([1, self.iteration])
-            self.axs[0].set_ylim([self._thresh, ymax])
+            self.axs[0].set_ylim([0, ymax])
 
             ymax = self.axs[1].get_ylim()[1]
             for name, value in cstrs.items():
@@ -185,7 +186,7 @@ class MathProgIterationPrinter():
                 ymax = max(value, ymax)
             # Set new axis limits
             self.axs[1].set_xlim([1,self.iteration])
-            self.axs[1].set_ylim([self._thresh, ymax])
+            self.axs[1].set_ylim([0, ymax])
         # Draw the figure
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
@@ -195,10 +196,12 @@ class MathProgIterationPrinter():
     def figure_setup(self):
         self.fig, self.axs = plt.subplots(2,1)
         self.axs[0].set_ylabel('Cost')
-        self.axs[0].set_yscale('symlog', linthresh=self._thresh)
+        self.axs[0].set_yscale('symlog', linthreshy=self._thresh)
+        self.axs[0].grid(True)
         self.axs[1].set_ylabel('Constraint Violation')
         self.axs[1].set_xlabel('Iteration')
-        self.axs[1].set_yscale('symlog', linthresh=self._thresh)
+        self.axs[1].set_yscale('symlog', linthreshy=self._thresh)
+        self.axs[1].grid(True)
         self.cost_lines = {}
         self.cstr_lines = {}
 
@@ -419,3 +422,8 @@ def getDualSolutionDict(prog, result):
     for name in duals.keys():
         duals[name] = np.row_stack(duals[name])
     return duals
+
+def alphanumeric_sort(text_list):
+    convert = lambda text: int(text) if text.isdigit() else text.lower()
+    alphanum_key = lambda key: [convert(c) for c in re.split('([0-9]+)', key)]
+    return sorted(text_list, key=alphanum_key)

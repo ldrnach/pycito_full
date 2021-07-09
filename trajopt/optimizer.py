@@ -92,10 +92,10 @@ class SystemOptimizer(abc.ABC):
                                 maximum_timestep = max_time/(num_time_samples-1),
                                 options=options)
         # Set solver options
-        self.trajopt.setSolverOptions({"Iterations Limit":10000,
-                                "Major Feasibility Tolerance": 1e-6,
-                                "Major Optimality Tolerance": 1e-6,
-                                "Scale Option": 2})
+        self.trajopt.setSolverOptions({"Iterations limit":10000,
+                                "Major feasibility tolerance": 1e-6,
+                                "Major optimality tolerance": 1e-6,
+                                "Scale option": 2})
         # Default initial and final conditions
         self._initial_condition = None
         self._final_condition = None
@@ -321,15 +321,21 @@ class SystemOptimizer(abc.ABC):
 
     def plotConstraints(self, result, show=True, savename=None):
         """Plot the constraints and dual solutions"""
-        viewer = ci.ContactConstraintViewer(self.trajopt, self.trajopt.result_to_dict(result))
-        viewer.plot_constraints(show, savename)
+        if isinstance(result, dict):
+            viewer = ci.ContactConstraintViewer(self.trajopt, result)
+        else:
+            viewer = ci.ContactConstraintViewer(self.trajopt, self.trajopt.result_to_dict(result))
+        viewer.plot_constraints(show=show, savename=savename)
 
     def saveDebugFigure(self, savename='CostsAndConstraints.png'):
         if self.debugging_enabled:
             self.trajopt.printer.save_and_close(savename)
 
     def saveResults(self, result, name="trajoptresults.pkl"):
-        utils.save(name, self.trajopt.result_to_dict(result))
+        if isinstance(result, dict):
+            utils.save(name, result)
+        else:
+            utils.save(name, self.trajopt.result_to_dict(result))
 
     def saveReport(self, result=None, savename=None):
         text = self.trajopt.generate_report(result)
@@ -442,10 +448,10 @@ class A1OptimizerConfiguration(OptimizerConfiguration):
         # Set the initial guess type
         config.initial_guess = 'useLinearGuess'
         # Solver options
-        config.solver_options = {"Iterations Limit": 1000000,
-                                "Major Feasibility Tolerance": 1e-6,
-                                "Major Optimality Tolerance": 1e-6,
-                                "Scale Option": 2}
+        config.solver_options = {"Iterations limit": 1000000,
+                                "Major feasibility tolerance": 1e-6,
+                                "Major optimality tolerance": 1e-6,
+                                "Scale option": 2}
         # Enable cost display
         config.useCostDisplay = 'figure'
         # Return the configuration
@@ -463,16 +469,19 @@ class A1OptimizerConfiguration(OptimizerConfiguration):
         pose2[2] = pose2[2]/2
         # Solve for a feasible pose
         pose2_ik, _ = a1.standing_pose_ik(pose2[:6], guess=pose2.copy())
-        config.final_state[:a1.multibody.num_positions()] = pose2_ik
+        config.initial_state[:a1.multibody.num_positions()] = pose2_ik
         # Update the state cost
         Q = 10*np.eye(config.final_state.shape[0])
         config.quadratic_state_cost = (Q, config.final_state)
         # Return the configuration
+        return config
 
     @classmethod
     def defaultWalkingConfig(cls):
         """Default optimization configuration for a1 walking"""
         config = cls.defaultStandingConfig()
+        # Use fewer major iterations to control the total time
+        config.solver_options['Major iterations limit'] = 5000 
         # Update the discretization
         config.minimum_time = 0.5
         # Update the final constraint

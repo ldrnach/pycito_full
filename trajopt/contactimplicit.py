@@ -95,7 +95,7 @@ class OptimizationBase():
         text += f"Solver options:\n"
         if self.solveroptions is not {}:
             for key in self.solveroptions:
-                text += f"\t {key}: {self.solveroptions[key]}"
+                text += f"\t {key}: {self.solveroptions[key]}\n"
         return text
 
 class ContactImplicitDirectTranscription(OptimizationBase):
@@ -152,7 +152,7 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         # Generate a report string. Start with the header
         report = self._text['header']
         # Add in the date
-        report += f"\Date: {date.today().strftime('%B %d, %Y')}"
+        report += f"\nDate: {date.today().strftime('%B %d, %Y')}\n"
         # Add the total number of variables, the number of costs, and the number of constraints
         report += f"\nProblem has {self.prog.num_vars()} variables, {len(self.prog.GetAllCosts())} cost terms, and {len(self.prog.GetAllConstraints())} constraints\n\n"
         # Next add the report strings of the complementarity constraints
@@ -497,7 +497,7 @@ class ContactImplicitDirectTranscription(OptimizationBase):
             self.prog.AddCost(integrated_cost, np.concatenate(new_vars,axis=0), description=name)
         # Add string representing the cost
         varnames = ", ".join([var.item(0).get_name().split('(')[0] for var in vars])
-        self._text['RunningCosts'] += f"\n\t{name}: Quadratic cost on {varnames} with weights Q = \n\t{Q} \n\tand bias b = {b}"
+        self._text['RunningCosts'] += f"\n\t{name}: Quadratic cost on {varnames} with weights Q = \n{Q} \n\tand bias b = \n{b}"
 
     def add_equal_time_constraints(self):
         """impose that all timesteps be equal"""
@@ -1052,9 +1052,9 @@ class ContactConstraintViewer():
         dual_figs.append(dyn_fig)
         dual_axs.append(dyn_axs) 
         if self.trajopt.options.complementarity in [compl.LinearEqualityConstantSlackComplementarity, compl.LinearEqualityVariableSlackComplementarity]:
-            cfigs, naxs, taxs = self.plot_complementarity_linear(time, self.duals['normal_distance'], self.duals['sliding_velocity'], self.duals['friction_cone'], show=False, savename=utils.append_filename('complementarity'))
+            cfigs, naxs, taxs = self.plot_complementarity_linear(time, self.duals['normal_distance'], self.duals['sliding_velocity'], self.duals['friction_cone'], show=False, savename=utils.append_filename(savename, 'complementarity'))
         else:
-            cfigs, naxs, taxs = self.plot_complementarity_nonlinear(time, self.duals['normal_distance'], self.duals['sliding_velocity'], self.duals['friction_cone'], show=False, savename=utils.append_filename('complementarity'))
+            cfigs, naxs, taxs = self.plot_complementarity_nonlinear(time, self.duals['normal_distance'], self.duals['sliding_velocity'], self.duals['friction_cone'], show=False, savename=utils.append_filename(savename, 'complementarity'))
         for n in range(self.trajopt.numN):
             naxs[2*n].set_title(f"Contact point {n} Dual Variables")
             taxs[n*4*self.trajopt.plant_f.dlevel].set_title(f"Contact point {n} Dual Variables")
@@ -1063,7 +1063,7 @@ class ContactConstraintViewer():
         dual_axs.append(taxs)
         # Check for quaternion constraints
         if len(self.trajopt.floating_pos) > 0:
-            q_fig, q_axs = self.plot_quaternion_constraints(time, self.duals['unit_quaternion'], self.duals['unit_velocity_axis'],self.duals['quaternion_dynamics'], show=False, savename=utils.append_filename('quaternion'))
+            q_fig, q_axs = self.plot_quaternion_constraints(time, self.duals['unit_quaternion'], self.duals['unit_velocity_axis'],self.duals['quaternion_dynamics'], show=False, savename=utils.append_filename(savename, 'quaternion'))
             q_axs[0].set_title('Dual Variables')
             dual_figs.append(q_fig)
             dual_axs.append(q_axs)

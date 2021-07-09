@@ -418,9 +418,9 @@ class A1VirtualBase(A1):
         nq = self.multibody.num_positions()
         q, v = np.split(x, [nq])
         # Plot Base orientation and position
-        self._plot_base_position(t, q[0:6,:], show=show, savename=utils.append_filename(savename, 'BaseConfiguration'))
+        self._plot_base_position(t, q[[3,4,5,0,1,2],:], show=show, savename=utils.append_filename(savename, 'BaseConfiguration'))
         # Plot Base Velocity
-        self._plot_base_velocity(t, v[0:6,:], show=show, savename=utils.append_filename(savename, 'BaseVelocity'))
+        self._plot_base_velocity(t, v[[3, 4, 5, 0, 1, 2],:], show=show, savename=utils.append_filename(savename, 'BaseVelocity'))
         # Plot Joint Angles
         self._plot_joint_position(t, q[6:, :], show=show, savename=utils.append_filename(savename, 'JointAngles'))
         # Plot joint velocities

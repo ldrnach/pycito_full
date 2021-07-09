@@ -40,7 +40,7 @@ def saveable_fig(func):
                     n+=1
             else:
                 fig.savefig(savename, dpi=fig.dpi)
-        return fig, axs
+        return (fig, *axs) 
     return wrapper_saveable_fig
 
 def showable_fig(func):
