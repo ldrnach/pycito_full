@@ -89,7 +89,9 @@ class OptimizationBase():
     def generate_report(self, result=None):
         """Generate a solution report from the solver"""
         text = f"Solver: {type(self.solver).__name__}\n"
-        text += f"Solver halted after {self._elapsed} seconds\n"
+        hrs, rem = divmod(self._elapsed, 3600)
+        min, sec = divmod(rem, 60)
+        text += f"Solver halted after {hrs} hours, {min} minutes, and {sec} seconds\n"
         if result is not None:
             text += utils.printProgramReport(result, self.prog, terminal=False, filename=None, verbose=True)
         text += f"Solver options:\n"

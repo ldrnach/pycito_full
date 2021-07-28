@@ -21,8 +21,6 @@ def make_a1_visualization(directory):
     traj = PiecewisePolynomial.FirstOrderHold(data['time'], data['state'])
     A1VirtualBase.visualize(traj)
 
-
-
 if __name__ == "__main__":
     dirname = os.path.join("examples","a1","runs","Jul-06-2021")
     subdirs = [f.path for f in os.scandir(dirname) if f.is_dir()]
