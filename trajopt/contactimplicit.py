@@ -91,7 +91,7 @@ class OptimizationBase():
         text = f"Solver: {type(self.solver).__name__}\n"
         hrs, rem = divmod(self._elapsed, 3600)
         min, sec = divmod(rem, 60)
-        text += f"Solver halted after {hrs} hours, {min} minutes, and {sec} seconds\n"
+        text += f"Solver halted after {hrs:.0f} hours, {min:.0f} minutes, and {sec:.2f} seconds\n"
         if result is not None:
             text += utils.printProgramReport(result, self.prog, terminal=False, filename=None, verbose=True)
         text += f"Solver options:\n"
@@ -710,15 +710,22 @@ class ContactImplicitDirectTranscription(OptimizationBase):
 
     @property
     def complementarity_cost_weight(self):
-        """Generic cost weight for complementarity constraints"""
-        return self.distance_cstr.cost_weight
+        """Generic cost weight for complementarity constraints
+        
+        Returns a tuple containing the cost weights for the normal distance, sliding velocity, and friction cone constraints, in that order
+        """
+        return (self.distance_cstr.cost_weight, self.sliding_cstr.cost_weight, self.friction_cstr.cost_weight)
 
     @complementarity_cost_weight.setter
     def complementarity_cost_weight(self, val):
         """Set cost weight for complementarity cost """
-        self.distance_cstr.cost_weight = val
-        self.sliding_cstr.cost_weight = val
-        self.friction_cstr.cost_weight = val
+        if type(val) == float or type(val) == int:
+            val = (val, val, val)
+        elif len(val) != 3:
+            raise ValueError("Complementarity cost weight must be either a nonnegative scalar or a triple of nonnegative scalars")
+        self.distance_cstr.cost_weight = val[0]
+        self.sliding_cstr.cost_weight = val[1]
+        self.friction_cstr.cost_weight = val[2]
 
 class CentroidalContactTranscription(ContactImplicitDirectTranscription):
     #TODO: Unit testing for all contact-implicit problems (Block, DoublePendulum, A1)
