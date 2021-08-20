@@ -1,7 +1,0 @@
-To make a video from downloaded meshcat files (.png files):
-1. Unzip the png files
-2. In the directory with the png files, run:
-	ffmpeg -r 60 -i %07d.png -vcodec libx264 -pix_fmt yuv420p -preset slow -crf 18 output.mp4
-
-If there is an error related to the height not being divisible by 2, try:
-	ffmpeg -r 60 -i %07d.png -vcodec libx264 -pix_fmt yuv420p -vf "pad=ceil(iw/2)*2:ceil(ih/2)*2" -preset slow -crf 18 a1_falling.mp4

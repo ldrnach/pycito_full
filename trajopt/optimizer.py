@@ -106,6 +106,8 @@ class SystemOptimizer(abc.ABC):
         self.final_time_cost = None
         # Flag for debugging
         self.debugging_enabled = False
+        # Initialization string
+        self.initialization_string = ""
 
     @abc.abstractmethod
     def make_plant(self):
@@ -113,8 +115,13 @@ class SystemOptimizer(abc.ABC):
         raise NotImplementedError
 
     @classmethod
-    def buildFromConfig(cls, file):
-        config = OptimizerConfiguration.load(file)
+    def buildFromConfig(cls, configuration):
+        if isinstance(configuration, OptimizerConfiguration):
+            config = configuration        
+        elif isinstance(configuration, str) and os.path.exists(configuration):
+            config = OptimizerConfiguration.load(configuration)
+        else:
+            raise RuntimeError(f"config must be either an OptimizerConfiguration object or a valid filename")
         # Check the complementarity option
         options = ci.OptimizationOptions()
         if hasattr(options, config.complementarity):
@@ -160,7 +167,7 @@ class SystemOptimizer(abc.ABC):
             else:
                 raise AttributeError(f"{type(optimizer).__name__} has no attribute {config.initial_guess}")
         elif isinstance(config.initial_guess[0], str):
-            if hasattr(optimizer, config.initial_guess):
+            if hasattr(optimizer, config.initial_guess[0]):
                 fcnstr, *args, = config.initial_guess
                 eval(f"optimizer.{fcnstr}(*args)")
             else:
@@ -212,6 +219,7 @@ class SystemOptimizer(abc.ABC):
         self.trajopt.set_initial_guess(xtraj=x_init, utraj=u_init, ltraj=l_init)
         # Set the initial guess for the timesteps
         self.trajopt.prog.SetInitialGuess(self.trajopt.h, t_init)
+        self.initialization_string = "Zero Guess"
 
     def useLinearGuess(self):
         """
@@ -233,7 +241,8 @@ class SystemOptimizer(abc.ABC):
             u_init = np.linspace(ref, ref, self.trajopt.num_time_samples).transpose()
             self.trajopt.set_initial_guess(xtraj=x_init, utraj=u_init)
         else:
-            self.trajopt.set_initial_guess(xtraj=x_init.transpose())
+            self.trajopt.set_initial_guess(xtraj=x_init)
+        self.initialization_string = "Linear Guess"
 
     def useCustomGuess(self, x_init=None, u_init=None, l_init=None):
         """
@@ -241,6 +250,7 @@ class SystemOptimizer(abc.ABC):
         """
         self.useZeroGuess()
         self.trajopt.set_initial_guess(xtraj=x_init, utraj=u_init, ltraj=l_init)
+        self.initialization_string = "Custom Guess"
 
     def useGuessFromFile(self, filename):
         data = utils.load(filename)
@@ -250,6 +260,7 @@ class SystemOptimizer(abc.ABC):
         l_init = create_guess_from_data(data['time'], data['state'], self.trajopt.num_time_samples)
         # Add the guess to the program
         self.useCustomGuess(x_init=x_init, u_init=u_init, l_init=l_init)
+        self.initialization_string = f"{filename}"
 
     def enforceEqualTimesteps(self):
         """ Add a constraint that all timesteps be equal """
@@ -339,6 +350,7 @@ class SystemOptimizer(abc.ABC):
 
     def saveReport(self, result=None, savename=None):
         text = self.trajopt.generate_report(result)
+        text += f"\nInitialization: {self.initialization_string}"
         if savename is not None:
             dir = os.path.dirname(savename)
             if not os.path.exists(dir):
@@ -396,23 +408,26 @@ class A1VirtualBaseOptimizer(SystemOptimizer):
         self.trajopt.set_initial_guess(xtraj=x_init, utraj=u_init, ltraj=l_init, jltraj=jl_init)
         # Set the initial guess for the timesteps
         self.trajopt.prog.SetInitialGuess(self.trajopt.h, t_init)
+        self.initialization_string = "Zero Guess"
 
     def useCustomGuess(self, x_init=None, u_init=None, l_init=None, jl_init=None):
         """
         Initialize the decision variables using custom values. Values not given are initialized using useZeroGuess
         """
         self.useZeroGuess()
-        self.trajopt.set_initial_guess(xtraj=x_init, utraj=u_init, ltraj=l_init, jl_init=jl_init)
+        self.trajopt.set_initial_guess(xtraj=x_init, utraj=u_init, ltraj=l_init, jltraj=jl_init)
+        self.initialization_string = "Custom Guess"
 
     def useGuessFromFile(self, filename):
         data = utils.load(filename)
         # Re-sample to create the initial guess
         x_init = create_guess_from_data(data['time'], data['state'], self.trajopt.num_time_samples)
-        u_init = create_guess_from_data(data['time'], data['state'], self.trajopt.num_time_samples)
-        l_init = create_guess_from_data(data['time'], data['state'], self.trajopt.num_time_samples)
+        u_init = create_guess_from_data(data['time'], data['control'], self.trajopt.num_time_samples)
+        l_init = create_guess_from_data(data['time'], data['force'], self.trajopt.num_time_samples)
         jl_init = create_guess_from_data(data['time'], data['jointlimit'], self.trajopt.num_time_samples)
         # Add the guess to the program
         self.useCustomGuess(x_init=x_init, u_init=u_init, l_init=l_init, jl_init=jl_init)
+        self.initialization_string = f"{filename}"
 
     def plot(self, result, show=True, savename=None):
         """Plot the results of optimization"""

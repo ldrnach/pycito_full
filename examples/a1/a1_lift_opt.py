@@ -5,7 +5,7 @@ June 22, 2021
 """
 #TODO: Create a general optimizer class that also handles keeping track of run settings and reporting
 import numpy as np
-import timeit
+import timeit, os
 from trajopt.contactimplicit import ContactImplicitDirectTranscription, OptimizationOptions 
 from systems.A1.a1 import A1VirtualBase
 import utilities as utils
@@ -45,7 +45,8 @@ trajopt = ContactImplicitDirectTranscription(a1, context,
                                     maximum_timestep=max_time/(N-1),
                                     options=options)
 #trajopt.enforceNormalDissipation()
-trajopt.complementarity_cost_weight = 1.
+trajopt.complementarity_cost_weight = 100.
+trajopt.add_equal_time_constraints()
 # Create and set boundary conditions
 pose = a1.standing_pose()
 pose2 = pose.copy()
@@ -64,16 +65,6 @@ x_init = np.linspace(x0, xf, trajopt.num_time_samples).transpose()
 t_init = np.linspace(0, 1, trajopt.num_time_samples)
 x_traj = PiecewisePolynomial.FirstOrderHold(t_init, x_init)
 # Check the trajectory
-#a1.visualize(x_traj)
-# Check the normal distances at each point in the main trajectory
-# n_dist = np.zeros((4, trajopt.num_time_samples))
-# for n in range(trajopt.num_time_samples):
-#     a1.multibody.SetPositionsAndVelocities(context, x_init[:,n])
-#     n_dist[:,n] = a1.GetNormalDistances(context)
-# plt.plot(t_init, n_dist.transpose())
-# plt.show()
-# quit()
-
 # Set the final pose 1m in front of the starting pose
 trajopt.add_state_constraint(knotpoint=0, value=x0)
 trajopt.add_state_constraint(knotpoint=trajopt.num_time_samples-1, value=xf)
@@ -100,23 +91,26 @@ trajopt.add_quadratic_running_cost(Q, xf, vars=[trajopt.x], name="StateCost")
 if not utils.CheckProgram(trajopt.prog):
     quit()
 # Set SNOPT solver options
-trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Iterations Limit", 1000000)
-trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Major Feasibility Tolerance", 1e-6)
+solver = SnoptSolver()
+trajopt.prog.SetSolverOption(solver.solver_id(), "Iterations Limit", 1000000)
+trajopt.prog.SetSolverOption(solver.solver_id(), "Major iterations limit", 0)
+trajopt.prog.SetSolverOption(solver.solver_id(), "Major Feasibility Tolerance", 1e-6)
 #trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Minor Feasibility Tolerance", 1e-6)
-trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Major Optimality Tolerance", 1e-6)
-trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Scale Option", 2)
+trajopt.prog.SetSolverOption(solver.solver_id(), "Major Optimality Tolerance", 1e-6)
+trajopt.prog.SetSolverOption(solver.solver_id(), "Scale Option", 2)
+outfile = os.path.abspath("/workspaces/pyCITO/examples/a1/snopt.txt")
+trajopt.prog.SetSolverOption(solver.solver_id(), "Print file", outfile)
 trajopt.enable_cost_display('figure')
 #trajopt.enable_iteration_visualizer()
-solver = SnoptSolver()
 print("Solving trajectory optimization")
 start = timeit.default_timer()
 result = solver.Solve(trajopt.get_program())
 stop = timeit.default_timer()
 print(f"Elapsed time: {stop-start}")
 # Print details of solution
-utils.printProgramReport(result, trajopt.get_program(), verbose=True, filename='examples/a1/figures/a1_lift_06292021/report.txt')
-file = 'data/a1/a1_lift_06292021.pkl'
-utils.save(file, trajopt.result_to_dict(result))
-x, u, l, jl, s = trajopt.reconstruct_all_trajectories(result)
-a1.plot_trajectories(x, u, l, jl)
-a1.visualize(x)
+#utils.printProgramReport(result, trajopt.get_program(), verbose=True, filename='examples/a1/figures/a1_lift_06292021/report.txt')
+#file = 'data/a1/a1_lift_06292021.pkl'
+# utils.save(file, trajopt.result_to_dict(result))
+# x, u, l, jl, s = trajopt.reconstruct_all_trajectories(result)
+# a1.plot_trajectories(x, u, l, jl)
+# a1.visualize(x)
