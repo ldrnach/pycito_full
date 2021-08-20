@@ -11,3 +11,4 @@ __init__.pyc
 *.pkl
 *.txt
 *.mat
+*.gif
