@@ -58,7 +58,6 @@ class MathProgIterationPrinter():
         self.display_func = self._get_display_func(display)
         self.title_iter = 50 #Print titles to terminal every title_iter iterations
         
-
     def __call__(self, x):
         costs = self.calc_costs(x)
         cstrs = self.calc_constraints(x)
@@ -77,6 +76,18 @@ class MathProgIterationPrinter():
             return self.print_to_terminal_and_figure
         else:
             raise ValueError(f"Display {display} is not a supported option. Choose 'terminal', 'figure', or 'all'")
+
+    def reset(self):
+        """
+        Reset the iteration printer.
+            If the previous figure hasn't been closed, close it
+            Create a new figure if necessary
+            Reset the iteration counter to zero
+        """
+        # Reset iteration counter
+        self.iteration = 0
+        if self.fig is not None:
+            self.figure_setup()
 
     def calc_costs(self, x):
         """ 

@@ -8,19 +8,21 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pydrake.all import RigidTransform, PiecewisePolynomial
 # Project-specific imports
-from utilities import FindResource, GetKnotsFromTrajectory, quat2rpy
+import utilities as  utils
 from systems.timestepping import TimeSteppingMultibodyPlant
 from systems.visualization import Visualizer
 from systems.terrain import FlatTerrain
 import matplotlib.animation as animation
 from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
+import decorators as deco
+
 
 class Block(TimeSteppingMultibodyPlant):
     def __init__(self, urdf_file="systems/block/urdf/sliding_block.urdf", terrain=FlatTerrain()):
 
         # Initialize the time-stepping multibody plant
-        super(Block, self).__init__(file=FindResource(urdf_file), terrain=terrain)
+        super(Block, self).__init__(file=utils.FindResource(urdf_file), terrain=terrain)
         # Weld the center body frame to the world frame
         body_inds = self.multibody.GetBodyIndices(self.model_index[0])
         base_frame = self.multibody.get_body(body_inds[0]).body_frame()
@@ -34,7 +36,7 @@ class Block(TimeSteppingMultibodyPlant):
             raise ValueError("trajectory must be a PiecewisePolynomial or 2D numpy array")
         return BlockPyPlotAnimator(self, trajectory)
         
-    def plot_trajectories(self, xtraj=None, utraj=None, ftraj=None):
+    def plot_trajectories(self, xtraj=None, utraj=None, ftraj=None, show=True, savename=None):
         """
         plot the state, control, and force trajectories for the Block
         
@@ -44,20 +46,21 @@ class Block(TimeSteppingMultibodyPlant):
         #TODO: generalize for multiple contact points, generalize for free rotation
         # Plot the State trajectories
         if xtraj is not None:
-            self.plot_state_trajectory(xtraj, show=False)
+            self.plot_state_trajectory(xtraj, show=False, savename=utils.append_filename(savename,'_state'))
         # Plot the controls
         if utraj is not None:
-            self.plot_control_trajectory(utraj, show=False)
+            self.plot_control_trajectory(utraj, show=False, savename=utils.append_filename(savename, '_control'))
         # Plot the reaction forces
         if ftraj is not None:
-            self.plot_force_trajectory(ftraj, show=False)
+            self.plot_force_trajectory(ftraj, show=False, savename=utils.append_filename(savename, '_forces'))
         # Show the plots only when one of the inputs is not None
-        if xtraj is not None or utraj is not None or ftraj is not None:
+        if show:
             plt.show()
 
-    @staticmethod
-    def plot_state_trajectory(xtraj, show=True):
-        t, x = GetKnotsFromTrajectory(xtraj)
+    @deco.showable_fig
+    @deco.saveable_fig
+    def plot_state_trajectory(self, xtraj):
+        t, x = utils.GetKnotsFromTrajectory(xtraj)
         fig, axs = plt.subplots(2,1)
         axs[0].plot(t, x[0,:], linewidth=1.5, label='horizontal')
         axs[0].plot(t, x[1,:], linewidth=1.5, label='vertical')
@@ -67,24 +70,22 @@ class Block(TimeSteppingMultibodyPlant):
         axs[1].set_ylabel('Velocity (m/s)')
         axs[1].set_xlabel('Time (s)')
         axs[0].legend()
-        if show:
-            plt.show()
-        return (fig, axs)
+        return fig, axs
 
-    @staticmethod
-    def plot_control_trajectory(utraj, show=True):
-        t, u = GetKnotsFromTrajectory(utraj)
+    @deco.showable_fig
+    @deco.saveable_fig
+    def plot_control_trajectory(self, utraj):
+        t, u = utils.GetKnotsFromTrajectory(utraj)
         fig, axs = plt.subplots(2,1)
         axs[0].plot(t, u[0,:], linewidth=1.5)
         axs[0].set_ylabel('Control (N)')
         axs[0].set_xlabel('Time (s)')
-        if show:
-            plt.show()
-        return (fig, axs)
+        return fig, axs
 
-    @staticmethod
-    def plot_force_trajectory(ftraj, show=True):
-        t, f = GetKnotsFromTrajectory(ftraj)
+    @deco.showable_fig
+    @deco.saveable_fig
+    def plot_force_trajectory(self, ftraj):
+        t, f = utils.GetKnotsFromTrajectory(ftraj)
         fig, axs = plt.subplots(3,1)
         axs[0].plot(t, f[0,:], linewidth=1.5)
         axs[0].set_ylabel('Normal')
@@ -94,9 +95,7 @@ class Block(TimeSteppingMultibodyPlant):
         axs[2].plot(t, f[2, :] - f[4,:], linewidth=1.5)
         axs[2].set_ylabel('Friction-y')
         axs[2].set_xlabel('Time (s)')
-        if show:
-            plt.show()
-        return (fig, axs)
+        return fig, axs
 
     @staticmethod
     def visualize(trajectory=None):
@@ -112,7 +111,7 @@ class Block(TimeSteppingMultibodyPlant):
 class FreeFloatingBlock(TimeSteppingMultibodyPlant):
     def __init__(self, urdf_file="systems/block/urdf/free_block.urdf", terrain=FlatTerrain()):
         # Initialize the time-stepping multibody plant
-        super(FreeFloatingBlock, self).__init__(file=FindResource(urdf_file), terrain=terrain)
+        super(FreeFloatingBlock, self).__init__(file=utils.FindResource(urdf_file), terrain=terrain)
 
     @staticmethod
     def visualize(trajectory):
@@ -123,7 +122,7 @@ class FreeFloatingBlock(TimeSteppingMultibodyPlant):
 
     @staticmethod
     def plot_control_trajectory(utraj, show=True):
-        t, u = GetKnotsFromTrajectory(utraj)
+        t, u = utils.GetKnotsFromTrajectory(utraj)
         fig, axs = plt.subplots(2,1)
         axs[0].plot(t, u[0,:], linewidth=1.5)
         axs[0].set_ylabel('Control Force-X (N)')
@@ -134,11 +133,11 @@ class FreeFloatingBlock(TimeSteppingMultibodyPlant):
         return (fig, axs)
 
     def plot_state_trajectory(self, xtraj):
-        t, x = GetKnotsFromTrajectory(xtraj)
+        t, x = utils.GetKnotsFromTrajectory(xtraj)
         nq = self.multibody.num_positions()
         q, v = np.split(x, [nq])
         # Get orientation from quaternion
-        q[1:4] = quat2rpy(q[0:4,:])
+        q[1:4] = utils.quat2rpy(q[0:4,:])
         # Plot Orientation and Position
         _, paxs = plt.subplots(2,1)
         labels=[["Roll", "Pitch", "Yaw"],["X", "Y", "Z"]]
@@ -191,7 +190,7 @@ class BlockPyPlotAnimator(animation.TimedAnimation):
     def __init__(self, plant, xtraj):
         # Store the plant, data, and key
         self.plant = plant
-        _, x = GetKnotsFromTrajectory(xtraj)
+        _, x = utils.GetKnotsFromTrajectory(xtraj)
         self.xtraj = x
         # Calculate the terrain height along the trajectory
         height = np.zeros((x.shape[1],))

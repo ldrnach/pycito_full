@@ -4,7 +4,6 @@ Run a sliding trajectory optimization for the sliding block
 Luke Drnach
 
 """
-
 import numpy as np
 from systems.block.blockopt import BlockOptimizer
 

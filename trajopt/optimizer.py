@@ -384,6 +384,44 @@ class BlockOptimizer(SystemOptimizer):
         plant.Finalize()
         return plant
 
+class BlockOptimizerConfiguration(OptimizerConfiguration):
+    @classmethod
+    def defaultBlockConfig(cls):
+        """Return the default optimization configuration for A1 static standing optimization"""
+        config = cls()
+        block = Block()
+        block.Finalize()
+        # Discretization parameters
+        config.num_time_samples = 101
+        config.maximum_time = 1
+        config.minimum_time = 1
+        # Complementarity parameters
+        config.complementarity = 'useNonlinearComplementarityWithConstantSlack'
+        config.complementarity_cost_weight = None
+        config.complementarity_slack = 0.
+        # State constraints
+        config.initial_state = np.array([0., 0.5, 0., 0.])
+        config.final_state = np.array([5.0, 0.5, 0., 0.])
+        # Cost weights
+        R = 10 * np.eye(1)
+        uref = np.zeros((1,))
+        config.quadratic_control_cost = (R, uref)
+        Q = np.eye(4)
+        config.quadratic_state_cost = (Q, config.final_state)
+        # Set the initial guess type
+        config.initial_guess = 'useLinearGuess'
+        # Solver options
+        config.solver_options = {"Iterations limit": 10000,
+                                "Major feasibility tolerance": 1e-6,
+                                "Major optimality tolerance": 1e-6,
+                                "Scale option": 2}
+        # Enforce equal timesteps
+        config.useFixedTimesteps = True
+        # Enable cost display
+        config.useCostDisplay = 'figure'
+        # Return the configuration
+        return config
+
 class A1VirtualBaseOptimizer(SystemOptimizer):
     #TODO: Add joint limits to initial guess methods
     @staticmethod

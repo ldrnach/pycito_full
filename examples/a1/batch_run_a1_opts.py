@@ -103,6 +103,7 @@ def main():
     files = utils.alphanumeric_sort(files)
     with concurrent.futures.ProcessPoolExecutor(10) as executor:
         successes = executor.map(run_sequential_optimization, files)
+    successes = [success for success in successes]
     print(f"{sum(successes)} of {len(successes)} solved successfully")
 
     # num_files = len(files)

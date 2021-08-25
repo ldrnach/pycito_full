@@ -702,7 +702,7 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         return self.distance_cstr.slack
 
     @const_slack.setter
-    def slack(self, val):
+    def const_slack(self, val):
         """ Set the constant slack variable in the complementarity constraints """
         self.distance_cstr.slack = val
         self.sliding_cstr.slack = val
