@@ -9,5 +9,10 @@
         "ms-python.python",
         "ms-python.vscode-pylance",
         "smilerobotics.urdf"
+    ],
+    "runArgs": [
+        "--net","host",
+        "-e","DISPLAY=${env:DISPLAY}",
+        "-v","/tmp/.X11-unix:/tmp/.X11-unix"
     ]
 }
