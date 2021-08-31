@@ -89,11 +89,12 @@ class Hopper(TimeSteppingMultibodyPlant):
         vis.visualize_trajectory(trajectory)
 
     def plot_trajectories(self, xtraj, utraj, ftraj, jltraj, show=True, savename=None):
-        self.plot_base_trajectory(xtraj, show=False, savename=utils.append_filename(savename, 'Base'))
-        self.plot_joint_trajectory(xtraj, utraj, jltraj, show=False, savename=utils.append_filename(savename,'JointAngles'))
-        self.plot_force_trajectory(ftraj, show=False, savename=utils.append_filename(savename, 'ReactionForces'))
+        fig1, axs1 = self.plot_base_trajectory(xtraj, show=False, savename=utils.append_filename(savename, 'Base'))
+        fig2, axs2 = self.plot_joint_trajectory(xtraj, utraj, jltraj, show=False, savename=utils.append_filename(savename,'JointAngles'))
+        fig3, axs3 = self.plot_force_trajectory(ftraj, show=False, savename=utils.append_filename(savename, 'ReactionForces'))
         if show:
             plt.show()
+        return np.array([fig1, fig2, fig3]), np.concatenate([axs1, axs2, axs3])
 
 
     @deco.showable_fig

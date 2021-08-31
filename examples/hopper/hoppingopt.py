@@ -66,8 +66,8 @@ def solve_hopper_opt_and_save(trajopt, savedir):
         os.makedirs(savedir)
     else:
         ans = input(f"{savedir} already exists. Would you like to overwrite it? (Y/n)>")
-        if ans.lower != 'y':
-            return
+        if ans.lower() != 'y':
+            return None
     # Solve the problem
     result = trajopt.solve()
     print(f"Successful? {result.is_success()}")
@@ -78,11 +78,12 @@ def solve_hopper_opt_and_save(trajopt, savedir):
         file.write(report)
     utils.save(os.path.join(savedir, 'trajoptresults.pkl'), trajopt.result_to_dict(result))
     # Save the cost figure
-    trajopt.printer.save_and_close(os.path.join(savedir, 'CostsAndConstraints.png'))
+    trajopt.printer.save_and_clear(os.path.join(savedir, 'CostsAndConstraints.png'))
     # Plot and save the trajectories
     xtraj, utraj, ftraj, jltraj, _ = trajopt.reconstruct_all_trajectories(result)
-    trajopt.plant_f.plot_trajectories(xtraj, utraj, ftraj, jltraj, show=False, savename=os.path.join(savedir, 'opt.png'))
-    plt.close('all')
+    figs, _ = trajopt.plant_f.plot_trajectories(xtraj, utraj, ftraj, jltraj, show=False, savename=os.path.join(savedir, 'opt.png'))
+    for fig in figs:
+        plt.close(fig)
     return result
 
 def set_hopper_initial_conditions(trajopt, result=None):
