@@ -371,7 +371,7 @@ class LinearEqualityConstantSlackComplementarity(ComplementarityConstraint):
         if self.__slack_vars is None:
             self.__slack_vars = new_slacks
         else:
-            self.__slack_vars = np.row_stack([self.__slack_vars, new_slacks])
+            self.__slack_vars = np.column_stack([self.__slack_vars, new_slacks])
 
     @property
     def slack(self):
@@ -445,7 +445,7 @@ class LinearEqualityVariableSlackComplementarity(ComplementarityConstraint):
         self.__slack_cost.append(new_cost)
         # Store the variables
         if self.__slack_vars is not None:
-            self.__slack_vars = np.row_stack([self.__slack_vars, new_slacks])
+            self.__slack_vars = np.column_stack([self.__slack_vars, new_slacks])
         else:
             self.__slack_vars = new_slacks
     

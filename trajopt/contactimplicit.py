@@ -78,6 +78,7 @@ class OptimizationBase():
             self.solveroptions[key] = options_dict[key]
 
     def solve(self):
+        
         print("Solving optimization:")
         start = timeit.default_timer()
         result = self.solver.Solve(self.prog)
@@ -149,6 +150,9 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         "NormalDissipation": 'False',
         "EqualTime": 'False'}
         self._text['header'] += f"\tKnot points: {num_time_samples}\n\tTime range: [{(num_time_samples-1)*minimum_timestep},{(num_time_samples-1)*maximum_timestep}]\n\t"
+        # Set force and control scaling variables
+        self.force_scaling = 1.
+        self.control_scaling = 1.
 
     def generate_report(self, result=None):
         # Generate a report string. Start with the header
@@ -288,6 +292,10 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         # Split the variables from the decision variables
         ind = np.cumsum([self.h.shape[1], self.x.shape[0], self.x.shape[0], self.u.shape[0], self._normal_forces.shape[0]])
         h, x1, x2, u, fN, fT = np.split(z, ind)
+        # Rescale force and control variables
+        u = self.control_scaling * u
+        fN = self.force_scaling * fN
+        fT = self.force_scaling * fT
         # Calculate the position integration error
         p1, _ = np.split(x1, 2)
         p2, dp2 = np.split(x2, 2)
@@ -422,16 +430,19 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         """Set the initial timesteps to their maximum values"""
         self.prog.SetInitialGuess(self.h, self.maximum_timestep*np.ones(self.h.shape))
 
-    def set_initial_guess(self, xtraj=None, utraj=None, ltraj=None, jltraj=None):
+    def set_initial_guess(self, xtraj=None, utraj=None, ltraj=None, jltraj=None, straj=None):
         """Set the initial guess for the decision variables"""
         if xtraj is not None:
             self.prog.SetInitialGuess(self.x, xtraj)
         if utraj is not None:
-            self.prog.SetInitialGuess(self.u, utraj)
+            self.prog.SetInitialGuess(self.u, utraj/self.control_scaling)
         if ltraj is not None:
+            ltraj[:self.numN + self.numT,:] = ltraj[:self.numN + self.numT, :]/self.force_scaling
             self.prog.SetInitialGuess(self.l, ltraj)
         if jltraj is not None:
             self.prog.SetInitialGuess(self.jl, jltraj)
+        if straj is not None:
+            self.prog.SetInitialGuess(self.var_slack, straj)
 
     def add_running_cost(self, cost_func, vars=None, name="RunningCost"):
         """Add a running cost to the program"""
@@ -549,6 +560,7 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         umin and umax must as many entries as there are actuators in the problem. If the control has no effort limit, use np.inf
         """
         #TODO check the inputs
+        #TODO: Check for control scaling
         u_valid = np.isfinite(umin)
         for n in range(0, self.num_time_samples):
             self.prog.AddBoundingBoxConstraint(umin[u_valid], umax[u_valid], self.u[n, u_valid]).evaluator().set_description("ControlLimits")
@@ -577,12 +589,16 @@ class ContactImplicitDirectTranscription(OptimizationBase):
     def reconstruct_input_trajectory(self, soln):
         """Returns the input trajectory from the solution"""
         t = self.get_solution_times(soln)
-        return PiecewisePolynomial.FirstOrderHold(t, soln.GetSolution(self.u))
+        return PiecewisePolynomial.FirstOrderHold(t, self.control_scaling * soln.GetSolution(self.u))
     
     def reconstruct_reaction_force_trajectory(self, soln):
         """Returns the reaction force trajectory from the solution"""
         t = self.get_solution_times(soln)
-        return PiecewisePolynomial.FirstOrderHold(t, soln.GetSolution(self.l))
+        fN = self.force_scaling * soln.GetSolution(self._normal_forces)
+        fT = self.force_scaling * soln.GetSolution(self._tangent_forces)
+        gam = soln.GetSolution(self._sliding_vel)
+        l = np.concatenate([fN, fT, gam], axis=0)
+        return PiecewisePolynomial.FirstOrderHold(t, l)
     
     def reconstruct_limit_force_trajectory(self, soln):
         """Returns the joint limit force trajectory from the solution"""
@@ -597,8 +613,8 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         # Get the slack variables from the complementarity problems
         if any(isinstance(slack, Variable) for slack in self.var_slack.flatten()):
             #Filter out 'Variable' types
-            slack_vars = np.row_stack([slack_var for slack_var in self.var_slack if isinstance(slack_var[0], Variable)])
-            return self.reconstruct_trajectory(slack_vars, soln)
+            t = self.get_solution_times(soln)
+            return PiecewisePolynomial.FirstOrderHold(t, soln.GetSolution(self.var_slack))
         else:
             return None
 
@@ -694,7 +710,7 @@ class ContactImplicitDirectTranscription(OptimizationBase):
     @property
     def var_slack(self):
         """Variable slack for contact complementarity constraints"""
-        return np.vstack([self.distance_cstr.slack, self.sliding_cstr.slack, self.friction_cstr.slack])
+        return np.row_stack([self.distance_cstr.slack, self.sliding_cstr.slack, self.friction_cstr.slack])
     
     @property
     def const_slack(self):
@@ -726,6 +742,28 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         self.distance_cstr.cost_weight = val[0]
         self.sliding_cstr.cost_weight = val[1]
         self.friction_cstr.cost_weight = val[2]
+
+    @property
+    def force_scaling(self):
+        return self.__force_scaling
+
+    @force_scaling.setter
+    def force_scaling(self, val):
+        if (isinstance(val, int) or isinstance(val, float)) and val > 0:
+            self.__force_scaling = val
+        else:
+            raise ValueError(f"force_scaling must be a positive numeric value") 
+
+    @property
+    def control_scaling(self):
+        return self.__control_scaling
+
+    @control_scaling.setter
+    def control_scaling(self, val):
+        if (isinstance(val, int) or isinstance(val, float)) and val > 0:
+            self.__control_scaling = val
+        else:
+            raise ValueError("control_scaling must be a positive numeric value")
 
 class CentroidalContactTranscription(ContactImplicitDirectTranscription):
     #TODO: Unit testing for all contact-implicit problems (Block, DoublePendulum, A1)

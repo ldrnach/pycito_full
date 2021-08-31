@@ -226,6 +226,20 @@ class MathProgIterationPrinter():
             self.fig.savefig(savename, dpi = self.fig.dpi)
             plt.close(self.fig)
 
+    def save_and_clear(self, savename="CostsAndConstraints.png"):
+        if self.fig is not None:
+            self.fig.savefig(savename, dpi=self.fig.dpi)
+            self.axs[0].cla()
+            self.axs[1].cla()
+            self.axs[0].set_ylabel('Cost')
+            self.axs[0].set_yscale('symlog', linthreshy=self._thresh)
+            self.axs[0].grid(True)
+            self.axs[1].set_ylabel('Constraint Violation')
+            self.axs[1].set_xlabel('Iteration')
+            self.axs[1].set_yscale('symlog', linthreshy=self._thresh)
+            self.axs[1].grid(True)
+            self.iteration = 0
+
     @property
     def title_iter(self):
         return self._title_iter
@@ -438,3 +452,9 @@ def alphanumeric_sort(text_list):
     convert = lambda text: int(text) if text.isdigit() else text.lower()
     alphanum_key = lambda key: [convert(c) for c in re.split('([0-9]+)', key)]
     return sorted(text_list, key=alphanum_key)
+
+def find_filepath_recursive(directory, target_file):
+    for path, dir, files in os.walk(directory):
+        for file in files:
+            if file == "trajoptresults.pkl":
+                yield path
