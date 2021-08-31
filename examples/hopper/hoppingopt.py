@@ -86,12 +86,16 @@ def solve_hopper_opt_and_save(trajopt, savedir):
         plt.close(fig)
     return result
 
-def set_hopper_initial_conditions(trajopt, result=None):
+def set_hopper_initial_conditions(trajopt, result=None, boundary=None):
     if result is None:
         dvars = trajopt.prog.decision_variables()
         dvals = np.zeros(dvars.shape)
         trajopt.prog.SetInitialGuess(dvars, dvals)
         trajopt._set_initial_timesteps()
+        if boundary is not None:
+            x0, xf = boundary
+            xtraj = np.linspace(x0, xf, trajopt.num_time_samples).transpose()
+            trajopt.prog.SetInitialGuess(trajopt.x, xtraj)
     else:
         trajopt.initialize_from_previous(result)
     return trajopt

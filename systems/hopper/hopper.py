@@ -154,6 +154,17 @@ class Hopper(TimeSteppingMultibodyPlant):
         axs[0].legend()
         return fig, axs
 
+class AccessHopper(Hopper):
+    def __init__(self, urdf_file="systems/hopper/urdf/single_legged_hopper.urdf", terrain=FlatTerrain()):
+        super(AccessHopper, self).__init__(urdf_file, terrain)
+
+    @staticmethod
+    def visualize(trajectory):
+        vis = Visualizer("systems/hopper/urdf/single_legged_hopper.urdf")
+        body_inds = vis.plant.GetBodyIndices(vis.model_index)
+        base_frame = vis.plant.get_body(body_inds[0]).body_frame()
+        vis.plant.WeldFrames(vis.plant.world_frame(), base_frame, RigidTransform())
+        vis.visualize_trajectory(trajectory)
 
 if __name__ == '__main__':
     hopper = Hopper()

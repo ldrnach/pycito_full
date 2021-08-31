@@ -100,6 +100,6 @@ def main(args):
 
 if __name__ == "__main__":
     infile = "/home/ldrnach3/Downloads/hopper"
-    outfile = "/home/ldrnach3/Projects/pyCITO/examples/hopper/reference"
+    outfile = "/home/ldrnach3/Projects/pyCITO/examples/hopper/reference_linear"
     batch_convert_files(infile, outfile)
     #main(sys.argv[1:])
