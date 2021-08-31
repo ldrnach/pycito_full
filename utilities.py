@@ -452,3 +452,9 @@ def alphanumeric_sort(text_list):
     convert = lambda text: int(text) if text.isdigit() else text.lower()
     alphanum_key = lambda key: [convert(c) for c in re.split('([0-9]+)', key)]
     return sorted(text_list, key=alphanum_key)
+
+def find_filepath_recursive(directory, target_file):
+    for path, dir, files in os.walk(directory):
+        for file in files:
+            if file == "trajoptresults.pkl":
+                yield path
