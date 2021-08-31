@@ -99,7 +99,7 @@ def main(args):
     batch_convert_files(infile, outfile)
 
 if __name__ == "__main__":
-    infile = "/home/ldrnach3/Downloads"
-    outfile = "/home/ldrnach3/Projects/pyCITO/examples/hopper/feasible_scaled_moreiter/Slack_0E+00"
+    infile = "/home/ldrnach3/Downloads/hopper"
+    outfile = "/home/ldrnach3/Projects/pyCITO/examples/hopper/reference"
     batch_convert_files(infile, outfile)
     #main(sys.argv[1:])
