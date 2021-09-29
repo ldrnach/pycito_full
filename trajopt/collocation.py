@@ -95,49 +95,66 @@ class LagrangeBasis():
 
     @property
     def nodes(self):
+        """
+        :returns: a (N,) numpy array of node values
+        """
         return self._nodes
 
     @nodes.setter
     def nodes(self, val):
+        """
+        Set the values of the nodes.
+        The new nodes must be an array of the same shape as the previous nodes
+        """
         val = np.asarray(val)
         if val.shape != self._nodes.shape:
             raise ValueError(f"nodes must be a numpy array with shape {self._nodes.shape}")
         self._nodes = val
+        self.weight = self._calculate_weight(self._nodes, self._centerindex)
 
 class LagrangeInterpolant():
     """
     Implementation of the Lagrange Interpolating Polynomial
     
-    :fieldname: bases - list or array of knot points at which the polynomial evaluates to zero (or one, for node[centerindex])
-    :fieldname: values - integer index of the node at which the polynomial evaluates to one
-    :fieldname: weight - scalar normalizing weight for the polynomial
+    :fieldname: nodes - (N,)-list or array of knot points at which the function values are given
+    :fieldname: values - list or array of function values to interpolate between. Array has shape (N,) for scalar interpolation, and (M,N) for M-vector interpolation
+    :fieldname: bases - (N,)-list of Lagrange basis polynomials comprising the interpolating polynomial
+    :fieldname: differentiation_matrix - (N, N)-array converting the given function values to their derivatives
     
     See also: LagrangeInterpolant
     """
     def __init__(self, nodes, values):
+        """
+        Construct a Lagrange interpolating polynomial, the polynomial of least degree that interpolates the dataset
+
+        :param nodes: (N,)-list or numpy array of node points 
+        :param values: (N,)-list or numpy array (scalar interpolation) or (M,N)-list or array (vector interpolation) of function values
+       
+        :returns: The constructed Lagrange interpolating polynomial
+        """
         self._bases = [LagrangeBasis(nodes, i) for i in range(len(nodes))]
         val = np.asarray(values)
-        # if val.ndim == 1:
-        #     val = np.expand_dims(val, axis=0)
         self._values = val
-        self._nodes = np.asarray(nodes)
         self._differentiation_matrix = self._calculate_differentiation_matrix()
 
     def eval(self, x_list):
         """
-        Evaluate the Lagrange Interpolant at the specific value
+        Evaluate the Lagrange interpolant at a list of specific values
         
-        Arguments:
-            x_list: a list or array of values at which to evaluate the polynomial
+        :param x_list: a N-list or (N,)-array of values at which to evaluate the polynomial
+
+        :returns: (N,) numpy array of values of the interpolating polynomial, or an (M,N) array for vector interpolation
         """
         x_list = np.atleast_1d(x_list)
         return np.stack([self._eval(x) for x in x_list]).transpose()
 
     def _eval(self, x):
         """
-        Evaluate the Lagrange Interpolant at the specific value
+        Evaluate the the Lagrange interpolant at a single point
         
-        _eval assumes only one point is given, that x has only one element
+        :param x: scalar point at which to evaluate the interpolant
+
+        :returns: (M,)-numpy array of interpolant values, where M is the output dimension of the function
         """
         x = np.asarray(x)
         # Return the datapoint
@@ -151,40 +168,45 @@ class LagrangeInterpolant():
 
     def derivative(self, x_list):
         """
-        Evaluate the derivative of the Lagrange Interpolant at the specific values
+        Evaluate the derivative of the Lagrange interpolant at a list of specific values
         
-        x_list: a list or array of points at which to evaluate the derivative
+        :param x_list: a N-list or (N,)-array of values at which to evaluate the derivative of the polynomial
+
+        :returns: (N,) numpy array of values of the derivative, or an (M,N) array for vector interpolation
         """
         x_list = np.atleast_1d(x_list)
         return np.stack([self._derivative(x) for x in x_list]).transpose()
 
     def _derivative(self, x):
         """
-        Evaluate the deriative of the Lagrange Interpolant at a single point
+        Evaluate the derivative of the Lagrange interpolant at a single point
+        
+        :param x: scalar point at which to evaluate the derivative
 
-        x: a single element at which to evaluate the derivative
+        :returns: (M,)-numpy array of derivative values, where M is the output dimension of the function
         """
         derivs = np.concatenate([basis.derivative(x) for basis in self.bases])
         return self.values.dot(derivs)
 
     def _calculate_differentiation_matrix(self):
-        """Get the matrix for calculating derivatives at the evaluation points"""
+        """Calculate the matrix for calculating derivatives at the evaluation points"""
         derivs = [basis.derivative(self.nodes) for basis in self.bases]
         return np.asarray(derivs).transpose()
 
     @property
     def nodes(self):
-        return self._nodes
+        """Nodes at which the interpolant gives exact values"""
+        return self.bases[0].nodes
 
     @nodes.setter
     def nodes(self, val):
-        val = np.asarray(val)
-        if val.shape != self._nodes.shape:
-            raise ValueError(f"nodes must be a numpy array with shape {self._nodes.shape}")
-        self._nodes = val
+        for n in range(len(self.bases)):
+            self.bases[n].nodes = val
+        self.differentiation_matrix = self._calculate_differentiation_matrix()
 
     @property
     def values(self):
+        """Exact values of the underlying function"""
         return self._values
 
     @values.setter
@@ -196,12 +218,13 @@ class LagrangeInterpolant():
 
     @property
     def bases(self):
+        """List of Lagrange basis polynomials"""
         return self._bases
 
     @property
     def differentiation_matrix(self):
+        """Returns the differentiation matrix for converting values at node points to their derivatives"""
         return self._differentiation_matrix
-
 
 class RadauCollocation(LagrangeInterpolant):
     def __init__(self, order=3, domain=[0,1]):
@@ -247,7 +270,6 @@ class RadauCollocation(LagrangeInterpolant):
     @property
     def order(self):
         return self.nodes.shape[0]
-
 
 def witch_of_agnesi(x):
     return 1./(1 + 25 * x**2)
