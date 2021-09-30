@@ -212,8 +212,8 @@ class LagrangeInterpolant():
     @values.setter
     def values(self, val):
         val = np.asarray(val)
-        if val.shape != self._values.shape:
-            raise ValueError(f"values must be a numpy array with shape {self._values.shape}")
+        if val.shape[-1] != self._values.shape[-1]:
+            raise ValueError(f"values must contain {self._values.shape[-1]} elements")
         self._values = val
 
     @property
@@ -227,31 +227,82 @@ class LagrangeInterpolant():
         return self._differentiation_matrix
 
 class RadauCollocation(LagrangeInterpolant):
-    def __init__(self, order=3, domain=[0,1]):
-        """Use Lagrange Interpolation on the interval [0,1] using the roots of the Gauss-Jacobi Orthogonal polynomials"""
-        nodes, _ = special.roots_sh_jacobi(order-1, 2, 1)
+    """
+    Constructs a Lagrange Interpolating polynomial using the roots of the Gauss-Jacobi Orthogonal polynomials as the knot points
+    
+    For a Kth order interpolation, Radau Collocation uses the roots of the (K-1)th order Gauss-Jacobi polynomials on the interval [0, 1], as well as the end point 1 as the node points
+    
+    Radau collocation does not require sample values to construct the object, and assumes the underlying function is scalar valued at takes its roots at the node points. For interpolating known functions, values can be provided after object construction, by evaluting the function at the node points of the collocation polynomial.
+    
+    """
+    def __init__(self, order=3, domain=[0,1], values=None):
+        """
+        Construct a Lagrange Interpolant using Radau collocation points
+        
+        :param order:  (optional)  int, specifies the order of the polynomial interpolation (default: 3)
+        :param domain: (optional)  2-list or array of finite floats, defines the interval on which the interpolation is valid (default: [0,1])
+        :param values: (optional)  array of values of the underlying function at the node points (default: zeros)
+
+        :returns: a RadauCollocation object
+        """
+        nodes, _ = special.roots_sh_jacobi(order, 2, 1)
         nodes = np.concatenate([nodes, np.ones((1,))], axis=0)
         self.initial_time = domain[0]
         self.timestep = domain[1] - domain[0]
-        super(RadauCollocation, self).__init__(nodes, values=np.zeros((order,)))
+        if values == None:
+            values = np.zeros((order+1, ))    
+        super(RadauCollocation, self).__init__(nodes, values)
        
     def eval(self, node):
-        """Evaluate the polynomial at the specified node"""
+        """
+        Evaluate the Radau Collocation interpolant at a list of specific values. 
+        
+        Nodes are converted to normalized time (i.e. the interval [0,1]) before the interpolant is evaluated.
+
+        :param node: a N-list or (N,)-array of values at which to evaluate the polynomial, given in non-normalized time
+
+        :returns: (N,) numpy array of values of the interpolating polynomial, or an (M,N) array for vector interpolation
+        """
         return super().eval(self.map_to_normalized_time(node))
 
     def derivative(self, node):
-        """Evaluate the derivative of the polynomial at the specified node"""
+        """
+        Evaluate the derivative of the Radau collocation interpolant at a list of specific values. 
+        
+        Nodes are converted to normalized time (i.e. the interval [0,1]) before the derivative is evaluated.
+                
+        :param node: a N-list or (N,)-array of values at which to evaluate the derivative, given in non-normalized time
+
+        :returns: (N,) numpy array of values of the interpolating polynomial, or an (M,N) array for vector interpolation
+        """
         return super().derivative(self.map_to_normalized_time(node))
 
     def map_to_normalized_time(self, node):
         """
-        Map the node to normalized time
+        Map the node value to normalized time
+
+        The given value is assumed to be in the original problem domain, and is mapped to the interval [0,1]
         
-        If the node is in the original domain, the normalized time node is within the interval [0,1]
+        :param node: an N-list (N,)-array of node values in the original problem domain
+
+        :returns: an N-list or (N,)-array of node values mapped to the interval [0,1]
+
+        See also: map_to_full_time
         """
         return (node - self.initial_time)/self.timestep
 
     def map_to_full_time(self, node):
+        """
+        Maps normalized node values to the original problem domain
+
+        The given value is assumed to be in the interval [0,1], and is mapped to the original problem domain
+        
+        :param node: an N-list (N,)-array of node values in the interval [0,1]
+
+        :returns: an N-list or (N,)-array of node values mapped to the original problem domain
+
+        See also: map_to_normalized_time
+        """
         return self.initial_time + node * self.timestep
 
     def _calculate_differentiation_matrix(self):
@@ -261,15 +312,16 @@ class RadauCollocation(LagrangeInterpolant):
 
     @property
     def nodes(self):
-        return self.map_to_full_time(self._nodes)
+        nodes_ = super(RadauCollocation, self).nodes
+        return self.map_to_full_time(nodes_)
 
     @nodes.setter
     def nodes(self, val):
-        self._nodes = self.map_to_normalized_time(val)
+        super(RadauCollocation, self).nodes = self.map_to_normalized_time(val)
 
     @property
     def order(self):
-        return self.nodes.shape[0]
+        return self.nodes.shape[0] - 1
 
 def witch_of_agnesi(x):
     return 1./(1 + 25 * x**2)
