@@ -128,7 +128,7 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         self.plant_ad = self.plant_f.toAutoDiffXd()       
         self.context_ad = self.plant_ad.multibody.CreateDefaultContext()
         self.options = options
-        self.printer=None
+        self.printer = None
         # Check for floating DOF
         self._check_floating_dof()
         # Add decision variables to the program
@@ -764,6 +764,21 @@ class ContactImplicitDirectTranscription(OptimizationBase):
             self.__control_scaling = val
         else:
             raise ValueError("control_scaling must be a positive numeric value")
+
+class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
+    def __init__(self, plant, context, num_time_samples, minimum_timestep, maximum_timestep, state_order = 3, control_order = 0, options=OptimizationOptions()):
+        self.state_polynomial_order = state_order
+        self.control_polynomial_order = control_order
+        super(ContactImplicitOrthogonalCollocation, self).__init__(plant, context, num_time_samples, minimum_timestep, maximum_timestep, options)
+    
+    def _add_decision_variables(self):
+        pass
+                    
+    def _add_dynamic_constraints(self):
+        pass
+           
+    def _add_contact_constraints(self):
+        pass
 
 class CentroidalContactTranscription(ContactImplicitDirectTranscription):
     #TODO: Unit testing for all contact-implicit problems (Block, DoublePendulum, A1)
