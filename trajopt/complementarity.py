@@ -8,6 +8,9 @@ import numpy as np
 import warnings
 from abc import ABC, abstractmethod
 
+#TODO: Refactor all complementarity constraints to have getter and setter methods for constant and variable slacks. 
+#TODO: Integrate refactors with contactimplicit 
+
 class ComplementarityConstraint(ABC):
     """
     Base class for implementing complementarity constraint functions of the form:
@@ -313,6 +316,7 @@ class CostRelaxedNonlinearComplementarity(ComplementarityConstraint):
             self.__cost_weight = val
         else:
             raise ValueError("cost_weight must be a nonnegative numeric value")       
+
 class LinearEqualityConstantSlackComplementarity(ComplementarityConstraint):
     """
     Introduces new variables and an equality constraint to implement the nonlinear constraint as a linear complementarity constraint with a nonlinear equality constraint. The original problem is implemented as:
@@ -386,6 +390,7 @@ class LinearEqualityConstantSlackComplementarity(ComplementarityConstraint):
                         cstr.evaluator().UpdateUpperBound(new_ub = ub)
         else:
             raise ValueError("slack must be a nonnegative numeric value")
+
 class LinearEqualityVariableSlackComplementarity(ComplementarityConstraint):
     """
     Introduces new variables and an equality constraint to implement the nonlinear constraint as a linear complementarity constraint with a nonlinear equality constraint. The original problem is implemented as:
@@ -470,6 +475,11 @@ class LinearEqualityVariableSlackComplementarity(ComplementarityConstraint):
             raise ValueError("cost_weight must be a nonnegative numeric value")
 
 class CollocatedComplementarity(ComplementarityConstraint):
+    #TODO: Add slack variable get and set methods
+    #TODO: Unittesting
+    #TODO: Documentation
+    #TODO: Finish eval method for compatibility
+    #TODO: Change upper_bound and lower_bound to upper_product_bound, etc for compatibility
     def __init__(self, fcn, xdim, zdim, order):
         super(CollocatedComplementarity, self).__init__(fcn, xdim, zdim)
 
@@ -550,6 +560,9 @@ class CollocatedComplementarity(ComplementarityConstraint):
         self._add_orthogonality(prog, zslack, fslack)
 
 class CollocatedConstantSlackComplementarity(CollocatedComplementarity):
+    #TODO: Add slack variable get and set methods
+    #TODO: Unittesting
+    #TODO: Documentation
     def __init__(self, fcn, order, xdim, zdim, slack=0.):
         super(CollocatedConstantSlackComplementarity, self).__init__(fcn, xdim, zdim, order)
         self.__const_slack = slack     
@@ -580,6 +593,9 @@ class CollocatedConstantSlackComplementarity(CollocatedComplementarity):
             raise ValueError("slack must be a nonnegative numeric value")
 
 class CollocatedVariableSlackComplementarity(ComplementarityConstraint):
+    #TODO: Add slack variable get and set methods
+    #TODO: Unittesting
+    #TODO: Documentation
     def __init__(self, fcn, order, xdim, zdim, slack=0.):
         super(CollocatedVariableSlackComplementarity, self).__init__(fcn, xdim, zdim, order)
         self.__const_slack = slack  
@@ -616,7 +632,6 @@ class CollocatedVariableSlackComplementarity(ComplementarityConstraint):
         """Evaluate the product orthogonality constraint"""
         f_slack, z_slack, v_slack = np.split(dvars, [self.zdim, 2*self.zdim])
         return f_slack * z_slack - v_slack
-
 
 class CollocatedCostRelaxedComplementarity(ComplementarityConstraint):
     def __init__(self, fcn, order, xdim, zdim, slack=0.):
