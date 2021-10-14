@@ -6,6 +6,43 @@ October 6, 2021
 """
 
 import numpy as np
+from trajopt.collocation import RadauCollocation
+class RadauCollocationConstraint():
+    #TODO: Double check the collocation constraint. Should only apply at (order) points  -DONE?
+    def __init__(self, xdim, order):
+        
+        self.xdim = xdim
+        self.order = order
+        colloc = RadauCollocation(order = order, domain=[0, 1])
+        self.diff_matrix = colloc.differentiation_matrix
+        self.continuity_weights = colloc.right_endpoint_weights()
+
+    def addToProgram(self, prog, timestep, xvars, dxvars, x_initial_next):
+        prog = self._add_collocation(prog, timestep, xvars, dxvars)
+        prog = self._add_continuity(prog, xvars, x_initial_next)
+        return prog
+
+
+    def _add_collocation(self, prog, timestep, xvars, dxvars):
+        # Add constraints on each element of the state vector separately to improve sparsity
+        for n in range(self.xdim):
+            dvars = np.concatenate([timestep, xvars[n,:], dxvars[n,1:]], axis=0)
+            prog.AddConstraint(self._collocation_constraint, lb=np.zeros(self.order, ), ub=np.zeros(self.order, ), vars=dvars, description='CollocationConstraint')
+        return prog
+
+    def _add_continuity(self, prog, xvars, x_initial_next):
+        # Add linear constraints to each element of the state to improve sparsity
+        aeq = np.append(self.continuity_weights, -1)
+        for n in range(self.xdim):
+            dvars = np.concatenate([xvars[n,:], x_initial_next[n,:]], axis=0)
+            prog.AddLinearEqualityConstraint(aeq, beq=np.zeros((1,)), vars=dvars, description='ContinuityConstraint')
+        return prog
+
+    def _collocation_constraint(self, dvars):
+        # Apply the collocation constraint
+        dt, x, dx = np.split(dvars, [1, 2+self.order])
+        return dt * dx - self.diff_matrix[1:, :].dot(x)
+
 
 class MultibodyConstraint():
     def __init__(self, plant_ad, plant_f):

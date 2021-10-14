@@ -8,7 +8,7 @@ September 28, 2021
 import numpy as np
 import scipy.special as special
 import matplotlib.pyplot as plt
-
+#TODO: Unittest RadauCollocation.right_endpoint_weights
 class LagrangeBasis():
     """
     Implementation of the Lagrange Basis Polynomial
@@ -309,6 +309,10 @@ class RadauCollocation(LagrangeInterpolant):
         """Get the matrix for calculating derivatives at the evaluation points"""
         derivs = [basis.derivative(self.nodes) for basis in self.bases]
         return np.asarray(derivs).transpose()
+
+    def right_endpoint_weights(self):
+        weights = [basis.eval(1) for basis in self.bases]
+        return np.asarray(weights)
 
     @property
     def nodes(self):
