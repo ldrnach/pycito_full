@@ -479,7 +479,7 @@ class CollocatedComplementarity(ComplementarityConstraint):
         self._prog = None
         self.__slack_vars = None
 
-    def _create_new_collocation_variables(self, prog):
+    def _new_collocation_variables(self, prog):
         # Create variables
         fcn_slacks = prog.NewContinuousVariables(rows = self.zdim, cols = 1, name = self.name + "_fcn_slacks")
         col_slacks = prog.NewContinuousVariables(rows = self.zdim, cols = 1, name = self.name + "_col_slacks")
@@ -524,7 +524,7 @@ class CollocatedComplementarity(ComplementarityConstraint):
 
     def lower_bound(self):
         """Returns the lower bound for the orthogonality constraint"""
-        return np.zeros((self.zdim,))
+        return np.full((self.zdim, ), -np.inf)
 
     def upper_bound(self):
         """Returns the upper bound for the orthogonality constraint"""
@@ -542,7 +542,7 @@ class CollocatedComplementarity(ComplementarityConstraint):
         return svars - fvals
 
     def addToProgram(self, prog, xvars, zvars):
-        zslack, fslack = self._create_new_collocation_variables(prog)
+        zslack, fslack = self._new_collocation_variables(prog)
         self._add_variable_nonnegativity(prog, zvars)
         self._add_function_nonnegativity(prog, xvars)
         self._add_variable_collocation(prog, zvars, zslack)
@@ -580,9 +580,43 @@ class CollocatedConstantSlackComplementarity(CollocatedComplementarity):
             raise ValueError("slack must be a nonnegative numeric value")
 
 class CollocatedVariableSlackComplementarity(ComplementarityConstraint):
-   def __init__(self, fcn, order, xdim, zdim, slack=0.):
-        super(CollocatedConstantSlackComplementarity, self).__init__(fcn, xdim, zdim, order)
+    def __init__(self, fcn, order, xdim, zdim, slack=0.):
+        super(CollocatedVariableSlackComplementarity, self).__init__(fcn, xdim, zdim, order)
         self.__const_slack = slack  
+        self.__var_slacks = None
+
+    def _new_collocation_variables(self, prog):
+        # Create the collocation variables
+        zslack, fslack = super(CollocatedVariableSlackComplementarity, self)._new_collocation_variables(prog)
+        # Add a new slack variable
+        vslack = prog.NewContinuousVariables(rows = 1, cols=1, name= self.name + "_var_slacks")
+        # Store it for later
+        if self.__var_slacks is not None:
+            self.__var_slacks = np.concatenate([self.__var_slacks, vslack], axis=1)
+        else:
+            self.__var_slacks = vslack
+        return zslack, fslack, vslack
+
+    def _add_orthogonality(self, prog, zslack, fslack, vslack):
+        # And orthogonality constraints
+        prog.AddConstraint(self.eval_product, lb = self.lower_bound(), ub = self.upper_bound(), vars = np.concatenate([zslack , fslack, vslack], axis=0), description = self.name + "_orthogonality")    
+
+    def upper_bound(self):
+        return np.zeros((self.zdim,))
+
+    def addToProgram(self, prog, xvars, zvars):
+        zslack, fslack, vslack = self._new_collocation_variables(prog)
+        self._add_variable_nonnegativity(prog, zvars)
+        self._add_function_nonnegativity(prog, xvars)
+        self._add_variable_collocation(prog, zvars, zslack)
+        self._add_function_collocation(prog, xvars, fslack)
+        self._add_orthogonality(prog, zslack, fslack, vslack)
+
+    def eval_product(self, dvars):
+        """Evaluate the product orthogonality constraint"""
+        f_slack, z_slack, v_slack = np.split(dvars, [self.zdim, 2*self.zdim])
+        return f_slack * z_slack - v_slack
+
 
 class CollocatedCostRelaxedComplementarity(ComplementarityConstraint):
     def __init__(self, fcn, order, xdim, zdim, slack=0.):
@@ -608,6 +642,14 @@ class CollocatedCostRelaxedComplementarity(ComplementarityConstraint):
             self.__cost_weight = val
         else:
             raise ValueError("cost_weight must be a nonnegative numeric value")     
+
+    @property
+    def slack(self):
+        return None
+
+    @slack.setter
+    def slack(self, val):
+        warnings.warn(f"{type(self).__name__} does not support setting constant slack variables. The value is ignored.")
 
 class NonlinearComplementarityFcn():
     """
