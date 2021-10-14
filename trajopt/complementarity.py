@@ -151,7 +151,6 @@ class NonlinearConstantSlackComplementarity(ComplementarityConstraint):
                         cstr.evaluator().UpdateUpperBound(new_ub = ub)
         else:
             raise ValueError("slack must be a nonnegative numeric value")
-
 class NonlinearVariableSlackComplementarity(ComplementarityConstraint):
     """
     Implements the nonlinear complementarity constraint as
@@ -235,7 +234,6 @@ class NonlinearVariableSlackComplementarity(ComplementarityConstraint):
                     cost.evaluator().UpdateCoefficients(new_a = val*np.ones((nvars,)))
         else:
             raise ValueError("cost_weight must be a nonnegative numeric value")
-
 class CostRelaxedNonlinearComplementarity(ComplementarityConstraint):
     """
         For the nonlinear complementarity constraint:
@@ -315,7 +313,6 @@ class CostRelaxedNonlinearComplementarity(ComplementarityConstraint):
             self.__cost_weight = val
         else:
             raise ValueError("cost_weight must be a nonnegative numeric value")       
-
 class LinearEqualityConstantSlackComplementarity(ComplementarityConstraint):
     """
     Introduces new variables and an equality constraint to implement the nonlinear constraint as a linear complementarity constraint with a nonlinear equality constraint. The original problem is implemented as:
@@ -389,7 +386,6 @@ class LinearEqualityConstantSlackComplementarity(ComplementarityConstraint):
                         cstr.evaluator().UpdateUpperBound(new_ub = ub)
         else:
             raise ValueError("slack must be a nonnegative numeric value")
-
 class LinearEqualityVariableSlackComplementarity(ComplementarityConstraint):
     """
     Introduces new variables and an equality constraint to implement the nonlinear constraint as a linear complementarity constraint with a nonlinear equality constraint. The original problem is implemented as:
@@ -472,6 +468,146 @@ class LinearEqualityVariableSlackComplementarity(ComplementarityConstraint):
                 cost.evaluator().UpdateCoefficients(new_a = val*np.ones(nvars))
         else:
             raise ValueError("cost_weight must be a nonnegative numeric value")
+
+class CollocatedComplementarity(ComplementarityConstraint):
+    def __init__(self, fcn, xdim, zdim, order):
+        super(CollocatedComplementarity, self).__init__(fcn, xdim, zdim)
+
+        self.__const_slack = 0.   
+        self._collocation_slacks = None
+        self._order = order
+        self._prog = None
+        self.__slack_vars = None
+
+    def _create_new_collocation_variables(self, prog):
+        # Create variables
+        fcn_slacks = prog.NewContinuousVariables(rows = self.zdim, cols = 1, name = self.name + "_fcn_slacks")
+        col_slacks = prog.NewContinuousVariables(rows = self.zdim, cols = 1, name = self.name + "_col_slacks")
+        # Add variables to the current list of slack variables
+        all_slacks = np.concatenate([fcn_slacks, col_slacks], axis=0)
+        if self._collocation_slacks is not None:
+            self._collocation_slacks = np.concatenate([self._collocation_slacks, all_slacks], axis=1)
+        else:
+            self._collocation_slacks = all_slacks
+        return fcn_slacks, col_slacks
+
+    def _add_variable_nonnegativity(self, prog, zvars):
+        # Nonnegativity constraints
+        prog.AddBoundingBoxConstraint(lb = np.zeros(zvars.size, ), ub = np.full((zvars.size, np.inf)), vars=np.flatten(zvars))
+
+    def _add_variable_collocation(self, prog, zvars, zslacks):
+        # Collocation slack constraints
+        eyes = [-np.eye(self.zdim)] * zvars.shape[1]
+        eyes.insert(0, np.eye(self.zdim))
+        cstr = prog.AddLinearConstraint(A = np.concatenate(eyes, axis=1), lb = np.zeros((self.zdim, )), ub=np.zeros((self.zdim,)), vars = np.concatenate([zslacks, np.flatten(zvars)]))
+        cstr.evaluator().set_description(self.__name__ + "_var_collocation")
+
+    def _add_function_nonnegativity(self, prog, xvars):
+        for n in range(xvars.shape[1]):
+            prog.AddConstraint(self.fcn, lb = np.zeros((self.zdim, )), ub = np.full((self.zdim, ), np.inf), vars = xvars[:,n], description = self.name + "_fcn_nonnegativity")
+
+    def _add_function_collocation(self, prog, xvars, fcn_slacks):
+        # Add collocation on function
+        prog.AddConstraint(self.eval_function_collocation, lb = np.zeros((self.zdim, )), ub = np.zeros((self.zdim, )), vars = np.concatenate([xvars, fcn_slacks]), description = self.name + "_fcn_collocation")
+
+    def _add_orthogonality(self, prog, zslack, fslack):
+        # And orthogonality constraints
+        prog.AddConstraint(self.eval_product, lb = self.lower_bound(), ub = self.upper_bound(), vars = np.concatenate([zslack , fslack], axis=0), description = self.name + "_orthogonality")    
+
+    def eval(self, vars):
+        """For backwards compatibility, evaluate all constraints at once"""
+        #TODO: Finish for compatibility
+        inds = [self.xdim + self.order, self.zdim * self.order, self.zdim]
+        xvars, zvars, zslack, fslack = np.split(vars, np.cumsum(inds))
+        xvars = np.reshape(xvars, (self.xdim, self._order))
+        zvars = np.reshape(zvars, (self.zdim, self._order))
+
+    def lower_bound(self):
+        """Returns the lower bound for the orthogonality constraint"""
+        return np.zeros((self.zdim,))
+
+    def upper_bound(self):
+        """Returns the upper bound for the orthogonality constraint"""
+        return self.__const_slack * np.ones((self.zdim, ))
+
+    def eval_product(self, dvars):
+        """Evaluate the product orthogonality constraint"""
+        f_slack, z_slack = np.split(dvars, [self.zdim])
+        return f_slack * z_slack
+
+    def eval_function_collocation(self, dvars):
+        """Equate the collocation slacks to the sum of all function values"""
+        xvars, svars = np.split(dvars, [self.xdim * self.order])
+        fvals = sum([self.fcn(xvars[n * self.xdim : (n+1)*self.xdim]) for n in range(self.order)])
+        return svars - fvals
+
+    def addToProgram(self, prog, xvars, zvars):
+        zslack, fslack = self._create_new_collocation_variables(prog)
+        self._add_variable_nonnegativity(prog, zvars)
+        self._add_function_nonnegativity(prog, xvars)
+        self._add_variable_collocation(prog, zvars, zslack)
+        self._add_function_collocation(prog, xvars, fslack)
+        self._add_orthogonality(prog, zslack, fslack)
+
+class CollocatedConstantSlackComplementarity(CollocatedComplementarity):
+    def __init__(self, fcn, order, xdim, zdim, slack=0.):
+        super(CollocatedConstantSlackComplementarity, self).__init__(fcn, xdim, zdim, order)
+        self.__const_slack = slack     
+
+
+    def lower_bound(self):
+        """Returns the lower bound for the orthogonality constraint"""
+        return np.zeros((self.zdim,))
+
+    def upper_bound(self):
+        """Returns the upper bound for the orthogonality constraint"""
+        return self.__const_slack * np.ones((self.zdim, ))
+
+    @property
+    def slack(self):
+        return self.__slack
+
+    @slack.setter
+    def slack(self, val):
+        if (type(val) is int or type(val) is float) and val >= 0.:
+            self.__slack = val
+            if self._prog is not None:
+                ub = np.concatenate([np.full((2*self.zdim, ), np.inf), val * np.ones((self.zdim,))], axis=0)
+                for cstr in self._prog.GetAllConstraints():
+                    if cstr.evaluator().get_description() == self.name + "_orthogonality":
+                        cstr.evaluator().UpdateUpperBound(new_ub = ub)
+        else:
+            raise ValueError("slack must be a nonnegative numeric value")
+
+class CollocatedVariableSlackComplementarity(ComplementarityConstraint):
+   def __init__(self, fcn, order, xdim, zdim, slack=0.):
+        super(CollocatedConstantSlackComplementarity, self).__init__(fcn, xdim, zdim, order)
+        self.__const_slack = slack  
+
+class CollocatedCostRelaxedComplementarity(ComplementarityConstraint):
+    def __init__(self, fcn, order, xdim, zdim, slack=0.):
+        super(CollocatedCostRelaxedComplementarity, self).__init__(fcn, xdim, zdim, order)
+        self.cost_weight = 1.
+
+    def _add_orthogonality(self, prog, zslack, fslack):
+        """Add orthogonality conditions as a cost"""
+        prog.AddCost(self.eval_product, vars = np.concatenate([zslack, fslack], axis=0), description = self.name + "_cost")
+
+    def eval_product(self, dvars):
+        """Return the weighted sum of the complementarity product constraint"""
+        product = super(CollocatedCostRelaxedComplementarity, self).eval_product(dvars)
+        return self.cost_weight * np.sum(product)
+
+    @property
+    def cost_weight(self):
+        return self.__cost_weight
+
+    @cost_weight.setter
+    def cost_weight(self, val):
+        if (type(val) == int or type(val) == float) and val >= 0.:
+            self.__cost_weight = val
+        else:
+            raise ValueError("cost_weight must be a nonnegative numeric value")     
 
 class NonlinearComplementarityFcn():
     """

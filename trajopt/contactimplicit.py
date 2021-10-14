@@ -770,6 +770,7 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         self.state_polynomial_order = state_order
         self.control_polynomial_order = control_order
         super(ContactImplicitOrthogonalCollocation, self).__init__(plant, context, num_time_samples, minimum_timestep, maximum_timestep, options)
+        
     
     def _add_decision_variables(self):
         pass
