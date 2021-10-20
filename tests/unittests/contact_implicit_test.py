@@ -69,7 +69,7 @@ class ContactImplicitTest(unittest.TestCase):
     def test_eval_friccone_constraint(self):
         """Check that the friction cone constraint can be evaluated"""
         z = np.concatenate([self.x1, self.l], axis=0)
-        r = self.opt.friccone_cstr(z)
+        r = self.opt.friction_cstr(z)
         r_true = np.array([-2.8, 4.2, -11.76])
         np.testing.assert_allclose(r,r_true, err_msg="Friction cone constraint incorrect") 
 

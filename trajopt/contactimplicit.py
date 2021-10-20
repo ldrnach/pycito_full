@@ -792,7 +792,6 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         #TODO: Add boundary conditions on acceleration
         #TODO: Re-write set and get methods for states
         #TODO: Re-write output methods
-        #TODO: Add joint limit constraints at all timepoints  - in contact_constraints
 
     def _add_decision_variables(self):
         #Timesteps

@@ -87,7 +87,7 @@ class ComplementarityTest(unittest.TestCase):
     def test_nonlinear_constant_slack(self):
         """Test NonlinearComplementarityConstantSlack """
         # Test with zero slack
-        cstr = cp.NonlinearComplementarityConstantSlack(pass_through, xdim=1, zdim=1)
+        cstr = cp.NonlinearConstantSlackComplementarity(pass_through, xdim=1, zdim=1)
         cstr.addToProgram(self.prog, xvars=self.x[0], zvars=self.x[1])
         result = self.solve_problem(cstr)
         # Check the answer
@@ -98,7 +98,7 @@ class ComplementarityTest(unittest.TestCase):
     def test_nonlinear_variable_slack(self):
         """ Test NonlinearComplementarityVariableSlack constraint"""
         # Test with cost-weight 1
-        cstr = cp.NonlinearComplementarityVariableSlack(pass_through, xdim=1, zdim=1)
+        cstr = cp.NonlinearVariableSlackComplementarity(pass_through, xdim=1, zdim=1)
         cstr.addToProgram(self.prog, xvars=self.x[0], zvars=self.x[1])
         result = self.solve_problem(cstr)
         # Check the answer

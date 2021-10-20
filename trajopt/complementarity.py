@@ -316,7 +316,6 @@ class CostRelaxedNonlinearComplementarity(ComplementarityConstraint):
             self.__cost_weight = val
         else:
             raise ValueError("cost_weight must be a nonnegative numeric value")       
-
 class LinearEqualityConstantSlackComplementarity(ComplementarityConstraint):
     """
     Introduces new variables and an equality constraint to implement the nonlinear constraint as a linear complementarity constraint with a nonlinear equality constraint. The original problem is implemented as:
@@ -390,7 +389,6 @@ class LinearEqualityConstantSlackComplementarity(ComplementarityConstraint):
                         cstr.evaluator().UpdateUpperBound(new_ub = ub)
         else:
             raise ValueError("slack must be a nonnegative numeric value")
-
 class LinearEqualityVariableSlackComplementarity(ComplementarityConstraint):
     """
     Introduces new variables and an equality constraint to implement the nonlinear constraint as a linear complementarity constraint with a nonlinear equality constraint. The original problem is implemented as:
@@ -473,7 +471,6 @@ class LinearEqualityVariableSlackComplementarity(ComplementarityConstraint):
                 cost.evaluator().UpdateCoefficients(new_a = val*np.ones(nvars))
         else:
             raise ValueError("cost_weight must be a nonnegative numeric value")
-
 class CollocatedComplementarity(ComplementarityConstraint):
     #TODO: Add slack variable get and set methods
     #TODO: Unittesting
