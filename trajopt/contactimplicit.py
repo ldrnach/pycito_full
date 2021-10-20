@@ -16,6 +16,7 @@ from pydrake.autodiffutils import AutoDiffXd
 import utilities as utils
 import trajopt.complementarity as compl
 import decorators as deco
+import trajopt.constraints as cstrs
 #TODO: Unit testing for whole-body and centrodial optimizers
 
 class OptimizationOptions():
@@ -129,6 +130,20 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         self.context_ad = self.plant_ad.multibody.CreateDefaultContext()
         self.options = options
         self.printer = None
+        # Create a string for recording the optimization parameters
+        self._text = {"header": f"{type(self).__name__} with {self.plant_f.str()}\n",
+        "StateConstraints": '',
+        "RunningCosts": '',
+        "FinalCosts": '',
+        "NormalDissipation": 'False',
+        "EqualTime": 'False'}
+        self._text['header'] += f"\tKnot points: {num_time_samples}\n\tTime range: [{(num_time_samples-1)*minimum_timestep},{(num_time_samples-1)*maximum_timestep}]\n\t"
+        # Set force and control scaling variables
+        self.force_scaling = 1.
+        self.control_scaling = 1.
+        self._setup_optimization()
+
+    def _setup_optimization(self):
         # Check for floating DOF
         self._check_floating_dof()
         # Add decision variables to the program
@@ -142,17 +157,6 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         self._add_contact_constraints()
         # Initialize the timesteps
         self._set_initial_timesteps()
-        # Create a string for recording the optimization parameters
-        self._text = {"header": f"{type(self).__name__} with {self.plant_f.str()}\n",
-        "StateConstraints": '',
-        "RunningCosts": '',
-        "FinalCosts": '',
-        "NormalDissipation": 'False',
-        "EqualTime": 'False'}
-        self._text['header'] += f"\tKnot points: {num_time_samples}\n\tTime range: [{(num_time_samples-1)*minimum_timestep},{(num_time_samples-1)*maximum_timestep}]\n\t"
-        # Set force and control scaling variables
-        self.force_scaling = 1.
-        self.control_scaling = 1.
 
     def generate_report(self, result=None):
         # Generate a report string. Start with the header
@@ -766,21 +770,117 @@ class ContactImplicitDirectTranscription(OptimizationBase):
             raise ValueError("control_scaling must be a positive numeric value")
 
 class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
-    def __init__(self, plant, context, num_time_samples, minimum_timestep, maximum_timestep, state_order = 3, control_order = 0, options=OptimizationOptions()):
-        self.state_polynomial_order = state_order
-        self.control_polynomial_order = control_order
+    #TODO: Allow for a more expressive control basis - nonzero order control polynomials
+    def __init__(self, plant, context, num_time_samples, minimum_timestep, maximum_timestep, state_order = 3, options=OptimizationOptions()):
+        self.state_order = state_order
+        self.control_order = 0
         super(ContactImplicitOrthogonalCollocation, self).__init__(plant, context, num_time_samples, minimum_timestep, maximum_timestep, options)
-        
-    
-    def _add_decision_variables(self):
-        pass
-                    
-    def _add_dynamic_constraints(self):
-        pass
-           
-    def _add_contact_constraints(self):
-        pass
 
+    def _setup_optimization(self):
+
+        # Add decision variables to the program
+        self._add_decision_variables()
+        # Add collocation constraints
+        self._add_collocation_constraints()
+        # Add dynamic constraints 
+        self._add_dynamic_constraints()
+        # Add contact constraints
+        self._add_contact_constraints()
+        self._add_joint_limit_constraints()
+        # Initialize the timesteps
+        self._set_initial_timesteps()
+        #TODO: Add boundary conditions on acceleration
+        #TODO: Re-write set and get methods for states
+        #TODO: Re-write output methods
+        #TODO: Add joint limit constraints at all timepoints  - in contact_constraints
+
+    def _add_decision_variables(self):
+        #Timesteps
+        self.h = self.prog.NewContinuousVariables(rows = self.num_time_samples, cols=1, name='h')
+        #Controls
+        self.u = self.prog.NewContinuousVariables(rows = self.plant_ad.multibody.num_actuators(), cols = self.num_time_samples * (self.control_order + 1), name='u')
+        # States - add position, velocity, and acceleration separately
+        numknots = self.num_time_samples * (self.state_order - 1) + 1
+        np = self.plant_ad.multibody.num_positions()
+        assert self.plant_ad.multibody.num_velocities() == np, "Unequal number of positions and velocities"
+        self.pos = self.prog.NewContinuousVariables(rows = np, cols = numknots, name = 'position')
+        self.vel = self.prog.NewContinuousVariables(rows = np, cols = numknots, name = 'velocity')
+        self.accel = self.prog.NewContinuousVariables(rows = np, cols = numknots, name = 'acceleration')
+        # Reaction forces
+        numN = self.plant_ad.num_contacts()
+        numT = self.plant_ad.num_friction()
+        self._normal_forces = self.prog.NewContinuousVariables(rows = numN, cols = numknots, name='normal_force')
+        self._tangent_forces = self.prog.NewContinuousVariables(rows = numT, cols = numknots, name='tanget_force')
+        self._sliding_vel = self.prog.NewContinuousVariables(rows = numN, cols = numknots, name = 'sliding_velocity')
+        # Joint limits
+        self.Jl = self.plant_ad.joint_limit_jacobian()
+        if self.Jl is not None:
+            qlow = self.plant_ad.multibody.GetPositionLowerLimits()
+            self._liminds = np.isfinite(qlow)
+            nJL = sum(self._liminds)
+            self.jl = self.prog.NewContinuousVariables(rows = 2*nJL, cols = numknots, name="jointlimits")
+        else:
+            self.jl = False
+        # Store the duplication matrix
+        self._e = self.plant_ad.duplicator_matrix()
+
+    def _add_collocation_constraints(self):
+        # Create the constraint and it's variables
+        self.state_collocation = cstrs.RadauCollocationConstraint(xdim=2*self.pos.shape[0], order=self.state_order)
+        x = np.concatenate([self.pos, self.vel], axis=0)
+        dx = np.concatenate([self.vel, self.accel], axis=0)
+        # Add the constraint to the program for every finite element
+        for n in range(self.num_time_samples):
+            start = n*self.state_order
+            stop = (n+1)*self.state_order
+            self.state_collocation.addToProgram(self.prog, xvars=x[:, start:stop], dxvars=dx[:, start:stop], x_initial_next=x[:, stop])
+
+    def _add_dynamic_constraints(self):
+        #TODO: Finish this
+        self.dynamics_cstr = cstrs.MultibodyDynamicsConstraint(self.plant_ad, self.plant_f)
+        if self.Jl is not None:
+            forces = np.concatenate([self._normal_forces, self._tangent_forces, self.jl], axis=0)
+        else:
+            forces = np.concatenate([self._normal_forces, self._tangent_forces], axis=0)
+        # Add the dynamics
+        for n in range(self.num_time_samples):
+            start = n * self.state_order
+            for k in range(self.state_order):
+                self.dynamics_cstr.addToProgram(self.prog, self.pos[:, start+k], self.vel[:, start+k], self.accel[:, start+k], self.u[:, n], forces[:, start+k])
+        # Add in constraint at final time
+        self.dynamics_cstr.addToProgram(self.prog, self.pos[:, -1], self.vel[:, -1], self.accel[:, -1], self.u[:, -1], forces[:, -1])
+
+    def _add_contact_constraints(self):
+        self.distance_cstr = self.options.complementarity(self._normal_distance, xdim = self.x.shape[0], zdim = self.numN, order=self.state_order)
+        self.sliding_cstr = self.options.complementarity(self._sliding_velocity, xdim = self.x.shape[0] + self.numN, zdim = self.numT)
+        self.friction_cstr = self.options.complementarity(self._friction_cone, xdim = self.x.shape[0] + self.numN + self.numT, zdim = self.numN)
+        # Update the names
+        self.distance_cstr.set_description('normal_distance')
+        self.sliding_cstr.set_description('sliding_velocity')
+        self.friction_cstr.set_description('friction_cone')
+        # Add to the program
+        for n in range(self.num_time_samples):
+            start = n * self.state_order
+            stop = (n+1)*self.state_order
+            # At the last interval, add the final knot point as well
+            if n == self.num_time_samples-1:
+                stop += 1
+            self.distance_cstr.addToProgram(self.prog, xvars=self.x[:, start:stop], zvars=self._normal_forces[:, start:stop])
+            self.sliding_cstr.addToProgram(self.prog, xvars=np.concatenate([self.x[:, start:stop], self._sliding_vel[:, start:stop]], axis=0), zvars = self._tangent_forces[:, start:stop])
+            self.friction_cstr.addToProgram(self.prog, xvars=np.concatenate([self.x[:, start:stop], self._normal_forces[:, start:stop], self._tangent_forces[:, start:stop]], axis=0), zvars=self._sliding_vel[:, start:stop])
+
+    def _add_joint_limit_constraints(self):
+        if self.Jl is None:
+            return
+        self.joint_limit_cstr = self.options.complementarity(self._joint_limit, xdim = self.x.shape[0], zdim = self.jl.shape[0], order=self.state_order)
+        self.joint_limit_cstr.set_description('joint_limits')
+        for n in range(self.num_time_samples):
+            start = n * self.state_order
+            stop = (n+1)*self.state_order
+            if n == self.num_time_samples - 1:
+                stop += 1
+            self.joint_limit_cstr.addToProgram(self.prog, xvars = self.x[:, start:stop], zvars = self.jl[:, start:stop])
+        
 class CentroidalContactTranscription(ContactImplicitDirectTranscription):
     #TODO: Unit testing for all contact-implicit problems (Block, DoublePendulum, A1)
 
@@ -1019,8 +1119,7 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
                     "success": soln.is_success(),
                     "exit_code": soln.get_solver_details().info,
                     "final_cost": soln.get_optimal_cost()
-                    }
-     
+                    }  
 class ContactConstraintViewer():
     def __init__(self, trajopt, result_dict):
         self.trajopt = trajopt
