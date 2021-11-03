@@ -67,7 +67,6 @@ class OrthogonalOptimizationOptions():
     def complementarity(self):
         return self.__complementarity_class
 
-
 class DecisionVariableList():
     """Helper class for adding a list of decision variables to a cost/constraint"""
     def __init__(self, varlist = []):
@@ -738,14 +737,18 @@ class ContactImplicitDirectTranscription(OptimizationBase):
     @property
     def const_slack(self):
         """Constant slack for contact complementarity constraints"""
-        return self.distance_cstr.slack
+        return [self.distance_cstr.const_slack, self.sliding_cstr.const_slack, self.friction_cstr.const_slack]
 
     @const_slack.setter
     def const_slack(self, val):
         """ Set the constant slack variable in the complementarity constraints """
-        self.distance_cstr.slack = val
-        self.sliding_cstr.slack = val
-        self.friction_cstr.slack = val
+        if type(val) == float or type(val) == int:
+            val = (val, val, val)
+        elif len(val) != 3:
+            raise ValueError("Complementarity slack must be either a nonnegative scalar or a triple of nonnegative scalars")
+        self.distance_cstr.const_slack = val[0]
+        self.sliding_cstr.const_slack = val[1]
+        self.friction_cstr.const_slack = val[2]
 
     @property
     def complementarity_cost_weight(self):

@@ -556,8 +556,27 @@ class CollocatedComplementarity(ComplementarityConstraint):
         self._add_function_collocation(prog, xvars, fslack)
         self._add_orthogonality(prog, zslack, fslack)
 
+    @property
+    def slack(self):
+        return self._collocation_slacks
+
+    @property 
+    def const_slack(self):
+        return self.__const_slack
+
+    @const_slack.setter
+    def const_slack(self, val):
+        if (type(val) is int or type(val) is float) and val >= 0.:
+            self.__const_slack = val
+            if self._prog is not None:
+                ub =  val * np.ones((self.zdim,))
+                for cstr in self._prog.GetAllConstraints():
+                    if cstr.evaluator().get_description() == self.name + "_orthogonality":
+                        cstr.evaluator().UpdateUpperBound(new_ub = ub)
+        else:
+            raise ValueError("slack must be a nonnegative numeric value")
+
 class CollocatedConstantSlackComplementarity(CollocatedComplementarity):
-    #TODO: Add slack variable get and set methods
     #TODO: Unittesting
     #TODO: Documentation
     def __init__(self, fcn, order, xdim, zdim, slack=0.):
@@ -572,22 +591,6 @@ class CollocatedConstantSlackComplementarity(CollocatedComplementarity):
     def upper_bound(self):
         """Returns the upper bound for the orthogonality constraint"""
         return self.__const_slack * np.ones((self.zdim, ))
-
-    @property
-    def slack(self):
-        return self._collocation_slacks
-
-    @slack.setter
-    def slack(self, val):
-        if (type(val) is int or type(val) is float) and val >= 0.:
-            self.__slack = val
-            if self._prog is not None:
-                ub = np.concatenate([np.full((2*self.zdim, ), np.inf), val * np.ones((self.zdim,))], axis=0)
-                for cstr in self._prog.GetAllConstraints():
-                    if cstr.evaluator().get_description() == self.name + "_orthogonality":
-                        cstr.evaluator().UpdateUpperBound(new_ub = ub)
-        else:
-            raise ValueError("slack must be a nonnegative numeric value")
 
 class CollocatedVariableSlackComplementarity(ComplementarityConstraint):
     #TODO: Add slack variable get and set methods
@@ -634,6 +637,15 @@ class CollocatedVariableSlackComplementarity(ComplementarityConstraint):
     def slacks(self):
         return np.concatenate([self._collocation_slacks, self.__var_slacks], axis=0)
 
+    @property
+    def const_slack(self):
+        return 0.
+
+    @const_slack.setter
+    def const_slack(self, val):
+        warnings.warn(f"{type(self).__name__} does not support setting constant slack variables. The value is ignored.")
+
+
 class CollocatedCostRelaxedComplementarity(ComplementarityConstraint):
     def __init__(self, fcn, order, xdim, zdim, slack=0.):
         super(CollocatedCostRelaxedComplementarity, self).__init__(fcn, xdim, zdim, order)
@@ -660,11 +672,11 @@ class CollocatedCostRelaxedComplementarity(ComplementarityConstraint):
             raise ValueError("cost_weight must be a nonnegative numeric value")     
 
     @property
-    def slack(self):
-        return self._collocation_slacks
+    def const_slack(self):
+        return 0.
 
-    @slack.setter
-    def slack(self, val):
+    @const_slack.setter
+    def const_slack(self, val):
         warnings.warn(f"{type(self).__name__} does not support setting constant slack variables. The value is ignored.")
 
 class NonlinearComplementarityFcn():
