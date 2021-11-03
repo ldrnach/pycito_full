@@ -49,6 +49,25 @@ class OptimizationOptions():
     def complementarity(self):
         return self.__complementarity_class
 
+class OrthogonalOptimizationOptions():
+    """ Keep track of optional settings for Contact Implicit Orthogonal Collocation"""
+    def __init__(self):
+        self.__complementarity_class = compl.CollocatedConstantSlackComplementarity
+
+    def useComplementarityWithCost(self):
+        self.__complementarity_class = compl.CollocatedCostRelaxedComplementarity
+
+    def useComplementarityWithVariableSlack(self):
+        self.__complementarity_class = compl.CollocatedVariableSlackComplementarity
+
+    def useComlementarityWithConstantSlack(self):
+        self.__complementarity_class = compl.CollocatedConstantSlackComplementarity
+
+    @property
+    def complementarity(self):
+        return self.__complementarity_class
+
+
 class DecisionVariableList():
     """Helper class for adding a list of decision variables to a cost/constraint"""
     def __init__(self, varlist = []):
@@ -772,7 +791,7 @@ class ContactImplicitDirectTranscription(OptimizationBase):
 class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
     #TODO: Allow for a more expressive control basis - nonzero order control polynomials
     #TODO: Add boundary conditions on acceleration
-    #TODO: Re-write output methods
+    #TODO: Check on running cost methods
     def __init__(self, plant, context, num_time_samples, minimum_timestep, maximum_timestep, state_order = 3, options=OptimizationOptions()):
         self.state_order = state_order
         self.control_order = 0
