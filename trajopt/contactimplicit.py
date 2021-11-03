@@ -593,7 +593,7 @@ class ContactImplicitDirectTranscription(OptimizationBase):
     def reconstruct_input_trajectory(self, soln):
         """Returns the input trajectory from the solution"""
         t = self.get_solution_times(soln)
-        return PiecewisePolynomial.FirstOrderHold(t, self.control_scaling * soln.GetSolution(self.u))
+        return PiecewisePolynomial.ZeroOrderHold(t, self.control_scaling * soln.GetSolution(self.u))
     
     def reconstruct_reaction_force_trajectory(self, soln):
         """Returns the reaction force trajectory from the solution"""
@@ -602,13 +602,13 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         fT = self.force_scaling * soln.GetSolution(self._tangent_forces)
         gam = soln.GetSolution(self._sliding_vel)
         l = np.concatenate([fN, fT, gam], axis=0)
-        return PiecewisePolynomial.FirstOrderHold(t, l)
+        return PiecewisePolynomial.ZeroOrderHold(t, l)
     
     def reconstruct_limit_force_trajectory(self, soln):
         """Returns the joint limit force trajectory from the solution"""
         if self.Jl is not None:
             t = self.get_solution_times(soln)
-            return PiecewisePolynomial.FirstOrderHold(t, soln.GetSolution(self.jl))
+            return PiecewisePolynomial.ZeroOrderHold(t, soln.GetSolution(self.jl))
         else:
             return None
 
@@ -618,7 +618,7 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         if any(isinstance(slack, Variable) for slack in self.var_slack.flatten()):
             #Filter out 'Variable' types
             t = self.get_solution_times(soln)
-            return PiecewisePolynomial.FirstOrderHold(t, soln.GetSolution(self.var_slack))
+            return PiecewisePolynomial.ZeroOrderHold(t, soln.GetSolution(self.var_slack))
         else:
             return None
 
@@ -879,7 +879,9 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
             if n == self.num_time_samples - 1:
                 stop += 1
             self.joint_limit_cstr.addToProgram(self.prog, xvars = self.x[:, start:stop], zvars = self.jl[:, start:stop])
-        
+
+
+
 class CentroidalContactTranscription(ContactImplicitDirectTranscription):
     #TODO: Unit testing for all contact-implicit problems (Block, DoublePendulum, A1)
 
