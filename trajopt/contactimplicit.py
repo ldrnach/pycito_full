@@ -771,6 +771,9 @@ class ContactImplicitDirectTranscription(OptimizationBase):
 
 class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
     #TODO: Allow for a more expressive control basis - nonzero order control polynomials
+    #TODO: Add boundary conditions on acceleration
+    #TODO: Re-write set and get methods for states
+    #TODO: Re-write output methods
     def __init__(self, plant, context, num_time_samples, minimum_timestep, maximum_timestep, state_order = 3, options=OptimizationOptions()):
         self.state_order = state_order
         self.control_order = 0
@@ -789,9 +792,6 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         self._add_joint_limit_constraints()
         # Initialize the timesteps
         self._set_initial_timesteps()
-        #TODO: Add boundary conditions on acceleration
-        #TODO: Re-write set and get methods for states
-        #TODO: Re-write output methods
 
     def _add_decision_variables(self):
         #Timesteps
@@ -835,7 +835,7 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
             self.state_collocation.addToProgram(self.prog, xvars=x[:, start:stop], dxvars=dx[:, start:stop], x_initial_next=x[:, stop])
 
     def _add_dynamic_constraints(self):
-        #TODO: Finish this
+        #TODO: Finish this (?)
         self.dynamics_cstr = cstrs.MultibodyDynamicsConstraint(self.plant_ad, self.plant_f)
         if self.Jl is not None:
             forces = np.concatenate([self._normal_forces, self._tangent_forces, self.jl], axis=0)
@@ -880,6 +880,59 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
                 stop += 1
             self.joint_limit_cstr.addToProgram(self.prog, xvars = self.x[:, start:stop], zvars = self.jl[:, start:stop])
 
+    def reconstruct_state_trajectory(self, soln):
+        """Returns the state trajectory from the solution"""
+        t = self.get_solution_times(soln)
+        xval = soln.GetSolution(self.x)
+        # Create the first trajectory piece
+        xtraj = PiecewisePolynomial.LagrangeInterpolatingPolynomial(t[0:self.state_order+1], xval[0:self.state_order+1])
+        # Create and concatenate all other polynomial pieces
+        for n in range(1, self.num_time_samples):
+            start = n*self.state_order
+            stop = (n+1)*self.state_order+1
+            piece = PiecewisePolynomial.LagrangeInterpolatingPolynomial(t[start:stop], xval[start:stop])
+            xtraj.ConcatenateInTime(piece)
+        return piece
+
+    def get_solution_times(self, soln):
+        """Return the sample times for each decision variable in the program (excluding controls)"""
+        h = soln.GetSolution(self.h)
+        h = np.concatenate([np.zeros((1,)), h], axis=0)
+        nodes = self.state_collocation.nodes
+        t = [h[n-1] + h[n] * nodes for n in h.shape[0]]
+        return np.concatenate(t, axis=0)
+
+    def get_control_times(self, soln):
+        #TODO: Update once higher order control bases are supported
+        h = soln.GetSolution(self.h)
+        h = np.concatenate([np.zeros((1,)), h], axis=0)
+        return np.cumsum(h)
+
+    def reconstruct_input_trajectory(self, soln):
+        """Return the control trajectory from the solution"""
+        uval = soln.GetSolution(self.u)
+        if self.control_order == 0:
+            h = soln.GetSolution(self.h)
+            t = np.concatenate((np.zeros(1,), h), axis=0)
+            t = np.cumsum(t)
+            return PiecewisePolynomial.ZeroOrderHold(t, uval)
+        else:
+            t = self.get_control_times(soln)
+            # Create the first trajectory
+            utraj = PiecewisePolynomial.LagrangeInterpolatingPolynomial()
+            for n in range(1, self.num_time_samples):
+                start = n * self.control_order
+                stop = (n+1)*self.control_order + 1
+                piece = PiecewisePolynomial.LagrangeInterpolatingPolynomial(t[start:stop], uval[start:stop])
+                utraj.ContactenateInTime(piece)
+            return utraj
+
+    def reconstruct_acceleration_trajectory(self, soln):
+        """Return the acceleration trajectory as a zero-order hold"""
+        #TODO: Determine proper trajectory for acceleration and return
+        t = self.get_solution_times(soln)
+        accel = soln.GetSolution(self.accel)
+        return self.ZeroOrderHold(t, accel)
 
 
 class CentroidalContactTranscription(ContactImplicitDirectTranscription):
