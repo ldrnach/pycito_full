@@ -772,7 +772,6 @@ class ContactImplicitDirectTranscription(OptimizationBase):
 class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
     #TODO: Allow for a more expressive control basis - nonzero order control polynomials
     #TODO: Add boundary conditions on acceleration
-    #TODO: Re-write set and get methods for states
     #TODO: Re-write output methods
     def __init__(self, plant, context, num_time_samples, minimum_timestep, maximum_timestep, state_order = 3, options=OptimizationOptions()):
         self.state_order = state_order
@@ -934,6 +933,38 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         accel = soln.GetSolution(self.accel)
         return self.ZeroOrderHold(t, accel)
 
+    def reconstruct_all_trajectories(self, soln):
+        """Returns state, input, reaction force, and joint limit force trajectories from the solution"""
+        state, input, lforce, jlforce, slacks = super(ContactImplicitOrthogonalCollocation, self).reconstruct_all_trajectories(soln)
+        accel = self.reconstruct_acceleration_trajectory(self, soln)
+        return (state, input, lforce, jlforce, slacks, accel)
+
+    def result_to_dict(self, soln):
+        """ unpack the trajectories from the program result and store in a dictionary"""
+        t = self.get_solution_times(soln)
+        x, u, f, jl, s, acc = self.reconstruct_all_trajectories(soln)
+        if jl is not None:
+            jl = jl.vector_values(t)
+        if s is not None:
+            s = s.vector_values(t)
+        utime = u.get_segment_times()
+        soln_dict = {"time": t,
+                    "state": x.vector_values(t),
+                    "control": u.vector_values(utime),
+                    "control_time": utime, 
+                    "force": f.vector_values(t),
+                    "jointlimit": jl,
+                    "slacks": s,
+                    "acceleration": acc.vector_values(t),
+                    "solver": soln.get_solver_id().name(),
+                    "success": soln.is_success(),
+                    "exit_code": soln.get_solver_details().info,
+                    "final_cost": soln.get_optimal_cost(),
+                    "duals": utils.getDualSolutionDict(self.prog, soln),
+                    "state_order": self.state_order,
+                    "control_order": self.control_order
+                    }
+        return soln_dict
 
 class CentroidalContactTranscription(ContactImplicitDirectTranscription):
     #TODO: Unit testing for all contact-implicit problems (Block, DoublePendulum, A1)

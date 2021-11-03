@@ -7,21 +7,19 @@ October 6, 2021
 
 import numpy as np
 from trajopt.collocation import RadauCollocation
-class RadauCollocationConstraint():
+class RadauCollocationConstraint(RadauCollocation):
     #TODO: Double check the collocation constraint. Should only apply at (order) points  -DONE?
     def __init__(self, xdim, order):
         
+        super(RadauCollocationConstraint, self).__init__(order, domain=[0, 1])
         self.xdim = xdim
         self.order = order
-        colloc = RadauCollocation(order = order, domain=[0, 1])
-        self.diff_matrix = colloc.differentiation_matrix
-        self.continuity_weights = colloc.right_endpoint_weights()
+        self.continuity_weights = self.right_endpoint_weights()
 
     def addToProgram(self, prog, timestep, xvars, dxvars, x_initial_next):
         prog = self._add_collocation(prog, timestep, xvars, dxvars)
         prog = self._add_continuity(prog, xvars, x_initial_next)
         return prog
-
 
     def _add_collocation(self, prog, timestep, xvars, dxvars):
         # Add constraints on each element of the state vector separately to improve sparsity
@@ -41,7 +39,7 @@ class RadauCollocationConstraint():
     def _collocation_constraint(self, dvars):
         # Apply the collocation constraint
         dt, x, dx = np.split(dvars, [1, 2+self.order])
-        return dt * dx - self.diff_matrix[1:, :].dot(x)
+        return dt * dx - self.differentiation_matrix[1:, :].dot(x)
 
 
 class MultibodyConstraint():
