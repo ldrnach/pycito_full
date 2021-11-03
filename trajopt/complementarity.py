@@ -575,7 +575,7 @@ class CollocatedConstantSlackComplementarity(CollocatedComplementarity):
 
     @property
     def slack(self):
-        return self.__slack
+        return self._collocation_slacks
 
     @slack.setter
     def slack(self, val):
@@ -630,6 +630,10 @@ class CollocatedVariableSlackComplementarity(ComplementarityConstraint):
         f_slack, z_slack, v_slack = np.split(dvars, [self.zdim, 2*self.zdim])
         return f_slack * z_slack - v_slack
 
+    @property
+    def slacks(self):
+        return np.concatenate([self._collocation_slacks, self.__var_slacks], axis=0)
+
 class CollocatedCostRelaxedComplementarity(ComplementarityConstraint):
     def __init__(self, fcn, order, xdim, zdim, slack=0.):
         super(CollocatedCostRelaxedComplementarity, self).__init__(fcn, xdim, zdim, order)
@@ -657,7 +661,7 @@ class CollocatedCostRelaxedComplementarity(ComplementarityConstraint):
 
     @property
     def slack(self):
-        return None
+        return self._collocation_slacks
 
     @slack.setter
     def slack(self, val):
