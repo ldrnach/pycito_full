@@ -62,7 +62,7 @@ class ComplementarityTest(unittest.TestCase):
     def check_constant_slack(self, cstr):
         """ Test snippet for checking if setting a constant slack changes the upper bounds"""
         ub_1 = self.get_constraint_upper_bound()
-        cstr.slack = 1.
+        cstr.const_slack = 1.
         ub_2 = self.get_constraint_upper_bound()
         self.assertTrue(np.any(np.not_equal(ub_1, ub_2)), msg=f"Changing constant slack does not change the upper bound for {type(cstr).__name__}")
 

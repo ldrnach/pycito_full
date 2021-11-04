@@ -633,8 +633,7 @@ class ContactImplicitDirectTranscription(OptimizationBase):
     def reconstruct_slack_trajectory(self, soln):
         
         # Get the slack variables from the complementarity problems
-        if any(isinstance(slack, Variable) for slack in self.var_slack.flatten()):
-            #Filter out 'Variable' types
+        if self.var_slack is not None:
             t = self.get_solution_times(soln)
             return PiecewisePolynomial.ZeroOrderHold(t, soln.GetSolution(self.var_slack))
         else:
@@ -732,7 +731,11 @@ class ContactImplicitDirectTranscription(OptimizationBase):
     @property
     def var_slack(self):
         """Variable slack for contact complementarity constraints"""
-        return np.row_stack([self.distance_cstr.slack, self.sliding_cstr.slack, self.friction_cstr.slack])
+        slacks = [self.distance_cstr.slack, self.sliding_cstr.slack, self.friction_cstr.slack]
+        if None in slacks:
+            return None
+        else:
+            return np.row_stack(slacks)
     
     @property
     def const_slack(self):
