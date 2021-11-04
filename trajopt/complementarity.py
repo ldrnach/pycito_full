@@ -8,7 +8,8 @@ import numpy as np
 import warnings
 from abc import ABC, abstractmethod
 
-#TODO: Integrate refactors with contactimplicit 
+#TODO: Update eval, upper_bound, lower_bound methods in CollocatedComplementarity for compatibility
+#TODO: Unittesting for CollocatedComplementarity and it's subclasses
 
 class ComplementarityConstraint(ABC):
     """
@@ -103,7 +104,6 @@ class ComplementarityConstraint(ABC):
     @cost_weight.setter
     def cost_weight(self, val):
         warnings.warn(f"{type(self).__name__} does not have an associated cost. The value is ignored.")
-
 class NonlinearConstantSlackComplementarity(ComplementarityConstraint):
     """
     Implements the nonlinear complementarity constraint with a constant slack variable
@@ -446,17 +446,33 @@ class LinearEqualityVariableSlackComplementarity(ComplementarityConstraint):
             raise ValueError("cost_weight must be a nonnegative numeric value")
 
 class CollocatedComplementarity(ComplementarityConstraint):
-    #TODO: Unittesting
-    #TODO: Documentation
-    #TODO: Finish eval method for compatibility
-    #TODO: Change upper_bound and lower_bound to upper_product_bound, etc for compatibility
+    """
+    Base class for implementing complementarity constraints for collocation problems. Collocated complementarity problems take the form:
+        f_k(x) >= 0
+        z_k >= 0
+        w = sum(f_k(x))
+        v = sum(z_k)
+        w*v <= s
+        where w, v are collocation slack variables and s is a constant slack term. Enforcing complementarity on w and v ensures that the mode is constant for all k 
+    """
     def __init__(self, fcn, xdim, zdim, order):
+        """Initialize a collocated complementarity constraint"""
         super(CollocatedComplementarity, self).__init__(fcn, xdim, zdim)
         self._collocation_slacks = None
         self._order = order
         self._prog = None
 
     def _new_collocation_variables(self, prog):
+        """
+        Creates and returns the additional decision variables needed to enforce complementarity across an entire finite element
+
+        Arguments:
+            prog: the mathematical program to assign the variables to
+
+        Return values:
+            fcn_slacks: collocation slack variables corresponding to function evaluation
+            col_slacks: collocation slack variables corresponding to linear variables. 
+        """
         # Create variables
         fcn_slacks = prog.NewContinuousVariables(rows = self.zdim, cols = 1, name = self.name + "_fcn_slacks")
         col_slacks = prog.NewContinuousVariables(rows = self.zdim, cols = 1, name = self.name + "_col_slacks")
@@ -469,10 +485,31 @@ class CollocatedComplementarity(ComplementarityConstraint):
         return fcn_slacks, col_slacks
 
     def _add_variable_nonnegativity(self, prog, zvars):
+        """
+        Adds a nonnegativity constraint on the decision variables in the complementarity constraint problem. 
+        
+        Enforces:  
+            z >= 0
+
+        Arguments:
+            prog: the mathematical program to which the constraint should be added
+            zvars: the decision variables, z
+        """
         # Nonnegativity constraints
         prog.AddBoundingBoxConstraint(lb = np.zeros(zvars.size, ), ub = np.full((zvars.size, np.inf)), vars=np.flatten(zvars))
 
     def _add_variable_collocation(self, prog, zvars, zslacks):
+        """
+        Enforce that the collocation slack variables should equal the sum of the decision variables.
+
+        Enforces:
+            v = sum(z_k)
+
+        Arguments:
+            prog: the mathematical program to which the constraint should be added
+            zvars: the decision variables, z
+            zslacks: the collocation slack variables corresponding to the linear variables
+        """
         # Collocation slack constraints
         eyes = [-np.eye(self.zdim)] * zvars.shape[1]
         eyes.insert(0, np.eye(self.zdim))
@@ -480,14 +517,46 @@ class CollocatedComplementarity(ComplementarityConstraint):
         cstr.evaluator().set_description(self.__name__ + "_var_collocation")
 
     def _add_function_nonnegativity(self, prog, xvars):
+        """
+        Adds a nonnegativity constraint on the function evaluation in the complementarity constraint problem. 
+        
+        Enforces:  
+            f(x) >= 0
+
+        Arguments:
+            prog: the mathematical program to which the constraint should be added
+            xvars: the decision variables, x, used to evaluate the function, f
+        """
         for n in range(xvars.shape[1]):
             prog.AddConstraint(self.fcn, lb = np.zeros((self.zdim, )), ub = np.full((self.zdim, ), np.inf), vars = xvars[:,n], description = self.name + "_fcn_nonnegativity")
 
     def _add_function_collocation(self, prog, xvars, fcn_slacks):
+        """
+        Enforce that the function collocation slack variables should equal the sum of the function evaluations.
+
+        Enforces:
+            w = sum(f_k(x))
+
+        Arguments:
+            prog: the mathematical program to which the constraint should be added
+            xvars: the decision variables, x, used to evaluate the function, f
+            xslacks: the collocation slack variables corresponding to the function evaluations
+        """
         # Add collocation on function
         prog.AddConstraint(self.eval_function_collocation, lb = np.zeros((self.zdim, )), ub = np.zeros((self.zdim, )), vars = np.concatenate([xvars, fcn_slacks]), description = self.name + "_fcn_collocation")
 
     def _add_orthogonality(self, prog, zslack, fslack):
+        """
+        Adds a orthogonality constraint on the function evaluation in the complementarity constraint problem. 
+        
+        Enforces:  
+            v*w = 0
+
+        Arguments:
+            prog: the mathematical program to which the constraint should be added
+            zslack: the collocation variables corresponding to the linear decision variables
+            fslack: the collocation variables corresponding to the function evaluations
+        """
         # And orthogonality constraints
         prog.AddConstraint(self.eval_product, lb = self.lower_bound(), ub = self.upper_bound(), vars = np.concatenate([zslack , fslack], axis=0), description = self.name + "_orthogonality")    
 
@@ -519,6 +588,14 @@ class CollocatedComplementarity(ComplementarityConstraint):
         return svars - fvals
 
     def addToProgram(self, prog, xvars, zvars):
+        """
+        Add the collocated complementarity constraint to a mathematical program
+        
+        Arguments:
+            prog: the mathematical program to which the constraint should be added
+            xvars: the decision variables used in the function evaluation
+            zvars: the decision variables used to complement the function evaluation
+        """
         zslack, fslack = self._new_collocation_variables(prog)
         self._add_variable_nonnegativity(prog, zvars)
         self._add_function_nonnegativity(prog, xvars)
@@ -528,18 +605,22 @@ class CollocatedComplementarity(ComplementarityConstraint):
 
     @property
     def var_slack(self):
+        """Return all slack decision variables"""
         return self._collocation_slacks
 
     @var_slack.setter
     def var_slack(self, val):
+        """Dummy method for setting the value of slack decision variable"""
         warnings.warn(f"{type(self).__name__} does not allow setting slack variables")
 
     @property 
     def const_slack(self):
+        """Return the constant slack used in the orthogonality constraint"""
         return self._const_slack
 
     @const_slack.setter
     def const_slack(self, val):
+        """Set the value of the constant slack used in the orthogonality constraint"""
         if (type(val) is int or type(val) is float) and val >= 0.:
             self._const_slack = val
             if self._prog is not None:
@@ -551,9 +632,19 @@ class CollocatedComplementarity(ComplementarityConstraint):
             raise ValueError("slack must be a nonnegative numeric value")
 
 class CollocatedConstantSlackComplementarity(CollocatedComplementarity):
-    #TODO: Unittesting
-    #TODO: Documentation
+    """
+    Concrete implementation of complementarity constraints for collocation problems. Collocated complementarity problems take the form:
+        f_k(x) >= 0
+        z_k >= 0
+        w = sum(f_k(x))
+        v = sum(z_k)
+        w*v <= s
+    where w, v are collocation slack variables and s is a constant slack term. Enforcing complementarity on w and v ensures that the mode is constant for all k.
+
+    In CollocatedConstantSlackComplementarity, s is a constant scalar 
+    """
     def __init__(self, fcn, order, xdim, zdim, slack=0.):
+        """initialize a collocated complementarity constraint with constant slacks"""
         super(CollocatedConstantSlackComplementarity, self).__init__(fcn, xdim, zdim, order)
         self._const_slack = slack     
 
@@ -566,12 +657,33 @@ class CollocatedConstantSlackComplementarity(CollocatedComplementarity):
         return self._const_slack * np.ones((self.zdim, ))
 
 class CollocatedVariableSlackComplementarity(ComplementarityConstraint):
-    #TODO: Unittesting
-    #TODO: Documentation
+    """
+    Concrete implementation of complementarity constraints for collocation problems. Collocated complementarity problems take the form:
+        f_k(x) >= 0
+        z_k >= 0
+        w = sum(f_k(x))
+        v = sum(z_k)
+        w*v <= s
+    where w, v are collocation slack variables and s is a constant slack term. Enforcing complementarity on w and v ensures that the mode is constant for all k.
+
+    In CollocatedVariableSlackComplementarity, s is a decision variable, and the objective min s is added to the program 
+    """
     def __init__(self, fcn, order, xdim, zdim):
+        """initialize a collocated complementarity constraint with slack variables"""
         super(CollocatedVariableSlackComplementarity, self).__init__(fcn, xdim, zdim, order)
 
     def _new_collocation_variables(self, prog):
+        """
+        Creates and returns the additional decision variables needed to enforce complementarity across an entire finite element
+
+        Arguments:
+            prog: the mathematical program to assign the variables to
+
+        Return values:
+            fcn_slacks: collocation slack variables corresponding to function evaluation
+            col_slacks: collocation slack variables corresponding to linear variables. 
+            var_slacks: decision slack variables for relaxing the orthogonality condition
+        """
         # Create the collocation variables
         zslack, fslack = super(CollocatedVariableSlackComplementarity, self)._new_collocation_variables(prog)
         # Add a new slack variable
@@ -584,6 +696,18 @@ class CollocatedVariableSlackComplementarity(ComplementarityConstraint):
         return zslack, fslack, vslack
 
     def _add_orthogonality(self, prog, zslack, fslack, vslack):
+        """
+        Adds a orthogonality constraint on the function evaluation in the complementarity constraint problem. 
+        
+        Enforces:  
+            v*w <= s
+
+        Arguments:
+            prog: the mathematical program to which the constraint should be added
+            zslack: the collocation variables corresponding to the linear decision variables
+            fslack: the collocation variables corresponding to the function evaluations
+            vslack: the decision slack variables used to relax the orthogonality constraint
+        """
         # And orthogonality constraints
         prog.AddConstraint(self.eval_product, lb = self.lower_bound(), ub = self.upper_bound(), vars = np.concatenate([zslack , fslack, vslack], axis=0), description = self.name + "_orthogonality")    
 
@@ -591,6 +715,14 @@ class CollocatedVariableSlackComplementarity(ComplementarityConstraint):
         return np.zeros((self.zdim,))
 
     def addToProgram(self, prog, xvars, zvars):
+        """
+        Add the collocated complementarity constraint to a mathematical program
+        
+        Arguments:
+            prog: the mathematical program to which the constraint should be added
+            xvars: the decision variables used in the function evaluation
+            zvars: the decision variables used to complement the function evaluation
+        """
         zslack, fslack, vslack = self._new_collocation_variables(prog)
         self._add_variable_nonnegativity(prog, zvars)
         self._add_function_nonnegativity(prog, xvars)
@@ -605,14 +737,28 @@ class CollocatedVariableSlackComplementarity(ComplementarityConstraint):
 
     @property
     def var_slack(self):
+        """Return all slack decision variables, including both collocation slacks and relaxation slacks"""
         return np.concatenate([self._collocation_slacks, self._var_slack], axis=0)
 
     @var_slack.setter
     def var_slack(self, val):
+        """Dummy method for setting the value of slack decision variable"""
         warnings.warn(f"{type(self).__name__} does not allow setting slack variables")
 
 class CollocatedCostRelaxedComplementarity(ComplementarityConstraint):
+    """
+    Concrete implementation of complementarity constraints for collocation problems. Collocated complementarity problems take the form:
+        f_k(x) >= 0
+        z_k >= 0
+        w = sum(f_k(x))
+        v = sum(z_k)
+    where w, v are collocation slack variables. Enforcing complementarity on w and v ensures that the mode is constant for all k.
+
+    In CollocatedCostRelaxedComplementarity, complementarity is moved to the cost and the objective is:
+        min w*v
+    """
     def __init__(self, fcn, order, xdim, zdim):
+        """initialize a collocated cost relaxed complemetnarity constraint"""
         super(CollocatedCostRelaxedComplementarity, self).__init__(fcn, xdim, zdim, order)
         self.cost_weight = 1.
 
