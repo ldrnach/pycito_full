@@ -796,8 +796,8 @@ class ContactImplicitDirectTranscription(OptimizationBase):
 
 class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
     #TODO: Allow for a more expressive control basis - nonzero order control polynomials
-    #TODO: Add boundary conditions on acceleration
-    #TODO: Check on running cost methods
+    #TODO: Check on running cost for states - use collocation weights?
+    #TODO: Check on the continuity equations for states - enforce the beginning equals the end of the previous interval (start with initial state)
     def __init__(self, plant, context, num_time_samples, minimum_timestep, maximum_timestep, state_order = 3, options=OptimizationOptions()):
         self.state_order = state_order
         self.control_order = 0
@@ -819,7 +819,7 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
 
     def _add_decision_variables(self):
         #Timesteps
-        self.h = self.prog.NewContinuousVariables(rows = self.num_time_samples, cols=1, name='h')
+        self.h = self.prog.NewContinuousVariables(rows = self.num_time_samples-1, cols=1, name='h')
         #Controls
         self.u = self.prog.NewContinuousVariables(rows = self.plant_ad.multibody.num_actuators(), cols = self.num_time_samples * (self.control_order + 1), name='u')
         # States - add position, velocity, and acceleration separately
@@ -848,6 +848,7 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         self._e = self.plant_ad.duplicator_matrix()
 
     def _add_collocation_constraints(self):
+        """Add the collocation constraints to the program"""
         # Create the constraint and it's variables
         self.state_collocation = cstrs.RadauCollocationConstraint(xdim=2*self.pos.shape[0], order=self.state_order)
         x = np.concatenate([self.pos, self.vel], axis=0)
@@ -859,7 +860,7 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
             self.state_collocation.addToProgram(self.prog, xvars=x[:, start:stop], dxvars=dx[:, start:stop], x_initial_next=x[:, stop])
 
     def _add_dynamic_constraints(self):
-        #TODO: Finish this (?)
+        """add the dynamics constraints to the mathematical program"""
         self.dynamics_cstr = cstrs.MultibodyDynamicsConstraint(self.plant_ad, self.plant_f)
         if self.Jl is not None:
             forces = np.concatenate([self._normal_forces, self._tangent_forces, self.jl], axis=0)
@@ -874,6 +875,7 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         self.dynamics_cstr.addToProgram(self.prog, self.pos[:, -1], self.vel[:, -1], self.accel[:, -1], self.u[:, -1], forces[:, -1])
         
     def _add_contact_constraints(self):
+        """add the collocated contact constraints to the program"""
         self.distance_cstr = self.options.complementarity(self._normal_distance, xdim = self.x.shape[0], zdim = self.numN, order=self.state_order)
         self.sliding_cstr = self.options.complementarity(self._sliding_velocity, xdim = self.x.shape[0] + self.numN, zdim = self.numT)
         self.friction_cstr = self.options.complementarity(self._friction_cone, xdim = self.x.shape[0] + self.numN + self.numT, zdim = self.numN)
@@ -893,6 +895,7 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
             self.friction_cstr.addToProgram(self.prog, xvars=np.concatenate([self.x[:, start:stop], self._normal_forces[:, start:stop], self._tangent_forces[:, start:stop]], axis=0), zvars=self._sliding_vel[:, start:stop])
 
     def _add_joint_limit_constraints(self):
+        """add the joint limit constraints to the program"""
         if self.Jl is None:
             return
         self.joint_limit_cstr = self.options.complementarity(self._joint_limit, xdim = self.x.shape[0], zdim = self.jl.shape[0], order=self.state_order)
@@ -905,11 +908,44 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
             self.joint_limit_cstr.addToProgram(self.prog, xvars = self.x[:, start:stop], zvars = self.jl[:, start:stop])
 
     def add_zero_acceleration_boundary_condition(self):
+        """add in a constraint to enforce the acceleration at the boundaries to be zero"""
         # Add in constraints on initial and final accelerations
         zeroaccel = np.zeros((self.accel.shape[0], ))
         self.prog.AddBoundingBoxConstraint(lb = zeroaccel, ub = zeroaccel, vars = self.accel[:,  0]).evaluator().set_description('ZeroAccelerationBoundary')
         self.prog.AddBoundingBoxConstraint(lb = zeroaccel, ub = zeroaccel, vars = self.accel[:, -1]).evaluator().set_description('ZeroAccelerationBoundary')
 
+    def add_quadratic_control_cost(self, Q, b, name='QuadraticControlCost'):
+        """
+        Add a quadratic running cost on the control signal to the program
+        
+        Arguments:
+            Q (numpy.array[n,n]): a square numpy array of cost weights
+            b (numpy.array[n,1]): a vector of offset values
+            name (str, optional): a description of the cost function
+        """
+        cost_func = lambda z: (z - b).dot(Q.dot(z - b))
+        self.add_running_control_cost(self, cost_func, name)
+
+    def add_running_control_cost(self, cost_func, name='RunningControlCost'):
+        """Add a running cost on the controls only"""
+        super(ContactImplicitOrthogonalCollocation, self).add_running_cost(cost_func, [self.u], name)
+
+    def add_running_cost(self, cost_func, vars=None, name='RunningCost'):
+        """Add a running cost to the program. Does not include costs on control variables"""
+        # input checking
+        if vars in None:
+            return
+        if type(vars) != list:
+            vars = [vars]
+        # integrate across all collocation points
+        weights = np.concatenate(self.state_collocation.nodes[0], np.diff(self.state_collocation.nodes))
+        index = 0
+        for n in range(self.h.shape[0]):
+            for k in range(weights.shape[0]):
+                new_vars = [dvar[:,index] for dvar in vars]
+                new_vars.insert(0, self.h[n,:])
+                self.prog.AddCost(lambda x: np.array(weights[k] * x[0] * cost_func(x[1:])), np.concatenate(new_vars, axis=0), description=name)
+                index += 1
 
     def reconstruct_state_trajectory(self, soln):
         """Returns the state trajectory from the solution"""
