@@ -314,6 +314,9 @@ class RadauCollocation(LagrangeInterpolant):
         weights = [basis.eval(1) for basis in self.bases]
         return np.asarray(weights)
 
+    def left_endpoint_weights(self):
+        return np.asarray([basis.eval(0) for basis in self.bases])
+
     @property
     def nodes(self):
         nodes_ = super(RadauCollocation, self).nodes

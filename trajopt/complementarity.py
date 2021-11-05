@@ -455,11 +455,10 @@ class CollocatedComplementarity(ComplementarityConstraint):
         w*v <= s
         where w, v are collocation slack variables and s is a constant slack term. Enforcing complementarity on w and v ensures that the mode is constant for all k 
     """
-    def __init__(self, fcn, xdim, zdim, order):
+    def __init__(self, fcn, xdim, zdim):
         """Initialize a collocated complementarity constraint"""
         super(CollocatedComplementarity, self).__init__(fcn, xdim, zdim)
         self._collocation_slacks = None
-        self._order = order
         self._prog = None
 
     def _new_collocation_variables(self, prog):
@@ -543,7 +542,7 @@ class CollocatedComplementarity(ComplementarityConstraint):
             xslacks: the collocation slack variables corresponding to the function evaluations
         """
         # Add collocation on function
-        prog.AddConstraint(self.eval_function_collocation, lb = np.zeros((self.zdim, )), ub = np.zeros((self.zdim, )), vars = np.concatenate([xvars, fcn_slacks]), description = self.name + "_fcn_collocation")
+        prog.AddConstraint(self.eval_function_collocation, lb = np.zeros((self.zdim, )), ub = np.zeros((self.zdim, )), vars = np.concatenate([xvars.flatten(), fcn_slacks]), description = self.name + "_fcn_collocation")
 
     def _add_orthogonality(self, prog, zslack, fslack):
         """
@@ -562,11 +561,11 @@ class CollocatedComplementarity(ComplementarityConstraint):
 
     def eval(self, vars):
         """For backwards compatibility, evaluate all constraints at once"""
-        #TODO: Finish for compatibility
-        inds = [self.xdim + self.order, self.zdim * self.order, self.zdim]
-        xvars, zvars, zslack, fslack = np.split(vars, np.cumsum(inds))
-        xvars = np.reshape(xvars, (self.xdim, self._order))
-        zvars = np.reshape(zvars, (self.zdim, self._order))
+        # TODO: Finish for compatibility
+        # inds = [self.xdim + self.order, self.zdim * self.order, self.zdim]
+        # xvars, zvars, zslack, fslack = np.split(vars, np.cumsum(inds))
+        # xvars = np.reshape(xvars, (self.xdim, self._order))
+        # zvars = np.reshape(zvars, (self.zdim, self._order))
 
     def lower_bound(self):
         """Returns the lower bound for the orthogonality constraint"""
@@ -583,8 +582,9 @@ class CollocatedComplementarity(ComplementarityConstraint):
 
     def eval_function_collocation(self, dvars):
         """Equate the collocation slacks to the sum of all function values"""
-        xvars, svars = np.split(dvars, [self.xdim * self.order])
-        fvals = sum([self.fcn(xvars[n * self.xdim : (n+1)*self.xdim]) for n in range(self.order)])
+        xvars, svars = np.split(dvars, [-self.zdim])
+        xvars = np.reshape(xvars, (self.xdim, int(xvars.shape[0]/self.xdim)))
+        fvals = sum([self.fcn(xvars[:,n]) for n in range(xvars.shape[1])])
         return svars - fvals
 
     def addToProgram(self, prog, xvars, zvars):
@@ -643,9 +643,9 @@ class CollocatedConstantSlackComplementarity(CollocatedComplementarity):
 
     In CollocatedConstantSlackComplementarity, s is a constant scalar 
     """
-    def __init__(self, fcn, order, xdim, zdim, slack=0.):
+    def __init__(self, fcn, xdim, zdim, slack=0.):
         """initialize a collocated complementarity constraint with constant slacks"""
-        super(CollocatedConstantSlackComplementarity, self).__init__(fcn, xdim, zdim, order)
+        super(CollocatedConstantSlackComplementarity, self).__init__(fcn, xdim, zdim)
         self._const_slack = slack     
 
     def lower_bound(self):
@@ -668,9 +668,9 @@ class CollocatedVariableSlackComplementarity(ComplementarityConstraint):
 
     In CollocatedVariableSlackComplementarity, s is a decision variable, and the objective min s is added to the program 
     """
-    def __init__(self, fcn, order, xdim, zdim):
+    def __init__(self, fcn, xdim, zdim):
         """initialize a collocated complementarity constraint with slack variables"""
-        super(CollocatedVariableSlackComplementarity, self).__init__(fcn, xdim, zdim, order)
+        super(CollocatedVariableSlackComplementarity, self).__init__(fcn, xdim, zdim)
 
     def _new_collocation_variables(self, prog):
         """
@@ -757,9 +757,9 @@ class CollocatedCostRelaxedComplementarity(ComplementarityConstraint):
     In CollocatedCostRelaxedComplementarity, complementarity is moved to the cost and the objective is:
         min w*v
     """
-    def __init__(self, fcn, order, xdim, zdim):
+    def __init__(self, fcn, xdim, zdim):
         """initialize a collocated cost relaxed complemetnarity constraint"""
-        super(CollocatedCostRelaxedComplementarity, self).__init__(fcn, xdim, zdim, order)
+        super(CollocatedCostRelaxedComplementarity, self).__init__(fcn, xdim, zdim)
         self.cost_weight = 1.
 
     def _add_orthogonality(self, prog, zslack, fslack):

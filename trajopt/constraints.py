@@ -14,11 +14,11 @@ class RadauCollocationConstraint(RadauCollocation):
         super(RadauCollocationConstraint, self).__init__(order, domain=[0, 1])
         self.xdim = xdim
         self.order = order
-        self.continuity_weights = self.right_endpoint_weights()
+        self.continuity_weights = self.left_endpoint_weights()
 
-    def addToProgram(self, prog, timestep, xvars, dxvars, x_initial_next):
+    def addToProgram(self, prog, timestep, xvars, dxvars, x_final_last):
         prog = self._add_collocation(prog, timestep, xvars, dxvars)
-        prog = self._add_continuity(prog, xvars, x_initial_next)
+        prog = self._add_continuity(prog, xvars, x_final_last)
         return prog
 
     def _add_collocation(self, prog, timestep, xvars, dxvars):
@@ -28,11 +28,11 @@ class RadauCollocationConstraint(RadauCollocation):
             prog.AddConstraint(self._collocation_constraint, lb=np.zeros(self.order, ), ub=np.zeros(self.order, ), vars=dvars, description='CollocationConstraint')
         return prog
 
-    def _add_continuity(self, prog, xvars, x_initial_next):
+    def _add_continuity(self, prog, xvars, x_final_last):
         # Add linear constraints to each element of the state to improve sparsity
         aeq = np.append(self.continuity_weights, -1)
         for n in range(self.xdim):
-            dvars = np.concatenate([xvars[n,:], x_initial_next[n,:]], axis=0)
+            dvars = np.concatenate([xvars[n,:], x_final_last[n,:]], axis=0)
             prog.AddLinearEqualityConstraint(aeq, beq=np.zeros((1,)), vars=dvars, description='ContinuityConstraint')
         return prog
 
