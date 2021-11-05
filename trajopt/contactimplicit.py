@@ -799,7 +799,7 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
     #TODO: Allow for a more expressive control basis - nonzero order control polynomials
     #TODO: Check on running cost for states - use collocation weights?
     #TODO: Check on the continuity equations for states - enforce the beginning equals the end of the previous interval (start with initial state)
-    def __init__(self, plant, context, num_time_samples, minimum_timestep, maximum_timestep, state_order = 3, options=OptimizationOptions()):
+    def __init__(self, plant, context, num_time_samples, minimum_timestep, maximum_timestep, state_order = 3, options=OrthogonalOptimizationOptions()):
         self.state_order = state_order
         self.control_order = 0
         super(ContactImplicitOrthogonalCollocation, self).__init__(plant, context, num_time_samples, minimum_timestep, maximum_timestep, options)
@@ -1068,6 +1068,10 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
     @property
     def dx(self):
         return np.concatenate([self.vel, self.accel], axis=0)
+
+    @property
+    def total_knots(self):
+        return self.x.shape[1]
 class CentroidalContactTranscription(ContactImplicitDirectTranscription):
     #TODO: Unit testing for all contact-implicit problems (Block, DoublePendulum, A1)
 
