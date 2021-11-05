@@ -872,7 +872,7 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
                 self.dynamics_cstr.addToProgram(self.prog, self.pos[:, start+k], self.vel[:, start+k], self.accel[:, start+k], self.u[:, n], forces[:, start+k])
         # Add in constraint at final time
         self.dynamics_cstr.addToProgram(self.prog, self.pos[:, -1], self.vel[:, -1], self.accel[:, -1], self.u[:, -1], forces[:, -1])
-
+        
     def _add_contact_constraints(self):
         self.distance_cstr = self.options.complementarity(self._normal_distance, xdim = self.x.shape[0], zdim = self.numN, order=self.state_order)
         self.sliding_cstr = self.options.complementarity(self._sliding_velocity, xdim = self.x.shape[0] + self.numN, zdim = self.numT)
@@ -903,6 +903,13 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
             if n == self.num_time_samples - 1:
                 stop += 1
             self.joint_limit_cstr.addToProgram(self.prog, xvars = self.x[:, start:stop], zvars = self.jl[:, start:stop])
+
+    def add_zero_acceleration_boundary_condition(self):
+        # Add in constraints on initial and final accelerations
+        zeroaccel = np.zeros((self.accel.shape[0], ))
+        self.prog.AddBoundingBoxConstraint(lb = zeroaccel, ub = zeroaccel, vars = self.accel[:,  0]).evaluator().set_description('ZeroAccelerationBoundary')
+        self.prog.AddBoundingBoxConstraint(lb = zeroaccel, ub = zeroaccel, vars = self.accel[:, -1]).evaluator().set_description('ZeroAccelerationBoundary')
+
 
     def reconstruct_state_trajectory(self, soln):
         """Returns the state trajectory from the solution"""

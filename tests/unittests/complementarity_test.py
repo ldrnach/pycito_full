@@ -135,3 +135,35 @@ class ComplementarityTest(unittest.TestCase):
         self.check_result(result, cstr)
         # Check changing the cost
         self.check_setting_cost(cstr, result)
+
+class CollocatedComplementarityBaseTest(unittest.TestCase):
+    def setUp(self):
+        pass
+
+    def test_decision_variables(self):
+        pass
+
+    def test_constraints_added(self):
+        pass
+
+    def test_solution_result(self):
+        pass
+
+
+
+class CollocatedComplementarityConstantSlackTest(CollocatedComplementarityBaseTest):
+    def setUp(self):
+        pass
+
+    def test_setting_slack(self):
+        pass
+
+
+
+class CollocatedComplementarityVariableSlackTest(CollocatedComplementarityBaseTest):
+    def setUp(self):
+        pass
+
+
+class CollocatedComplementarityCostRelaxedTest(CollocatedComplementarityBaseTest):
+    pass
