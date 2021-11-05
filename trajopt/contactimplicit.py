@@ -884,12 +884,12 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         self.distance_cstr.set_description('normal_distance')
         self.sliding_cstr.set_description('sliding_velocity')
         self.friction_cstr.set_description('friction_cone')
-        # Add complementarity constraints to the first knot point in the program as well
-        
         # complementarity constraints to the rest of the program
-        for n in range(1, self.num_time_samples):
+        for n in range(self.num_time_samples):
             start = n * self.state_order + 1
             stop = (n+1)*self.state_order + 1
+            if n == 0:
+                start = 0
             self.distance_cstr.addToProgram(self.prog, xvars=self.x[:, start:stop], zvars=self._normal_forces[:, start:stop])
             self.sliding_cstr.addToProgram(self.prog, xvars=np.concatenate([self.x[:, start:stop], self._sliding_vel[:, start:stop]], axis=0), zvars = self._tangent_forces[:, start:stop])
             self.friction_cstr.addToProgram(self.prog, xvars=np.concatenate([self.x[:, start:stop], self._normal_forces[:, start:stop], self._tangent_forces[:, start:stop]], axis=0), zvars=self._sliding_vel[:, start:stop])
@@ -901,13 +901,13 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         if self.Jl is None:
             return
         self.joint_limit_cstr = self.options.complementarity(self._joint_limit, xdim = self.x.shape[0], zdim = self.jl.shape[0], order=self.state_order)
-        self.joint_limit_cstr.set_description('joint_limits')
-        #TODO: Add complementarity constraints to the first knot point as well
-        
+        self.joint_limit_cstr.set_description('joint_limits')       
         # Add complementarity to all other knot and collocation points
-        for n in range(1, self.num_time_samples):
+        for n in range(self.num_time_samples):
             start = n * self.state_order + 1
             stop = (n+1)*self.state_order + 1
+            if n == 0:
+                start = 0
             self.joint_limit_cstr.addToProgram(self.prog, xvars = self.x[:, start:stop], zvars = self.jl[:, start:stop])
 
 
