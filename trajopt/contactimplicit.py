@@ -468,14 +468,18 @@ class ContactImplicitDirectTranscription(OptimizationBase):
 
     def add_running_cost(self, cost_func, vars=None, name="RunningCost"):
         """Add a running cost to the program"""
+        self._add_running_cost(cost_func, vars, name)
+        # Add string representing the cost
+        varnames = ', '.join([var.item(0).get_name().split('(')[0] for var in vars])
+        self._text['RunningCosts'] += f"\n\t{name}: {cost_func.__name__} on {varnames}"
+
+    def _add_running_cost(self, cost_func, vars=None, name='RunningCost'):
+        """Internal method for adding a running cost to the program"""
         integrated_cost = lambda x: np.array(x[0] * cost_func(x[1:]))
         for n in range(0, self.num_time_samples-1):
             new_vars = [var[:,n] for var in vars]
             new_vars.insert(0, self.h[n,:])
             self.prog.AddCost(integrated_cost, np.concatenate(new_vars,axis=0), description=name)
-        # Add string representing the cost
-        varnames = ', '.join([var.item(0).get_name().split('(')[0] for var in vars])
-        self._text['RunningCosts'] += f"\n\t{name}: {cost_func.__name__} on {varnames}"
 
     def add_tracking_cost(self, Q, traj, vars=None, name="TrackingCost"):
         """ 
@@ -525,11 +529,8 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         if type(vars) != list:
             vars = [vars]
         # Add the cost
-        integrated_cost = lambda z: z[0]*(z[1:]-b).dot(Q.dot(z[1:]-b))
-        for n in range(0, self.num_time_samples-1):
-            new_vars = [var[:,n] for var in vars]
-            new_vars.insert(0, self.h[n,:])
-            self.prog.AddCost(integrated_cost, np.concatenate(new_vars,axis=0), description=name)
+        quadratic_cost = lambda z: (z -b).dot(Q.dot(z - b))
+        self._add_running_cost(self, quadratic_cost, vars, name)
         # Add string representing the cost
         varnames = ", ".join([var.item(0).get_name().split('(')[0] for var in vars])
         self._text['RunningCosts'] += f"\n\t{name}: Quadratic cost on {varnames} with weights Q = \n{Q} \n\tand bias b = \n{b}"
@@ -930,8 +931,31 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         """Add a running cost on the controls only"""
         super(ContactImplicitOrthogonalCollocation, self).add_running_cost(cost_func, [self.u], name)
 
+    def add_quadratic_running_cost(self, Q, b, vars=None, name="QuadraticCost"):
+        """
+        Add a quadratic running cost to the program
+        
+        Arguments:
+            Q (numpy.array[n,n]): a square numpy array of cost weights
+            b (numpy.array[n,1]): a vector of offset values
+            vars (list): a list of program decision variables subject to the cost
+            name (str, optional): a description of the cost function
+        """
+        quadratic_cost = lambda z: (z - b).dot(Q.dot(z - b))
+        self._add_collocated_running_cost(quadratic_cost, vars, name)
+        # Add string representing the cost
+        varnames = ", ".join([var.item(0).get_name().split('(')[0] for var in vars])
+        self._text['RunningCosts'] += f"\n\t{name}: Quadratic cost on {varnames} with weights Q = \n{Q} \n\tand bias b = \n{b}"
+
+
     def add_running_cost(self, cost_func, vars=None, name='RunningCost'):
         """Add a running cost to the program. Does not include costs on control variables"""
+        self._add_collocated_running_cost(cost_func, vars, name)
+        # Add string representing the cost
+        varnames = ', '.join([var.item(0).get_name().split('(')[0] for var in vars])
+        self._text['RunningCosts'] += f"\n\t{name}: {cost_func.__name__} on {varnames}"
+
+    def _add_collocated_running_cost(self, cost_func, vars=None, name='RunningCost'):
         # input checking
         if vars in None:
             return
