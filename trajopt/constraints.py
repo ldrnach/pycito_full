@@ -13,7 +13,6 @@ class RadauCollocationConstraint(RadauCollocation):
         
         super(RadauCollocationConstraint, self).__init__(order, domain=[0, 1])
         self.xdim = xdim
-        self.order = order
         self.continuity_weights = self.left_endpoint_weights()
 
     def addToProgram(self, prog, timestep, xvars, dxvars, x_final_last):
