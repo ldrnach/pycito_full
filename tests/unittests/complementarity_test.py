@@ -16,6 +16,7 @@ June 14, 2021
 
 import unittest
 import numpy as np
+from numpy.testing._private.utils import assert_equal
 from trajopt import complementarity as cp
 from pydrake.all import MathematicalProgram, Solve
 
@@ -25,6 +26,9 @@ def pass_through(x):
 def example_constraint(z):
     x1, x2, y = np.split(z, 3)
     return y - (x1 - x2)**2
+
+def test_constraint(x):
+    return x - 1
 
 class ComplementarityTest(unittest.TestCase):
     def setUp(self):
@@ -136,34 +140,157 @@ class ComplementarityTest(unittest.TestCase):
         # Check changing the cost
         self.check_setting_cost(cstr, result)
 
-class CollocatedComplementarityBaseTest(unittest.TestCase):
+class CollocatedComplementarityBaseTestMixin():
     def setUp(self):
-        pass
+        # Complementarity function
+        self.fcn = test_constraint
+        # Setup the problem
+        self.prog = MathematicalProgram()
+        self.x = self.prog.NewContinuousVariables(rows = 2, cols = 3, name = 'x')
+        self.z = self.prog.NewContinuousVariables(rows = 2, cols = 3, name = 'z')
+        self.add_complementarity_constraints()
+        # Add a cost to the program to regularize it
+        Q = np.eye(6)
+        b = 2 * np.ones((6,))
+        self.prog.AddQuadraticErrorCost(Q, b, vars=self.z.flatten())
+        # Expected test output values
+        self.expected_num_variables = 16
+        self.expected_num_constraints = 7
+        self.expected_num_costs = 1
+        self.expected_num_slacks = 4
+        # Set the initial guess for the program - initialize at the solution
+        self.prog.SetInitialGuess(self.x, np.ones((2, 3)))
+        self.prog.SetInitialGuess(self.z, 2*np.ones((2, 3)))
+
+    def add_complementarity_constraints(self):
+        """Add complementarity constraint - overwritten in subclasses"""
+        self.cstr = cp.CollocatedComplementarity(self.fcn, self.x.shape[0], self.z.shape[0])
+
+    def solve_problem(self):
+        """Solve the complementarity problem"""
+        result = Solve(self.prog)
+        self.assertTrue(result.is_success(), msg=f"Failed to solve complementarity problem with {type(self.cstr).__name__}")
+        return result
 
     def test_decision_variables(self):
-        pass
+        """Check that the test has the appropriate number of decision variables"""
+        self.assertEqual(self.prog.num_vars(), self.expected_num_variables, msg="Unexpected number of decision variables")
 
     def test_constraints_added(self):
-        pass
+        """Check that the program has the correct number of constraints added"""
+        self.assertEqual(len(self.prog.GetAllConstraints()), self.expected_num_constraints, msg = 'Unexpected number of constraints')
+
+    def test_costs_added(self):
+        """Check that the program has the expected number of costs added"""
+        self.assertEqual(len(self.prog.GetAllCosts()), self.expected_num_costs, msg='Unexpected number of costs')
+
+    def test_get_slacks(self):
+        """Check that the correct number of slack variables has been added"""
+        self.assertEqual(self.cstr.var_slack.size, self.expected_num_slacks, msg = 'Unexpected number of slack variables')
 
     def test_solution_result(self):
-        pass
+        """Check that the problem solves and we can get a solution"""
+        result = self.solve_problem()
+        xval = result.GetSolution(self.x)
+        zval = result.GetSolution(self.z)
+        np.testing.assert_allclose(xval, np.ones((2, 3)), err_msg = 'Solution for x is incorrect')
+        np.testing.assert_allclose(zval, 2*np.ones((2, 3)), err_msg = 'Solution for z is incorrect')
+
+    def test_collocation_variables(self):
+        """Check that the collocation variables are correct"""
+        result = self.solve_problem()
+        slacks = self.cstr.var_slack
+        slack_vals = result.GetSolution(slacks)
+        expected = np.array([0., 0., 6., 6.])
+        np.testing.assert_allclose(slack_vals[:4], expected, err_msg = "Solved values for collocation slack variables is incorrect")
 
 
-
-class CollocatedComplementarityConstantSlackTest(CollocatedComplementarityBaseTest):
+class CollocatedComplementarityConstantSlackTest(CollocatedComplementarityBaseTestMixin, unittest.TestCase):
     def setUp(self):
-        pass
+        super(CollocatedComplementarityConstantSlackTest, self).setUp()
+    
+    def add_complementarity_constraints(self):
+        """Add collocated complementarity constraint to the program"""
+        self.cstr = cp.CollocatedConstantSlackComplementarity(self.fcn, self.x.shape[0], self.z.shape[0])
+        self.cstr.addToProgram(self.prog, self.x, self.z)
+
+    def get_orthogonality_bounds(self):
+        for c in self.prog.GetAllConstraints():
+            if c.evaluator().get_description() == self.cstr.name + '_orthogonality':
+                return c.evaluator().lower_bound(), c.evaluator().upper_bound()
 
     def test_setting_slack(self):
-        pass
+        """Test setting a constant slack changes the upper bound on the orthogonality constraint"""
+        self.cstr.const_slack = 0
+        lb_pre, ub_pre = self.get_orthogonality_bounds()
+        self.cstr.const_slack = 1
+        lb_post, ub_post = self.get_orthogonality_bounds()
+        np.testing.assert_allclose(lb_post, lb_pre, err_msg='Lower bounds changed when adding slack')
+        np.testing.assert_allclose(ub_pre,  np.zeros((self.z.shape[0],)), err_msg = 'Upper bounds incorrect before adding slack')
+        np.testing.assert_allclose(ub_post, np.ones((self.z.shape[0],)), err_msg = 'Upper bounds incorrect after adding slack')
 
 
 
-class CollocatedComplementarityVariableSlackTest(CollocatedComplementarityBaseTest):
+class CollocatedComplementarityVariableSlackTest(CollocatedComplementarityBaseTestMixin, unittest.TestCase):
     def setUp(self):
-        pass
+        super(CollocatedComplementarityVariableSlackTest, self).setUp()
+        # Update expected problem parameters
+        self.expected_num_variables += 1
+        self.expected_num_costs += 1
+        self.expected_num_slacks += 1
 
+    def add_complementarity_constraints(self):
+        """Add collocated complementarity constraint to the program"""
+        self.cstr = cp.CollocatedVariableSlackComplementarity(self.fcn, self.x.shape[0], self.z.shape[0])
+        self.cstr.addToProgram(self.prog, self.x, self.z)
 
-class CollocatedComplementarityCostRelaxedTest(CollocatedComplementarityBaseTest):
-    pass
+    def eval_complementarity_cost(self):
+        """Find and evaluate the complementarity cost"""
+        for cost in self.prog.GetAllCosts():
+            if cost.evaluator().get_description() == self.cstr.name + "SlackCost":
+                break
+        dvals = [1.]*len(cost.variables())
+        return cost.evaluator().Eval(dvals)
+
+    def test_increasing_cost_weight(self):
+        """Test that we can change the complementarity cost weight"""
+        self.cstr.cost_weight = 1
+        val = self.eval_complementarity_cost()
+        self.cstr.cost_weight = 10
+        new_val = self.eval_complementarity_cost()
+        self.assertEqual(new_val, 10*val, msg = "Failed to change cost linearly with cost weight")
+
+    def test_slack_variable(self):
+        """Check that the final slack variable is close to 0"""
+        result = self.solve_problem()
+        slacks = self.cstr.var_slack
+        slack_vals = result.GetSolution(slacks)
+        np.testing.assert_allclose(slack_vals[-1:], np.zeros((1,)), err_msg = "Solved values for relaxation slacks is incorrect")
+
+class CollocatedComplementarityCostRelaxedTest(CollocatedComplementarityBaseTestMixin, unittest.TestCase):
+    def setUp(self):
+        super(CollocatedComplementarityCostRelaxedTest, self).setUp()
+        # Update expected problem parameters
+        self.expected_num_constraints -= 1
+        self.expected_num_costs += 1
+
+    def add_complementarity_constraints(self):
+        """Add collocated complementarity constraint to the program"""
+        self.cstr = cp.CollocatedCostRelaxedComplementarity(self.fcn, self.x.shape[0], self.z.shape[0])
+        self.cstr.addToProgram(self.prog, self.x, self.z)
+
+    def eval_complementarity_cost(self):
+        """Find and evaluate the complementarity cost"""
+        for cost in self.prog.GetAllCosts():
+            if cost.evaluator().get_description() == self.cstr.name + "_cost":
+                break
+        dvals = [1.]*len(cost.variables())
+        return cost.evaluator().Eval(dvals)
+
+    def test_increasing_cost_weight(self):
+        """Test that we can change the complementarity cost weight"""
+        self.cstr.cost_weight = 1
+        val = self.eval_complementarity_cost()
+        self.cstr.cost_weight = 10
+        new_val = self.eval_complementarity_cost()
+        self.assertEqual(new_val, 10*val, msg = "Failed to change cost linearly with cost weight")

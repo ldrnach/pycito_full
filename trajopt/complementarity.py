@@ -444,7 +444,6 @@ class LinearEqualityVariableSlackComplementarity(ComplementarityConstraint):
                     cost.evaluator().UpdateCoefficients(new_a = val*np.ones((nvars,)))
         else:
             raise ValueError("cost_weight must be a nonnegative numeric value")
-
 class CollocatedComplementarity(ComplementarityConstraint):
     """
     Base class for implementing complementarity constraints for collocation problems. Collocated complementarity problems take the form:
@@ -495,7 +494,7 @@ class CollocatedComplementarity(ComplementarityConstraint):
             zvars: the decision variables, z
         """
         # Nonnegativity constraints
-        prog.AddBoundingBoxConstraint(lb = np.zeros(zvars.size, ), ub = np.full((zvars.size, np.inf)), vars=np.flatten(zvars))
+        prog.AddBoundingBoxConstraint(np.zeros((zvars.size,1)), np.full((zvars.size,1), np.inf), zvars.reshape((zvars.size,1)))
 
     def _add_variable_collocation(self, prog, zvars, zslacks):
         """
@@ -512,8 +511,8 @@ class CollocatedComplementarity(ComplementarityConstraint):
         # Collocation slack constraints
         eyes = [-np.eye(self.zdim)] * zvars.shape[1]
         eyes.insert(0, np.eye(self.zdim))
-        cstr = prog.AddLinearConstraint(A = np.concatenate(eyes, axis=1), lb = np.zeros((self.zdim, )), ub=np.zeros((self.zdim,)), vars = np.concatenate([zslacks, np.flatten(zvars)]))
-        cstr.evaluator().set_description(self.__name__ + "_var_collocation")
+        cstr = prog.AddLinearConstraint(A = np.concatenate(eyes, axis=1), lb = np.zeros((self.zdim, )), ub=np.zeros((self.zdim,)), vars = np.concatenate([zslacks, zvars.reshape(zvars.size,1)]))
+        cstr.evaluator().set_description(self.name + "_var_collocation")
 
     def _add_function_nonnegativity(self, prog, xvars):
         """
@@ -542,7 +541,7 @@ class CollocatedComplementarity(ComplementarityConstraint):
             xslacks: the collocation slack variables corresponding to the function evaluations
         """
         # Add collocation on function
-        prog.AddConstraint(self.eval_function_collocation, lb = np.zeros((self.zdim, )), ub = np.zeros((self.zdim, )), vars = np.concatenate([xvars.flatten(), fcn_slacks]), description = self.name + "_fcn_collocation")
+        prog.AddConstraint(self.eval_function_collocation, lb = np.zeros((self.zdim, )), ub = np.zeros((self.zdim, )), vars = np.concatenate([xvars.reshape((xvars.size,1)), fcn_slacks]), description = self.name + "_fcn_collocation")
 
     def _add_orthogonality(self, prog, zslack, fslack):
         """
@@ -566,6 +565,7 @@ class CollocatedComplementarity(ComplementarityConstraint):
         # xvars, zvars, zslack, fslack = np.split(vars, np.cumsum(inds))
         # xvars = np.reshape(xvars, (self.xdim, self._order))
         # zvars = np.reshape(zvars, (self.zdim, self._order))
+        pass
 
     def lower_bound(self):
         """Returns the lower bound for the orthogonality constraint"""
@@ -596,12 +596,13 @@ class CollocatedComplementarity(ComplementarityConstraint):
             xvars: the decision variables used in the function evaluation
             zvars: the decision variables used to complement the function evaluation
         """
-        zslack, fslack = self._new_collocation_variables(prog)
+        fslack, zslack = self._new_collocation_variables(prog)
         self._add_variable_nonnegativity(prog, zvars)
         self._add_function_nonnegativity(prog, xvars)
         self._add_variable_collocation(prog, zvars, zslack)
         self._add_function_collocation(prog, xvars, fslack)
         self._add_orthogonality(prog, zslack, fslack)
+        self._prog = prog
 
     @property
     def var_slack(self):
@@ -656,7 +657,7 @@ class CollocatedConstantSlackComplementarity(CollocatedComplementarity):
         """Returns the upper bound for the orthogonality constraint"""
         return self._const_slack * np.ones((self.zdim, ))
 
-class CollocatedVariableSlackComplementarity(ComplementarityConstraint):
+class CollocatedVariableSlackComplementarity(CollocatedComplementarity):
     """
     Concrete implementation of complementarity constraints for collocation problems. Collocated complementarity problems take the form:
         f_k(x) >= 0
@@ -671,6 +672,8 @@ class CollocatedVariableSlackComplementarity(ComplementarityConstraint):
     def __init__(self, fcn, xdim, zdim):
         """initialize a collocated complementarity constraint with slack variables"""
         super(CollocatedVariableSlackComplementarity, self).__init__(fcn, xdim, zdim)
+        self._slack_cost = []
+        self._cost_weight = 1.
 
     def _new_collocation_variables(self, prog):
         """
@@ -685,7 +688,7 @@ class CollocatedVariableSlackComplementarity(ComplementarityConstraint):
             var_slacks: decision slack variables for relaxing the orthogonality condition
         """
         # Create the collocation variables
-        zslack, fslack = super(CollocatedVariableSlackComplementarity, self)._new_collocation_variables(prog)
+        fslack, zslack = super(CollocatedVariableSlackComplementarity, self)._new_collocation_variables(prog)
         # Add a new slack variable
         vslack = prog.NewContinuousVariables(rows = 1, cols=1, name= self.name + "_var_slacks")
         # Store it for later
@@ -693,7 +696,7 @@ class CollocatedVariableSlackComplementarity(ComplementarityConstraint):
             self._var_slack = np.concatenate([self._var_slack, vslack], axis=1)
         else:
             self._var_slack = vslack
-        return zslack, fslack, vslack
+        return fslack, zslack, vslack
 
     def _add_orthogonality(self, prog, zslack, fslack, vslack):
         """
@@ -710,6 +713,10 @@ class CollocatedVariableSlackComplementarity(ComplementarityConstraint):
         """
         # And orthogonality constraints
         prog.AddConstraint(self.eval_product, lb = self.lower_bound(), ub = self.upper_bound(), vars = np.concatenate([zslack , fslack, vslack], axis=0), description = self.name + "_orthogonality")    
+        # Add a cost on the slack variables
+        new_cost = prog.AddLinearCost(a = self.cost_weight * np.ones((vslack.shape[1]),), b=np.zeros((1,)), vars = vslack)
+        new_cost.evaluator().set_description(self.name + "SlackCost")
+        self._slack_cost.append(new_cost)
 
     def upper_bound(self):
         return np.zeros((self.zdim,))
@@ -723,7 +730,7 @@ class CollocatedVariableSlackComplementarity(ComplementarityConstraint):
             xvars: the decision variables used in the function evaluation
             zvars: the decision variables used to complement the function evaluation
         """
-        zslack, fslack, vslack = self._new_collocation_variables(prog)
+        fslack, zslack, vslack = self._new_collocation_variables(prog)
         self._add_variable_nonnegativity(prog, zvars)
         self._add_function_nonnegativity(prog, xvars)
         self._add_variable_collocation(prog, zvars, zslack)
@@ -744,8 +751,25 @@ class CollocatedVariableSlackComplementarity(ComplementarityConstraint):
     def var_slack(self, val):
         """Dummy method for setting the value of slack decision variable"""
         warnings.warn(f"{type(self).__name__} does not allow setting slack variables")
+    
+    @property
+    def cost_weight(self):
+        return self._cost_weight
 
-class CollocatedCostRelaxedComplementarity(ComplementarityConstraint):
+    @cost_weight.setter
+    def cost_weight(self, val):
+        if (type(val) == int or type(val) == float) and val >= 0.:
+            #Store the cost weight value
+            self._cost_weight = val
+            # Update slack cost
+            if self._slack_cost:
+                for cost in self._slack_cost:
+                    nvars = cost.variables().size
+                    cost.evaluator().UpdateCoefficients(new_a = val*np.ones((nvars,)))
+        else:
+            raise ValueError("cost_weight must be a nonnegative numeric value")    
+
+class CollocatedCostRelaxedComplementarity(CollocatedComplementarity):
     """
     Concrete implementation of complementarity constraints for collocation problems. Collocated complementarity problems take the form:
         f_k(x) >= 0
