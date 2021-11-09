@@ -23,16 +23,16 @@ class RadauCollocationConstraint(RadauCollocation):
     def _add_collocation(self, prog, timestep, xvars, dxvars):
         # Add constraints on each element of the state vector separately to improve sparsity
         for n in range(self.xdim):
-            dvars = np.concatenate([timestep, xvars[n,:], dxvars[n,1:]], axis=0)
+            dvars = np.concatenate([timestep[0,:], xvars[n,:], dxvars[n,1:]], axis=0)
             prog.AddConstraint(self._collocation_constraint, lb=np.zeros(self.order, ), ub=np.zeros(self.order, ), vars=dvars, description='CollocationConstraint')
         return prog
 
     def _add_continuity(self, prog, xvars, x_final_last):
         # Add linear constraints to each element of the state to improve sparsity
-        aeq = np.append(self.continuity_weights, -1)
+        aeq = np.expand_dims(np.append(self.continuity_weights, -1), axis=0)
         for n in range(self.xdim):
-            dvars = np.concatenate([xvars[n,:], x_final_last[n,:]], axis=0)
-            prog.AddLinearEqualityConstraint(aeq, beq=np.zeros((1,)), vars=dvars, description='ContinuityConstraint')
+            dvars = np.expand_dims(np.concatenate([xvars[n,:], x_final_last[n,:]], axis=0), axis=1)
+            prog.AddLinearEqualityConstraint(aeq, beq=np.zeros((1,1)), vars=dvars).evaluator().set_description('ContinuityConstraint')
         return prog
 
     def _collocation_constraint(self, dvars):
