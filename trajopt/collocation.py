@@ -79,11 +79,17 @@ class LagrangeBasis():
         _derivative assumes only one point is given / that x has only one element
         """
         diffs = np.asarray([x - node for node in self.nodes if node != self.centernode])
+        # sumprod = 0
+        # for n in range(diffs.shape[0]):
+        #     d = diffs.copy()
+        #     d[n] = 1
+        #     sumprod += np.prod(d)
+        # return self.weight * sumprod
         leftprods = np.ones_like(diffs)
         rightprods = np.ones_like(diffs)
         for n in range(1, diffs.shape[0]):
-            leftprods[n] = leftprods[n-1] * diffs[n]
-            rightprods[-1-n] = rightprods[-n] * diffs[-1-n]
+            leftprods[n] = leftprods[n-1] * diffs[-n]
+            rightprods[-n-1] = rightprods[-n] * diffs[n-1]
         return self.weight * leftprods.dot(rightprods)
 
     @property

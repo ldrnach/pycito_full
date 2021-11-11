@@ -23,7 +23,7 @@ class RadauCollocationConstraint(RadauCollocation):
     def _add_collocation(self, prog, timestep, xvars, dxvars):
         # Add constraints on each element of the state vector separately to improve sparsity
         for n in range(self.xdim):
-            dvars = np.concatenate([timestep[0,:], xvars[n,:], dxvars[n,1:]], axis=0)
+            dvars = np.concatenate([timestep[0,:], xvars[n,:], dxvars[n,:-1]], axis=0)
             prog.AddConstraint(self._collocation_constraint, lb=np.zeros(self.order, ), ub=np.zeros(self.order, ), vars=dvars, description='CollocationConstraint')
         return prog
 
@@ -38,7 +38,7 @@ class RadauCollocationConstraint(RadauCollocation):
     def _collocation_constraint(self, dvars):
         # Apply the collocation constraint
         dt, x, dx = np.split(dvars, [1, 2+self.order])
-        return dt * dx - self.differentiation_matrix[1:, :].dot(x)
+        return dt * dx - self.differentiation_matrix[:-1, :].dot(x)
 
 
 class MultibodyConstraint():
