@@ -327,6 +327,14 @@ def CheckProgram(prog):
     # Return the status flag
     return status
 
+def trajectoryToArray(trajectory, size=None):
+    if size is None:
+        return GetKnotsFromTrajectory(trajectory)
+    else:
+        t = np.linspace(trajectory.start_time(), trajectory.end_time(), size)
+        values = trajectory.vector_values(t)
+        return t, values
+
 def GetKnotsFromTrajectory(trajectory):
     breaks = trajectory.get_segment_times()
     values = trajectory.vector_values(breaks)
@@ -445,7 +453,8 @@ def getDualSolutionDict(prog, result):
             duals[name] = [dual]
     # Stack all repeating duals along the rows
     for name in duals.keys():
-        duals[name] = np.row_stack(duals[name])
+        if name != '':
+            duals[name] = np.row_stack(duals[name])
     return duals
 
 def alphanumeric_sort(text_list):

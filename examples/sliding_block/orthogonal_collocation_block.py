@@ -23,12 +23,12 @@ context = plant.multibody.CreateDefaultContext()
 options = ci.OrthogonalOptimizationOptions()
 options.useComplementarityWithCost()
 # Create a Contact Implicit OrthogonalCollocation
-N = 31
+N = 26
 max_time = 1
 min_time = 1
 
 trajopt = ci.ContactImplicitOrthogonalCollocation(plant, context, 
-                                                num_time_samples = 31, 
+                                                num_time_samples = N, 
                                                 minimum_timestep=min_time/(N-1), 
                                                 maximum_timestep=max_time/(N-1),
                                                 state_order=3,
@@ -41,7 +41,7 @@ x0 = np.array([0, 0.5, 0., 0.])
 xf = np.array([5., 0.5, 0., 0.])
 Ntotal = trajopt.total_knots
 trajopt.add_state_constraint(knotpoint=0, value=x0)
-trajopt.add_state_constraint(knotpoint=Ntotal, value=xf)
+trajopt.add_state_constraint(knotpoint=Ntotal-1, value=xf)
 # Add cost functions
 R = 10 * np.eye(trajopt.u.shape[0])
 b = np.zeros((trajopt.u.shape[0], ))
@@ -80,3 +80,6 @@ text = trajopt.generate_report(result)
 report = os.path.join(dir, 'block_collocation_report.txt')
 with open(report, "w") as file:
     file.write(text)
+# Make figures from the results
+xtraj, utraj, ftraj = trajopt.reconstruct_all_trajectories(result)[0:3]
+plant.plot_trajectories(xtraj, utraj, ftraj, samples=10000, show=False, savename=os.path.join(dir, 'BlockCollocation.png'))

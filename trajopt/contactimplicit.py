@@ -18,6 +18,7 @@ import trajopt.complementarity as compl
 import decorators as deco
 import trajopt.constraints as cstrs
 #TODO: Unit testing for whole-body and centrodial optimizers
+#TODO: Label all cost and constraints in Orthogonal Collocation - eliminate '' constraints
 
 class OptimizationOptions():
     """ Keeps track of optional settings for Contact Implicit Trajectory Optimization"""
@@ -735,8 +736,8 @@ class ContactImplicitDirectTranscription(OptimizationBase):
     @property
     def var_slack(self):
         """Variable slack for contact complementarity constraints"""
-        slacks = [self.distance_cstr.slack, self.sliding_cstr.slack, self.friction_cstr.slack]
-        if None in slacks:
+        slacks = [self.distance_cstr.var_slack, self.sliding_cstr.var_slack, self.friction_cstr.var_slack]
+        if any(slack is None for slack in slacks):
             return None
         else:
             return np.row_stack(slacks)
@@ -802,6 +803,7 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
     #TODO: Allow for a more expressive control basis - nonzero order control polynomials
     #TODO: Check on running cost for states - use collocation weights?
     #TODO: Check on the continuity equations for states - enforce the beginning equals the end of the previous interval (start with initial state)
+    #TODO: Cleanup notation using state-order, control-order, num_time_samples - get rid of all the +1, -1 nonsense
     def __init__(self, plant, context, num_time_samples, minimum_timestep, maximum_timestep, state_order = 3, options=OrthogonalOptimizationOptions()):
         self.state_order = state_order
         self.control_order = 0
@@ -823,11 +825,12 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
 
     def _add_decision_variables(self):
         #Timesteps
-        self.h = self.prog.NewContinuousVariables(rows = self.num_time_samples, cols=1, name='h')
+        num_intervals = self.num_time_samples-1
+        self.h = self.prog.NewContinuousVariables(rows = num_intervals, cols=1, name='h')
         #Controls
-        self.u = self.prog.NewContinuousVariables(rows = self.plant_ad.multibody.num_actuators(), cols = self.num_time_samples * (self.control_order + 1), name='u')
+        self.u = self.prog.NewContinuousVariables(rows = self.plant_ad.multibody.num_actuators(), cols = num_intervals * (self.control_order + 1) +  1, name='u')
         # States - add position, velocity, and acceleration separately
-        numknots = 1 + self.num_time_samples * (self.state_order + 1)
+        numknots = 1 + num_intervals * (self.state_order + 1)
         np = self.plant_ad.multibody.num_positions()
         assert self.plant_ad.multibody.num_velocities() == np, "Unequal number of positions and velocities"
         self.pos = self.prog.NewContinuousVariables(rows = np, cols = numknots, name = 'position')
@@ -858,7 +861,7 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         dx_ = self.dx
         self.state_collocation = cstrs.RadauCollocationConstraint(xdim=x_.shape[0], order=self.state_order)
         # Add the constraint to the program for every finite element
-        for n in range(self.num_time_samples):
+        for n in range(self.num_time_samples-1):
             start = n*(self.state_order + 1) + 1
             stop = (n+1)*(self.state_order + 1) + 1
             self.state_collocation.addToProgram(self.prog, timestep = self.h[n,:], xvars=x_[:, start:stop], dxvars=dx_[:, start:stop], x_final_last=x_[:, start-1:start])
@@ -875,7 +878,7 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         else:
             forces = np.concatenate([self._normal_forces, self._tangent_forces], axis=0)
         # Add the dynamics
-        for n in range(self.num_time_samples):
+        for n in range(self.num_time_samples-1):
             start = n * (self.state_order + 1)
             for k in range(self.state_order + 1):
                 self.dynamics_cstr.addToProgram(self.prog, self.pos[:, start+k], self.vel[:, start+k], self.accel[:, start+k], self.u[:, n], forces[:, start+k])
@@ -892,7 +895,7 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         self.sliding_cstr.set_description('sliding_velocity')
         self.friction_cstr.set_description('friction_cone')
         # complementarity constraints to the rest of the program
-        for n in range(self.num_time_samples):
+        for n in range(self.num_time_samples-1):
             start = n * (self.state_order + 1) + 1
             stop = (n+1)*(self.state_order + 1) + 1
             if n == 0:
@@ -908,7 +911,7 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         self.joint_limit_cstr = self.options.complementarity(self._joint_limit, xdim = self.x.shape[0], zdim = self.jl.shape[0], order=self.state_order)
         self.joint_limit_cstr.set_description('joint_limits')       
         # Add complementarity to all other knot and collocation points
-        for n in range(self.num_time_samples):
+        for n in range(self.num_time_samples-1):
             start = n * self.state_order + 1
             stop = (n+1)*self.state_order + 1
             if n == 0:
@@ -919,8 +922,8 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         """add in a constraint to enforce the acceleration at the boundaries to be zero"""
         # Add in constraints on initial and final accelerations
         zeroaccel = np.zeros((self.accel.shape[0], ))
-        self.prog.AddBoundingBoxConstraint(lb = zeroaccel, ub = zeroaccel, vars = self.accel[:,  0]).evaluator().set_description('ZeroAccelerationBoundary')
-        self.prog.AddBoundingBoxConstraint(lb = zeroaccel, ub = zeroaccel, vars = self.accel[:, -1]).evaluator().set_description('ZeroAccelerationBoundary')
+        self.prog.AddBoundingBoxConstraint(zeroaccel, zeroaccel, self.accel[:,  0]).evaluator().set_description('ZeroAccelerationBoundary')
+        self.prog.AddBoundingBoxConstraint(zeroaccel, zeroaccel, self.accel[:, -1]).evaluator().set_description('ZeroAccelerationBoundary')
 
     def add_quadratic_control_cost(self, Q, b, name='QuadraticControlCost'):
         """
@@ -955,7 +958,6 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         varnames = ", ".join([var.item(0).get_name().split('(')[0] for var in vars])
         self._text['RunningCosts'] += f"\n\t{name}: Quadratic cost on {varnames} with weights Q = \n{Q} \n\tand bias b = \n{b}"
 
-
     def add_running_cost(self, cost_func, vars=None, name='RunningCost'):
         """Add a running cost to the program. Does not include costs on control variables"""
         self._add_collocated_running_cost(cost_func, vars, name)
@@ -984,22 +986,24 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         t = self.get_solution_times(soln)
         xval = soln.GetSolution(self.x)
         # Create the first trajectory piece
-        xtraj = PiecewisePolynomial.LagrangeInterpolatingPolynomial(t[0:self.state_order+1], xval[0:self.state_order+1])
+        xtraj = PiecewisePolynomial.LagrangeInterpolatingPolynomial(t[0:self.state_order+2], xval[:, 0:self.state_order+2])
         # Create and concatenate all other polynomial pieces
-        for n in range(1, self.num_time_samples):
-            start = n*self.state_order
-            stop = (n+1)*self.state_order+1
-            piece = PiecewisePolynomial.LagrangeInterpolatingPolynomial(t[start:stop], xval[start:stop])
+        for n in range(1, self.num_time_samples-1):
+            start = n*(self.state_order + 1)
+            stop = (n+1)*(self.state_order + 1) + 1
+            piece = PiecewisePolynomial.LagrangeInterpolatingPolynomial(t[start:stop], xval[:, start:stop])
             xtraj.ConcatenateInTime(piece)
-        return piece
+        return xtraj
 
     def get_solution_times(self, soln):
         """Return the sample times for each decision variable in the program (excluding controls)"""
         h = soln.GetSolution(self.h)
         h = np.concatenate([np.zeros((1,)), h], axis=0)
+        t_ = np.cumsum(h)
         nodes = self.state_collocation.nodes
-        t = [h[n-1] + h[n] * nodes for n in h.shape[0]]
-        return np.concatenate(t, axis=0)
+        t = [t_[n-1] + h[n] * nodes for n in range(1, t_.shape[0])]
+        t.insert(0, np.zeros((1,)))
+        return  np.concatenate(t)
 
     def get_control_times(self, soln):
         #TODO: Update once higher order control bases are supported
@@ -1019,7 +1023,7 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
             t = self.get_control_times(soln)
             # Create the first trajectory
             utraj = PiecewisePolynomial.LagrangeInterpolatingPolynomial()
-            for n in range(1, self.num_time_samples):
+            for n in range(1, self.num_time_samples-1):
                 start = n * self.control_order
                 stop = (n+1)*self.control_order + 1
                 piece = PiecewisePolynomial.LagrangeInterpolatingPolynomial(t[start:stop], uval[start:stop])
@@ -1031,31 +1035,28 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         #TODO: Determine proper trajectory for acceleration and return
         t = self.get_solution_times(soln)
         accel = soln.GetSolution(self.accel)
-        return self.ZeroOrderHold(t, accel)
+        return PiecewisePolynomial.ZeroOrderHold(t, accel)
+
+    def reconstruct_slack_trajectory(self, soln):
+        t = np.cumsum(soln.GetSolution(self.h))
+        return PiecewisePolynomial.ZeroOrderHold(t, soln.GetSolution(self.var_slack))
 
     def reconstruct_all_trajectories(self, soln):
         """Returns state, input, reaction force, and joint limit force trajectories from the solution"""
         state, input, lforce, jlforce, slacks = super(ContactImplicitOrthogonalCollocation, self).reconstruct_all_trajectories(soln)
-        accel = self.reconstruct_acceleration_trajectory(self, soln)
+        accel = self.reconstruct_acceleration_trajectory(soln) 
         return (state, input, lforce, jlforce, slacks, accel)
 
     def result_to_dict(self, soln):
         """ unpack the trajectories from the program result and store in a dictionary"""
         t = self.get_solution_times(soln)
-        x, u, f, jl, s, acc = self.reconstruct_all_trajectories(soln)
-        if jl is not None:
-            jl = jl.vector_values(t)
-        if s is not None:
-            s = s.vector_values(t)
-        utime = u.get_segment_times()
         soln_dict = {"time": t,
-                    "state": x.vector_values(t),
-                    "control": u.vector_values(utime),
-                    "control_time": utime, 
-                    "force": f.vector_values(t),
-                    "jointlimit": jl,
-                    "slacks": s,
-                    "acceleration": acc.vector_values(t),
+                    "state": soln.GetSolution(self.x),
+                    "control": soln.GetSolution(self.u),
+                    "force": soln.GetSolution(self.l),
+                    "jointlimit": None,
+                    "slacks": None,
+                    "acceleration": soln.GetSolution(self.accel),
                     "solver": soln.get_solver_id().name(),
                     "success": soln.is_success(),
                     "exit_code": soln.get_solver_details().info,
@@ -1064,6 +1065,10 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
                     "state_order": self.state_order,
                     "control_order": self.control_order
                     }
+        if self.var_slack is not None:
+            soln_dict['slacks'] = soln.GetSolution(self.var_slack)
+        if self.Jl is not None:
+            soln_dict['jointlimit'] = soln.GetSolution(self.jl)
         return soln_dict
 
     @property
