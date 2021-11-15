@@ -68,8 +68,7 @@ class CollocationTest(unittest.TestCase):
         expected = self.N * (self.K + 1)    # Expected number of scalar constraints
         total_out = 0
         for cs in self.prog.GetAllConstraints():
-            dummy = [1.]*len(cs.variables())
-            total_out += cs.evaluator().Eval(dummy).size
+            total_out += cs.evaluator().num_constraints()
         self.assertEqual(total_out, expected, msg="Unexpected number of total scalar constraints")
 
     def test_solve_states(self):

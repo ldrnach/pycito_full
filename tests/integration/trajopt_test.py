@@ -9,6 +9,7 @@ import unittest
 import numpy as np
 import trajopt.contactimplicit as ci
 from systems.block.block import Block
+import utilities as utils
 
 class BlockTestBase(unittest.TestCase):
     @staticmethod
@@ -20,17 +21,11 @@ class BlockTestBase(unittest.TestCase):
         self.plant.Finalize()
 
     def create_block_trajopt(self):
-        context = self.plant.multibody.CreateDefaultContext()
-        options = ci.OptimizationOptions()
-        self.trajopt = ci.ContactImplicitDirectTranscription(self.plant, context,
-                                                        num_time_samples = 101,
-                                                        maximum_timestep = 0.01,
-                                                        minimum_timestep = 0.01,
-                                                        options = options)
+        raise NotImplementedError
     
     def add_boundary_constraints(self,x0, xf):
         self.trajopt.add_state_constraint(knotpoint=0, value=x0)    
-        self.trajopt.add_state_constraint(knotpoint=self.x.shape[1]-1, value=xf)
+        self.trajopt.add_state_constraint(knotpoint=self.trajopt.x.shape[1]-1, value=xf)
 
     def add_control_cost(self):
         nU = self.trajopt.u.shape[0]
@@ -49,7 +44,7 @@ class BlockTestBase(unittest.TestCase):
         u_init = np.zeros(self.trajopt.u.shape)
         x_init = np.zeros(self.trajopt.x.shape)
         for n in range(0, x_init.shape[0]):
-            x_init[n,:] = np.linspace(start=x0[n], stop=xf[n], num=101)
+            x_init[n,:] = np.linspace(start=x0[n], stop=xf[n], num=self.trajopt.x.shape[1])
         l_init = np.zeros(self.trajopt.l.shape)
         # Set the guess in the trajopt
         self.trajopt.set_initial_guess(xtraj=x_init, utraj=u_init, ltraj=l_init)
@@ -76,34 +71,46 @@ class SlidingBlockDirectTest(BlockTestBase):
     def setUp(self):
         super(SlidingBlockDirectTest, self).setUp()
         
+    def create_block_trajopt(self):
+        context = self.plant.multibody.CreateDefaultContext()
+        options = ci.OptimizationOptions()
+        self.trajopt = ci.ContactImplicitDirectTranscription(self.plant, context,
+                                                        num_time_samples = 101,
+                                                        maximum_timestep = 0.01,
+                                                        minimum_timestep = 0.01,
+                                                        options = options)
+
     def test_trajopt(self):
         result = self.trajopt.solve()
         self.assertTrue(result.is_success(), msg = "Optimization failed")
 
 class SlidingBlockCollocationTest(BlockTestBase):
+    def setUp(self):
+        super(SlidingBlockCollocationTest, self).setUp()
+    
     def create_block_trajopt(self):
         context = self.plant.multibody.CreateDefaultContext()
         options = ci.OrthogonalOptimizationOptions()
         options.useComplementarityWithCost()
-        N = 31
+        N = 25
         maxtime = 1
         mintime = 1
         self.trajopt = ci.ContactImplicitOrthogonalCollocation(self.plant, context,
-                                                        num_time_samples = 31,
+                                                        num_time_samples = 25,
                                                         maximum_timestep = maxtime/(N-1),
                                                         minimum_timestep = mintime/(N-1),
                                                         state_order=3,
                                                         options = options)
+
     def add_control_cost(self):
         nU = self.trajopt.u.shape[0]
         R = 10 * np.eye(nU)
         b = np.zeros((nU,))
-        self.trajopt.add_quadratic_control_cost(R, b, [self.trajopt.u], name="ControlCost")
+        self.trajopt.add_quadratic_control_cost(R, b, name="ControlCost")
         return self.trajopt
     
-    def setUp(self):
-        super(SlidingBlockCollocationTest, self).setUp()
-        
     def test_trajopt(self):
+        
+        self.assertTrue(utils.CheckProgram(self.trajopt.prog), msg='Program is invalid')
         result = self.trajopt.solve()
         self.assertTrue(result.is_success(), msg = "Optimization failed")

@@ -7,7 +7,7 @@ October 14, 2020
 
 import numpy as np
 import unittest
-from trajopt.contactimplicit import ContactImplicitDirectTranscription
+import trajopt.contactimplicit as ci
 from systems.block.block import Block
 from pydrake.autodiffutils import AutoDiffXd
 
@@ -17,7 +17,7 @@ class ContactImplicitTest(unittest.TestCase):
         """Setup and finalize the plant model, and create the optimization problem"""
         cls.model = Block()
         cls.model.Finalize()
-        cls.opt = ContactImplicitDirectTranscription(plant=cls.model,
+        cls.opt = ci.ContactImplicitDirectTranscription(plant=cls.model,
                                                 context=cls.model.multibody.CreateDefaultContext(),
                                                 num_time_samples=101,
                                                 minimum_timestep=0.001,
@@ -122,3 +122,32 @@ class ContactImplicitTest(unittest.TestCase):
         self.opt.set_initial_guess(xtraj=guess)
         set_guess = self.opt.prog.GetInitialGuess(self.opt.x)
         self.assertTrue(np.array_equal(guess, set_guess), msg="Initial guess not set")
+
+
+class ContactCollocationTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.plant = Block()
+        cls.plant.Finalize()
+        context = cls.plant.multibody.CreateDefaultContext()
+        options = ci.OrthogonalOptimizationOptions()
+        options.useComplementarityWithCost()
+        cls.N = 31
+        cls.order = 3
+        maxtime = 1
+        mintime = 1
+        cls.trajopt = ci.ContactImplicitOrthogonalCollocation(cls.plant, context,
+                                                        num_time_samples = 31,
+                                                        maximum_timestep = maxtime/(cls.N - 1),
+                                                        minimum_timestep = mintime/(cls.N -1),
+                                                        state_order = cls.order,
+                                                        options = options)
+
+    def test_number_constraints(self):
+        """Check the number of constraints"""
+        pass
+
+    def test_number_variables(self):
+        """Check for the number of decision variables"""
+        pass
+

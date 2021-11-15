@@ -21,6 +21,8 @@ class RadauCollocationConstraint(RadauCollocation):
         return prog
 
     def _add_collocation(self, prog, timestep, xvars, dxvars):
+        # Make sure the timestep is 2d
+        timestep = np.atleast_2d(timestep)
         # Add constraints on each element of the state vector separately to improve sparsity
         for n in range(self.xdim):
             dvars = np.concatenate([timestep[0,:], xvars[n,:], dxvars[n,:-1]], axis=0)
@@ -58,11 +60,18 @@ class MultibodyDynamicsConstraint(MultibodyConstraint):
     def __init__(self, plant_ad, plant_f):
         super(MultibodyDynamicsConstraint, self).__init__(plant_ad, plant_f)
 
+    @property
     def upper_bound(self):
         return np.zeros((self.plant_ad.multibody.num_velocities(),))
 
+    @property
     def lower_bound(self):
         return np.zeros((self.plant_ad.multibody.num_velocities(),))
+
+    def addToProgram(self, prog, pos, vel, accel, ctrl, force):
+        dvars = np.concatenate([pos, vel, accel, ctrl, force])
+        prog.AddConstraint(self.eval, lb = self.lower_bound, ub = self.upper_bound, vars=dvars, description='multibody_dyamics')
+        return prog
 
     def eval(self, dvars):
         """
@@ -85,7 +94,7 @@ class MultibodyDynamicsConstraint(MultibodyConstraint):
         C = plant.multibody.CalcBiasTerm(context)
         G = plant.multibody.CalcGravityGeneralizedForces(context)
         B = plant.multibody.MakeActuationMatrix()
-        Jn, Jt = plant.multibody.GetContactJacobians(context)
+        Jn, Jt = plant.GetContactJacobians(context)
         # Integrated generalized force effects
         gen_forces = B.dot(control) - C + G
         # Integrate contact forces
