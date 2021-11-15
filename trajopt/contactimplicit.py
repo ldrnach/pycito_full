@@ -478,7 +478,7 @@ class ContactImplicitDirectTranscription(OptimizationBase):
 
     def _add_running_cost(self, cost_func, vars=None, name='RunningCost'):
         """Internal method for adding a running cost to the program"""
-        integrated_cost = lambda x: np.array(x[0] * cost_func(x[1:]))
+        integrated_cost = lambda x: x[0] * cost_func(x[1:])
         for n in range(0, self.num_time_samples-1):
             new_vars = [var[:,n] for var in vars]
             new_vars.insert(0, self.h[n,:])
@@ -976,7 +976,7 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
             for k in range(weights.shape[0]):
                 new_vars = [dvar[:,index] for dvar in vars]
                 new_vars.insert(0, self.h[n,:])
-                self.prog.AddCost(lambda z: np.array(weights[k] * z[0] * cost_func(z[1:])), np.concatenate(new_vars, axis=0), description=name)
+                self.prog.AddCost(lambda z: weights[k] * z[0] * cost_func(z[1:]), np.concatenate(new_vars, axis=0), description=name)
                 index += 1
 
     def reconstruct_state_trajectory(self, soln):
