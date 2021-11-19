@@ -825,12 +825,11 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
 
     def _add_decision_variables(self):
         #Timesteps
-        num_intervals = self.num_time_samples-1
-        self.h = self.prog.NewContinuousVariables(rows = num_intervals, cols=1, name='h')
+        self.h = self.prog.NewContinuousVariables(rows = self.num_intervals, cols=1, name='h')
         #Controls
-        self.u = self.prog.NewContinuousVariables(rows = self.plant_ad.multibody.num_actuators(), cols = num_intervals * (self.control_order + 1) +  1, name='u')
+        self.u = self.prog.NewContinuousVariables(rows = self.plant_ad.multibody.num_actuators(), cols = self.num_intervals * (self.control_order + 1) +  1, name='u')
         # States - add position, velocity, and acceleration separately
-        numknots = 1 + num_intervals * (self.state_order + 1)
+        numknots = 1 + self.num_intervals * self.num_collocation_pts
         npos = self.plant_ad.multibody.num_positions()
         assert self.plant_ad.multibody.num_velocities() == npos, "Unequal number of positions and velocities"
         self.pos = self.prog.NewContinuousVariables(rows = npos, cols = numknots, name = 'position')
@@ -861,9 +860,9 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         dx_ = self.dx
         self.state_collocation = cstrs.RadauCollocationConstraint(xdim=x_.shape[0], order=self.state_order)
         # Add the constraint to the program for every finite element
-        for n in range(self.num_time_samples-1):
-            start = n*(self.state_order + 1) + 1
-            stop = (n+1)*(self.state_order + 1) + 1
+        for n in range(self.num_intervals):
+            start = n*self.num_collocation_pts + 1
+            stop = (n+1)*self.num_collocation_pts + 1
             self.state_collocation.addToProgram(self.prog, timestep = self.h[n,:], xvars=x_[:, start:stop], dxvars=dx_[:, start:stop], x_final_last=x_[:, start-1:start])
 
     def _add_dynamic_constraints(self):
@@ -878,9 +877,9 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         else:
             forces = np.concatenate([self._normal_forces, self._tangent_forces], axis=0)
         # Add the dynamics
-        for n in range(self.num_time_samples-1):
-            start = n * (self.state_order + 1)
-            for k in range(self.state_order + 1):
+        for n in range(self.num_intervals):
+            start = n * self.num_collocation_pts
+            for k in range(self.num_collocation_pts):
                 self.dynamics_cstr.addToProgram(self.prog, self.pos[:, start+k], self.vel[:, start+k], self.accel[:, start+k], self.u[:, n], forces[:, start+k])
         # Add in constraint at final time - do I need this?
         self.dynamics_cstr.addToProgram(self.prog, self.pos[:, -1], self.vel[:, -1], self.accel[:, -1], self.u[:, -1], forces[:, -1])
@@ -895,9 +894,9 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         self.sliding_cstr.set_description('sliding_velocity')
         self.friction_cstr.set_description('friction_cone')
         # complementarity constraints to the rest of the program
-        for n in range(self.num_time_samples-1):
-            start = n * (self.state_order + 1) + 1
-            stop = (n+1)*(self.state_order + 1) + 1
+        for n in range(self.num_intervals):
+            start = n * self.num_collocation_pts + 1
+            stop = (n+1)*self.num_collocation_pts + 1
             if n == 0:
                 start = 0
             self.distance_cstr.addToProgram(self.prog, xvars=self.x[:, start:stop], zvars=self._normal_forces[:, start:stop])
@@ -911,9 +910,9 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         self.joint_limit_cstr = self.options.complementarity(self._joint_limit, xdim = self.x.shape[0], zdim = self.jl.shape[0])
         self.joint_limit_cstr.set_description('joint_limits')       
         # Add complementarity to all other knot and collocation points
-        for n in range(self.num_time_samples-1):
-            start = n * self.state_order + 1
-            stop = (n+1)*self.state_order + 1
+        for n in range(self.num_intervals):
+            start = n * self.num_collocation_pts + 1
+            stop = (n+1)*self.num_collocation_pts + 1
             if n == 0:
                 start = 0
             self.joint_limit_cstr.addToProgram(self.prog, xvars = self.x[:, start:stop], zvars = self.jl[:, start:stop])
@@ -1083,6 +1082,15 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
     @property
     def total_knots(self):
         return self.x.shape[1]
+
+    @property
+    def num_intervals(self):
+        return self.num_time_samples - 1
+
+    @property
+    def num_collocation_pts(self):
+        return self.state_order + 1
+
 class CentroidalContactTranscription(ContactImplicitDirectTranscription):
     #TODO: Unit testing for all contact-implicit problems (Block, DoublePendulum, A1)
 
