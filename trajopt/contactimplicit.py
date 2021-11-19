@@ -831,11 +831,11 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         self.u = self.prog.NewContinuousVariables(rows = self.plant_ad.multibody.num_actuators(), cols = num_intervals * (self.control_order + 1) +  1, name='u')
         # States - add position, velocity, and acceleration separately
         numknots = 1 + num_intervals * (self.state_order + 1)
-        np = self.plant_ad.multibody.num_positions()
-        assert self.plant_ad.multibody.num_velocities() == np, "Unequal number of positions and velocities"
-        self.pos = self.prog.NewContinuousVariables(rows = np, cols = numknots, name = 'position')
-        self.vel = self.prog.NewContinuousVariables(rows = np, cols = numknots, name = 'velocity')
-        self.accel = self.prog.NewContinuousVariables(rows = np, cols = numknots, name = 'acceleration')
+        npos = self.plant_ad.multibody.num_positions()
+        assert self.plant_ad.multibody.num_velocities() == npos, "Unequal number of positions and velocities"
+        self.pos = self.prog.NewContinuousVariables(rows = npos, cols = numknots, name = 'position')
+        self.vel = self.prog.NewContinuousVariables(rows = npos, cols = numknots, name = 'velocity')
+        self.accel = self.prog.NewContinuousVariables(rows = npos, cols = numknots, name = 'acceleration')
         # Reaction forces
         numN = self.plant_ad.num_contacts()
         numT = self.plant_ad.num_friction()
@@ -908,7 +908,7 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         """add the joint limit constraints to the program"""
         if self.Jl is None:
             return
-        self.joint_limit_cstr = self.options.complementarity(self._joint_limit, xdim = self.x.shape[0], zdim = self.jl.shape[0], order=self.state_order)
+        self.joint_limit_cstr = self.options.complementarity(self._joint_limit, xdim = self.x.shape[0], zdim = self.jl.shape[0])
         self.joint_limit_cstr.set_description('joint_limits')       
         # Add complementarity to all other knot and collocation points
         for n in range(self.num_time_samples-1):
@@ -940,7 +940,7 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
 
     def add_running_control_cost(self, cost_func, name='RunningControlCost'):
         """Add a running cost on the controls only"""
-        super(ContactImplicitOrthogonalCollocation, self).add_running_cost(cost_func, [self.u], name)
+        super(ContactImplicitOrthogonalCollocation, self)._add_running_cost(cost_func, [self.u], name)
 
     def add_quadratic_running_cost(self, Q, b, vars=None, name="QuadraticCost"):
         """
@@ -1023,7 +1023,7 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
             t = self.get_control_times(soln)
             # Create the first trajectory
             utraj = PiecewisePolynomial.LagrangeInterpolatingPolynomial()
-            for n in range(1, self.num_time_samples-1):
+            for n in range(1, self.num_time_samples):
                 start = n * self.control_order
                 stop = (n+1)*self.control_order + 1
                 piece = PiecewisePolynomial.LagrangeInterpolatingPolynomial(t[start:stop], uval[start:stop])
@@ -1051,6 +1051,7 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         """ unpack the trajectories from the program result and store in a dictionary"""
         t = self.get_solution_times(soln)
         soln_dict = {"time": t,
+                    "timesteps": soln.GetSolution(self.h),
                     "state": soln.GetSolution(self.x),
                     "control": soln.GetSolution(self.u),
                     "force": soln.GetSolution(self.l),

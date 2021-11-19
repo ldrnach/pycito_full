@@ -54,7 +54,13 @@ xinit = np.zeros(trajopt.x.shape)
 for n in range(0, xinit.shape[0]):
     xinit[n,:] = np.linspace(start=x0[n], stop=xf[n], num=Ntotal)
 linit = np.zeros(trajopt.l.shape)
-trajopt.set_initial_guess(xtraj=xinit, utraj=uinit, ltraj=linit)
+sinit = np.zeros(trajopt.var_slack.shape)
+ainit = np.zeros(trajopt.accel.shape)
+hinit = np.ones(trajopt.h.shape) * max_time/(N-1)
+# Set the initial guess
+trajopt.set_initial_guess(xtraj=xinit, utraj=uinit, ltraj=linit, straj=sinit)
+trajopt.prog.SetInitialGuess(trajopt.accel, ainit)
+trajopt.prog.SetInitialGuess(trajopt.h, hinit)
 # Check the program
 print(f"Checking program")
 if not utils.CheckProgram(trajopt.prog):
@@ -67,19 +73,26 @@ trajopt.setSolverOptions({'Iterations limit': 10000,
                         'Major optimality tolerance': 1e-6,
                         'Scale option': 2})
 
-# Solve the problem
-result = trajopt.solve()
-utils.printProgramReport(result, trajopt.prog)
-# Save the results
-dir = os.path.join('data', 'slidingblock', 'collocation')
-soln = trajopt.result_to_dict(result)
-os.makedirs(dir)
-file = os.path.join(dir, 'block_collocation_results.pkl')
-utils.save(file, soln)
-text = trajopt.generate_report(result)
-report = os.path.join(dir, 'block_collocation_report.txt')
-with open(report, "w") as file:
-    file.write(text)
-# Make figures from the results
-xtraj, utraj, ftraj = trajopt.reconstruct_all_trajectories(result)[0:3]
-plant.plot_trajectories(xtraj, utraj, ftraj, samples=10000, show=False, savename=os.path.join(dir, 'BlockCollocation.png'))
+weights = [1, 10, 100, 1000, 10000]
+for weight in weights:
+    print(f"Solving with complementarity weight: {weight}")
+    # Increase the complementarity cost weight
+    trajopt.complementarity_cost_weight = weight
+    # Solve the problem
+    result = trajopt.solve()
+    utils.printProgramReport(result, trajopt.prog)
+    # Save the results
+    dir = os.path.join('data', 'slidingblock', 'collocation',f'weight_{weight}')
+    soln = trajopt.result_to_dict(result)
+    os.makedirs(dir)
+    file = os.path.join(dir, 'block_collocation_results.pkl')
+    utils.save(file, soln)
+    text = trajopt.generate_report(result)
+    report = os.path.join(dir, 'block_collocation_report.txt')
+    with open(report, "w") as file:
+        file.write(text)
+    # Make figures from the results
+    xtraj, utraj, ftraj = trajopt.reconstruct_all_trajectories(result)[0:3]
+    plant.plot_trajectories(xtraj, utraj, ftraj, samples=10000, show=False, savename=os.path.join(dir, 'BlockCollocation.png'))
+    # Re-make the initial guess for the next iteration
+    trajopt.initialize_from_previous(result)

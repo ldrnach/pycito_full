@@ -70,7 +70,7 @@ class MultibodyDynamicsConstraint(MultibodyConstraint):
 
     def addToProgram(self, prog, pos, vel, accel, ctrl, force):
         dvars = np.concatenate([pos, vel, accel, ctrl, force])
-        prog.AddConstraint(self.eval, lb = self.lower_bound, ub = self.upper_bound, vars=dvars, description='multibody_dyamics')
+        prog.AddConstraint(self.eval, lb = self.lower_bound, ub = self.upper_bound, vars=dvars, description='multibody_dynamics')
         return prog
 
     def eval(self, dvars):

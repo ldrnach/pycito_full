@@ -494,7 +494,8 @@ class CollocatedComplementarity(ComplementarityConstraint):
             zvars: the decision variables, z
         """
         # Nonnegativity constraints
-        prog.AddBoundingBoxConstraint(np.zeros((zvars.size,1)), np.full((zvars.size,1), np.inf), zvars.reshape((zvars.size,1)))
+        for n in range(zvars.shape[1]):
+            prog.AddBoundingBoxConstraint(np.zeros((zvars.shape[0],1)), np.full((zvars.shape[0],1), np.inf), zvars[:, n:n+1]).evaluator().set_description(self.name + '_var_nonnegativity')
 
     def _add_variable_collocation(self, prog, zvars, zslacks):
         """

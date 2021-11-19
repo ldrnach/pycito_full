@@ -155,7 +155,7 @@ class CollocatedComplementarityBaseTestMixin():
         self.prog.AddQuadraticErrorCost(Q, b, vars=self.z.flatten())
         # Expected test output values
         self.expected_num_variables = 16
-        self.expected_num_constraints = 7
+        self.expected_num_constraints = 9
         self.expected_num_costs = 1
         self.expected_num_slacks = 4
         # Set the initial guess for the program - initialize at the solution

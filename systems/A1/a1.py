@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from numpy.lib.function_base import append
 from pydrake.all import PiecewisePolynomial, InverseKinematics, Solve, Body, PrismaticJoint, BallRpyJoint, SpatialInertia, UnitInertia
 # Project Imports
-from utilities import FindResource, GetKnotsFromTrajectory, quat2rpy
+from utilities import FindResource, quat2rpy
 from systems.timestepping import TimeSteppingMultibodyPlant
 from systems.visualization import Visualizer
 from systems.terrain import FlatTerrain
@@ -152,24 +152,24 @@ class A1(TimeSteppingMultibodyPlant):
         # Return the configuration vector
         return result.GetSolution(IK.q()), result.is_success()
 
-    def plot_trajectories(self, xtraj=None, utraj=None, ftraj=None, jltraj=None, show=False, savename=None):
+    def plot_trajectories(self, xtraj=None, utraj=None, ftraj=None, jltraj=None, samples=None, show=False, savename=None):
         """ Plot all the trajectories for A1 """
         # Edit the save string
         if xtraj:
-            self.plot_state_trajectory(xtraj, show=False, savename=savename)
+            self.plot_state_trajectory(xtraj, samples, show=False, savename=savename)
         if utraj:
-            self.plot_control_trajectory(utraj, show=False, savename=utils.append_filename(savename, '_control'))
+            self.plot_control_trajectory(utraj, samples, show=False, savename=utils.append_filename(savename, '_control'))
         if ftraj:
-            self.plot_force_trajectory(ftraj, show=False, savename=utils.append_filename(savename, '_reactions'))
+            self.plot_force_trajectory(ftraj, samples, show=False, savename=utils.append_filename(savename, '_reactions'))
         if jltraj:
-            self.plot_limit_trajectory(jltraj, show=False, savename=utils.append_filename(savename, '_limits'))
+            self.plot_limit_trajectory(jltraj, samples, show=False, savename=utils.append_filename(savename, '_limits'))
         if show:
             plt.show()
 
-    def plot_state_trajectory(self, xtraj, show=True, savename=None):
+    def plot_state_trajectory(self, xtraj, samples=None, show=True, savename=None):
         """ Plot the state trajectory for A1"""
         # Get the configuration and velocity trajectories as arrays
-        t, x = GetKnotsFromTrajectory(xtraj)
+        t, x = utils.trajectoryToArray(xtraj, samples)
         nq = self.multibody.num_positions()
         q, v = np.split(x, [nq])
         # Get orientation from quaternion
@@ -253,10 +253,10 @@ class A1(TimeSteppingMultibodyPlant):
 
     @deco.showable_fig
     @deco.saveable_fig
-    def plot_control_trajectory(self, utraj):
+    def plot_control_trajectory(self, utraj, samples=None):
         """Plot joint actuation torque trajectories"""
         # Get the knot points from the trajectory
-        t, u = GetKnotsFromTrajectory(utraj)
+        t, u = utils.trajectoryToArray(utraj, samples)
         # Plot the actuation torques, organized by joint angle
         fig, axs = plt.subplots(3,1)
         leg = ['FR','FL','BR','BL']
@@ -274,9 +274,9 @@ class A1(TimeSteppingMultibodyPlant):
 
     @deco.showable_fig
     @deco.saveable_fig
-    def plot_force_trajectory(self, ftraj):
+    def plot_force_trajectory(self, ftraj, samples=None):
         """ Plot reaction force trajectories"""
-        t, f = GetKnotsFromTrajectory(ftraj)
+        t, f = utils.trajectoryToArray(ftraj, samples)
         f = self.resolve_forces(f)  
         fig, axs = plt.subplots(3,1)
         legs = ['FR', 'FL', 'BR', 'BL']
@@ -292,11 +292,11 @@ class A1(TimeSteppingMultibodyPlant):
 
     @deco.showable_fig
     @deco.saveable_fig
-    def plot_limit_trajectory(self, jltraj):
+    def plot_limit_trajectory(self, jltraj, samples=None):
         """
         Plot the joint limit torque trajectories
         """
-        t, jl = GetKnotsFromTrajectory(jltraj)
+        t, jl = utils.trajectoryToArray(jltraj, samples)
         jl = self.resolve_limit_forces(jl)
         leg = ['FR','FL','BR','BL']
         angle = ['Hip Roll','Hip Pitch','Knee Pitch']
@@ -411,10 +411,10 @@ class A1VirtualBase(A1):
         # Return the configuration vector
         return result.GetSolution(IK.q()), result.is_success()
 
-    def plot_state_trajectory(self, xtraj, show=True, savename=None):
+    def plot_state_trajectory(self, xtraj, samples=None, show=True, savename=None):
         """ Plot the state trajectory for A1"""
         # Get the configuration and velocity trajectories as arrays
-        t, x = GetKnotsFromTrajectory(xtraj)
+        t, x = utils.trajectoryToArray(xtraj, samples)
         nq = self.multibody.num_positions()
         q, v = np.split(x, [nq])
         # Plot Base orientation and position
