@@ -369,14 +369,51 @@ class A1VirtualBase(A1):
         context = self.multibody.CreateDefaultContext()
         pos = self.multibody.GetPositions(context)
         # Change the hip pitch to 45 degrees
-        pos[10:14] = np.pi/4
+        hip_pitch = [7, 10, 13, 16]
+        pos[hip_pitch] = np.pi/4
         # Change the knee pitch to keep the foot under the hip
-        pos[14:] = -np.pi/2
+        knee_pitch = [8, 11, 14, 17]
+        pos[knee_pitch] = -np.pi/2
         # Adjust the base height to make the normal distances 0
         self.multibody.SetPositions(context, pos)
         dist = self.GetNormalDistances(context)
         pos[2] = pos[2] - np.amin(dist)
         return pos
+
+    def foot_pose_ik(self, base_pose, feet_position, guess=None):
+        """
+        Solves for the joint configuration that achieves the desired base and foot positions
+        
+        Arguments:
+            base_pose: (6,) numpy array specifying base position as [xyz, rpy]
+            feet_position: 4-iterable, each element a (3,) numpy array specifying foot positions for [FL, FR, RL, RR] in order
+        Returns:    
+            q: The solved configuration
+            status: a boolean. True if the IK problem was solved successfully
+        """
+        # Create an IK problem
+        IK = InverseKinematics(self.multibody, with_joint_limits=True)
+        # Create context and set pose
+        context = self.multibody.CreateDefaultContext()
+        q_0 = np.zeros((self.multibody.num_positions(),))
+        q_0[0:6] = base_pose
+        self.multibody.SetPositions(context, q_0)
+        # Constrain the foot positions in the world frame
+        world = self.multibody.world_frame()
+        for frame, fpose, wpose in zip(self.collision_frames, self.collision_poses, feet_position):
+            point = fpose.translation().copy()
+            IK.AddPositionConstraint(frame, point, world, wpose, wpose)
+        # Set the base position as a constraint
+        qvar = IK.q()
+        prog = IK.prog()
+        prog.AddLinearEqualityConstraint(Aeq = np.eye(6), beq = np.expand_dims(base_pose, axis=1), vars=qvar[0:6])
+        # Set an initial guess
+        if guess is None:
+            guess = self.standing_pose()
+        prog.SetInitialGuess(qvar, guess)
+        # Solve the problem
+        result = Solve(prog)
+        return result.GetSolution(qvar), result.is_success()
 
     def standing_pose_ik(self, base_pose, guess=None):
         """
@@ -447,7 +484,7 @@ class A1VirtualBase(A1):
         vis.plant.AddJoint(rpyrotation)
         vis.visualize_trajectory(xtraj=trajectory)
 
-if __name__ == "__main__":
+def describe_a1():
     a1 = A1()
     a1.Finalize()
     print(f"A1 effort limits {a1.get_actuator_limits()}")
@@ -455,6 +492,12 @@ if __name__ == "__main__":
     print(f"A1 has lower joint limits {qmin} and upper joint limits {qmax}")
     print(f"A1 has actuation matrix:")
     print(a1.multibody.MakeActuationMatrix())
+    for frame, pose in zip(a1.collision_frames, a1.collision_poses):
+        print(f"A1 has collision frame with name {frame.name()}")
+
+def example_ik():
+    a1 = A1()
+    a1.Finalize()
     # Get the default A1 standing pose
     pose = a1.standing_pose()
     print(f"A1 standing pose{pose}")
@@ -466,13 +509,26 @@ if __name__ == "__main__":
     print(f"Second A1 standing pose {pose2_ik}")
     #u, f = a1.static_controller(pose, verbose=True)
     print('Complete')
-    #a1.configuration_sweep()
-    # a1.print_frames()
-    # pos = a1.standing_pose()
-    # pos2 = pos.copy()
-    # pos2[4] = 1
-    # traj = PiecewisePolynomial.FirstOrderHold(np.linspace(0.,1.,101),np.linspace(pos, pos2, 101, axis=1))
-    # a1.visualize(traj)
-    # print(f"The configuration is {pos}")
-    # a1.print_frames(pos)
+
+def example_pose():
+    a1 = A1VirtualBase()
+    a1.Finalize()
+    pos = a1.standing_pose()
+    pos2 = pos.copy()
+    pos2[0] = 1
+    traj = PiecewisePolynomial.FirstOrderHold(np.linspace(0.,1.,101),np.linspace(pos, pos2, 101, axis=1))
+    a1.visualize(traj)
+    print(f"The configuration is {pos}")
+    context = a1.multibody.CreateDefaultContext()
+    a1.multibody.SetPositions(context,pos)
+    print(f"The normal distances are {a1.GetNormalDistances(context)}")
     
+def run_configuration_sweep():
+    a1 = A1VirtualBase()
+    a1.Finalize()
+    a1.configuration_sweep()
+
+if __name__ == "__main__":
+    #describe_a1()
+    #run_configuration_sweep()
+    example_pose()
