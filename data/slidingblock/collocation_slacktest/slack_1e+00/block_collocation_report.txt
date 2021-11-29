@@ -1,0 +1,80 @@
+ContactImplicitOrthogonalCollocation with Block on FlatTerrainwith height 0.0 and friction 0.5
+Source files:
+	/workspaces/pyCITO/systems/block/urdf/sliding_block.urdf
+Friction discretization level: 1
+
+	Knot points: 26
+	Time range: [1.0,1.0]
+	
+Date: November 19, 2021
+
+Problem has 1563 variables, 125 cost terms, and 2313 constraints
+
+Solver: SnoptSolver
+Solver halted after 0 hours, 1 minutes, and 21.15 seconds
+Solved with SNOPT/fortran
+Optimization successful? False
+Optimal cost = 2600.411735330578
+SNOPT Exit Status 31: iteration limit reached
+Infeasible constraints: set()
+Individual Costs: 
+QuadraticControlCost: 	 2.5634E+03
+StateCost: 	 3.6980E+01
+
+Constraint Violations: 
+CollocationConstraint: 	 7.5248E-11
+multibody_dynamics: 	 7.1956E-11
+normal_distance_nonnegativity: 	 0.0000E+00
+sliding_velocity_fcn_nonnegativity: 	 1.9047E-11
+sliding_velocity_fcn_collocation: 	 1.4940E-09
+sliding_velocity_orthogonality: 	 6.1651E-12
+friction_cone_fcn_nonnegativity: 	 3.7011E-12
+friction_cone_fcn_collocation: 	 3.0052E-12
+friction_cone_orthogonality: 	 5.4608E-15
+normal_distance_fcn_nonnegativity: 	 2.9815E-13
+normal_distance_fcn_collocation: 	 7.4237E-13
+normal_distance_orthogonality: 	 1.2634E-13
+sliding_velocity_var_collocation: 	 6.0606E-12
+friction_cone_var_collocation: 	 1.2781E-11
+normal_distance_var_collocation: 	 8.7007E-12
+ContinuityConstraint: 	 3.2454E-11
+EqualTimeConstraints: 	 0.0000E+00
+StateConstraint: 	 1.7270E-11
+TimestepConstraint: 	 0.0000E+00
+sliding_velocity_var_nonnegativity: 	 3.6884E-12
+friction_cone_var_nonnegativity: 	 0.0000E+00
+normal_distance_var_nonnegativity: 	 1.1364E-11
+ZeroAccelerationBoundary: 	 0.0000E+00
+Solver options:
+	 Iterations limit: 10000
+	 Major feasibility tolerance: 1e-06
+	 Major optimality tolerance: 1e-06
+	 Scale option: 2
+CollocatedConstantSlackComplementarity on the function _normal_distance with input dimension 4 and output dimension 1
+
+CollocatedConstantSlackComplementarity on the function _sliding_velocity with input dimension 5 and output dimension 4
+
+CollocatedConstantSlackComplementarity on the function _friction_cone with input dimension 9 and output dimension 1
+
+
+Normal Dissipation Enforced? False
+Equal time steps enforced? True
+
+State Constraints: 
+	x[0, [0 1 2 3]] = [0.  0.5 0.  0. ]
+	x[100, [0 1 2 3]] = [5.  0.5 0.  0. ]
+
+Running Costs: 
+	QuadraticControlCost: Quadratic cost on controls with weights Q = 
+[[10.]] 
+	and bias b = 
+[0.]
+	StateCost: Quadratic cost on position with weights Q = 
+[[1. 0. 0. 0.]
+ [0. 1. 0. 0.]
+ [0. 0. 1. 0.]
+ [0. 0. 0. 1.]] 
+	and bias b = 
+[5.  0.5 0.  0. ]
+
+Final Costs: 

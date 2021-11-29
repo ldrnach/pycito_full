@@ -861,8 +861,7 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         self.state_collocation = cstrs.RadauCollocationConstraint(xdim=x_.shape[0], order=self.state_order)
         # Add the constraint to the program for every finite element
         for n in range(self.num_intervals):
-            start = n*self.num_collocation_pts + 1
-            stop = (n+1)*self.num_collocation_pts + 1
+            start, stop = self._calc_interval_indices(n)
             self.state_collocation.addToProgram(self.prog, timestep = self.h[n,:], xvars=x_[:, start:stop], dxvars=dx_[:, start:stop], x_final_last=x_[:, start-1:start])
 
     def _add_dynamic_constraints(self):
@@ -893,15 +892,21 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         self.distance_cstr.set_description('normal_distance')
         self.sliding_cstr.set_description('sliding_velocity')
         self.friction_cstr.set_description('friction_cone')
-        # complementarity constraints to the rest of the program
-        for n in range(self.num_intervals):
-            start = n * self.num_collocation_pts + 1
-            stop = (n+1)*self.num_collocation_pts + 1
-            if n == 0:
-                start = 0
-            self.distance_cstr.addToProgram(self.prog, xvars=self.x[:, start:stop], zvars=self._normal_forces[:, start:stop])
+        # Add the complementarity constraints on the first knot point
+        start, stop = self._calc_interval_indices(0)
+        for n in range(start, stop):
+            self.prog.AddConstraint(self._normal_distance, lb = np.zeros((self.numN, )), ub=np.full((self.numN, ), np.inf), vars=self.x[:, n], description='normal_distance_nonnegativity')
+        self.sliding_cstr.addToProgram(self.prog, xvars=np.concatenate([self.x[:, start:stop], self._sliding_vel[:, start:stop]], axis=0), zvars = self._tangent_forces[:, start:stop])      
+        self.friction_cstr.addToProgram(self.prog,  xvars=np.concatenate([self.x[:, start:stop], self._normal_forces[:, start:stop], self._tangent_forces[:, start:stop]], axis=0), zvars=self._sliding_vel[:, start:stop])
+        # Add complementarity constraints at intermediate points
+        for n in range(1, self.num_intervals):
+            past_start, past_stop = self._calc_interval_indices(n-1)
+            start, stop = self._calc_interval_indices(n)
+            self.distance_cstr.addToProgram(self.prog, xvars=self.x[:, start:stop], zvars=self._normal_forces[:, past_start:past_stop])
             self.sliding_cstr.addToProgram(self.prog, xvars=np.concatenate([self.x[:, start:stop], self._sliding_vel[:, start:stop]], axis=0), zvars = self._tangent_forces[:, start:stop])
             self.friction_cstr.addToProgram(self.prog, xvars=np.concatenate([self.x[:, start:stop], self._normal_forces[:, start:stop], self._tangent_forces[:, start:stop]], axis=0), zvars=self._sliding_vel[:, start:stop])
+        # Add at the final interval for normal distance
+        self.distance_cstr.addToProgram(self.prog, xvars=self.x[:, stop:], zvars=self._normal_forces[:, start:stop])
 
     def _add_joint_limit_constraints(self):
         """add the joint limit constraints to the program"""
@@ -911,8 +916,7 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         self.joint_limit_cstr.set_description('joint_limits')       
         # Add complementarity to all other knot and collocation points
         for n in range(self.num_intervals):
-            start = n * self.num_collocation_pts + 1
-            stop = (n+1)*self.num_collocation_pts + 1
+            start, stop = self._calc_interval_indices(n)
             if n == 0:
                 start = 0
             self.joint_limit_cstr.addToProgram(self.prog, xvars = self.x[:, start:stop], zvars = self.jl[:, start:stop])
@@ -1070,6 +1074,10 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         if self.Jl is not None:
             soln_dict['jointlimit'] = soln.GetSolution(self.jl)
         return soln_dict
+
+    def _calc_interval_indices(self, n):
+        """Return the start and stop indices of the nth finite element interval"""
+        return n * self.num_collocation_pts + 1, (n+1) * self.num_collocation_pts + 1
 
     @property
     def x(self):

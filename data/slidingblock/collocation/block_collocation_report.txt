@@ -1,0 +1,78 @@
+ContactImplicitOrthogonalCollocation with Block on FlatTerrainwith height 0.0 and friction 0.5
+Source files:
+	/workspaces/pyCITO/systems/block/urdf/sliding_block.urdf
+Friction discretization level: 1
+
+	Knot points: 26
+	Time range: [1.0,1.0]
+	
+Date: November 15, 2021
+
+Problem has 1563 variables, 200 cost terms, and 2175 constraints
+
+Solver: SnoptSolver
+Solver halted after 0 hours, 0 minutes, and 21.14 seconds
+Solved with SNOPT/fortran
+Optimization successful? True
+Optimal cost = 1677.0280275547932
+SNOPT Exit Status 1: optimality conditions satisfied
+Infeasible constraints: set()
+Individual Costs: 
+normal_distance_cost: 	 2.8552E+01
+sliding_velocity_cost: 	 2.0641E+01
+friction_cone_cost: 	 6.8231E+00
+QuadraticControlCost: 	 1.5852E+03
+StateCost: 	 3.5765E+01
+
+Constraint Violations: 
+CollocationConstraint: 	 2.0462E-10
+multibody_dyamics: 	 8.0567E-12
+normal_distance_fcn_nonnegativity: 	 9.9920E-16
+normal_distance_fcn_collocation: 	 2.5109E-14
+sliding_velocity_fcn_nonnegativity: 	 7.4582E-11
+sliding_velocity_fcn_collocation: 	 6.7737E-11
+friction_cone_fcn_nonnegativity: 	 1.5993E-12
+friction_cone_fcn_collocation: 	 5.8472E-12
+normal_distance_var_collocation: 	 9.8854E-13
+sliding_velocity_var_collocation: 	 7.0511E-12
+friction_cone_var_collocation: 	 1.4481E-11
+ContinuityConstraint: 	 7.2786E-11
+EqualTimeConstraints: 	 0.0000E+00
+StateConstraint: 	 8.9251E-16
+TimestepConstraint: 	 0.0000E+00
+: 	 3.7101E-12
+ZeroAccelerationBoundary: 	 0.0000E+00
+Solver options:
+	 Iterations limit: 10000
+	 Major feasibility tolerance: 1e-06
+	 Major optimality tolerance: 1e-06
+	 Scale option: 2
+CollocatedCostRelaxedComplementarity on the function _normal_distance with input dimension 4 and output dimension 1
+
+CollocatedCostRelaxedComplementarity on the function _sliding_velocity with input dimension 5 and output dimension 4
+
+CollocatedCostRelaxedComplementarity on the function _friction_cone with input dimension 9 and output dimension 1
+
+
+Normal Dissipation Enforced? False
+Equal time steps enforced? True
+
+State Constraints: 
+	x[0, [0 1 2 3]] = [0.  0.5 0.  0. ]
+	x[100, [0 1 2 3]] = [5.  0.5 0.  0. ]
+
+Running Costs: 
+	QuadraticControlCost: <lambda> on u
+	QuadraticControlCost: Quadratic cost on controls with weights Q = 
+[[10.]] 
+	and bias b = 
+[0.]
+	StateCost: Quadratic cost on position with weights Q = 
+[[1. 0. 0. 0.]
+ [0. 1. 0. 0.]
+ [0. 0. 1. 0.]
+ [0. 0. 0. 1.]] 
+	and bias b = 
+[5.  0.5 0.  0. ]
+
+Final Costs: 
