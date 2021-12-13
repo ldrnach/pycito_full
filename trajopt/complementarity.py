@@ -10,7 +10,8 @@ from abc import ABC, abstractmethod
 
 #TODO: Update eval, upper_bound, lower_bound methods in CollocatedComplementarity for compatibility
 #TODO: Unittesting for CollocatedComplementarity and it's subclasses
-
+#TODO: Implement CostRelaxedLinearEqualityComplementarity
+#TODO: Implement automatic slack variable initialization
 class ComplementarityConstraint(ABC):
     """
     Base class for implementing complementarity constraint functions of the form:

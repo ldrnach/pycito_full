@@ -8,7 +8,7 @@ this example also demonstrates how to add a callback to the program, and use it 
 
 Adapted from the MathematicalProgram tutorial on the Drake website: https://drake.mit.edu 
 """
-from pydrake.solvers.mathematicalprogram import MathematicalProgram, Solve 
+from pydrake.all import MathematicalProgram, IpoptSolver
 import numpy as np 
 import matplotlib.pyplot as plt  
 
@@ -49,7 +49,8 @@ iter_count = 0
 prog.AddVisualizationCallback(update, x)
 
 # Solve the optimization problem - optional second argument is initial guess. Third argument is solver parameters
-result = Solve(prog, x_init, None)
+solver = IpoptSolver()
+result = solver.Solve(prog, x_init, None)
 # Print the result
 print("Success? ", result.is_success())
 # Print the solution
@@ -58,7 +59,8 @@ print("x* = ", result.GetSolution(x))
 print('optimal cost = ', result.get_optimal_cost())
 # Print the name of the solver
 print('solver is: ', result.get_solver_id().name())
-
+# Print the status
+print(f"IPOPT Solver status: {result.get_solver_details().status} meaning {result.get_solver_details().ConvertStatusToString()}")
 # We can also evaluate the costs and constraints after the fact
 costs = prog.GetAllCosts()
 cstrs = prog.GetAllConstraints()

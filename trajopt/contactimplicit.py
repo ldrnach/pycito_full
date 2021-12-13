@@ -322,15 +322,13 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         u = self.control_scaling * u
         fN = self.force_scaling * fN
         fT = self.force_scaling * fT
-        # Calculate the position integration error
-        p1, _ = np.split(x1, 2)
-        p2, dp2 = np.split(x2, 2)
-        fp = p2 - p1 - h*dp2
         # Get positions and velocities
-        _, v1 = np.split(x1, [plant.multibody.num_positions()])
+        q1, v1 = np.split(x1, [plant.multibody.num_positions()])
         q2, v2 = np.split(x2, [plant.multibody.num_positions()])
         # Update the context - backward Euler integration
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate((q2,v2), axis=0))
+        # Calculate the position integration error
+        fq = q2 - q1 - h*plant.multibody.MapVelocityToQDot(context, v2)
         # calculate generalized forces
         M = plant.multibody.CalcMassMatrixViaInverseDynamics(context)
         C = plant.multibody.CalcBiasTerm(context)
@@ -347,7 +345,7 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         forces += Jn.transpose().dot(fN) + Jt.transpose().dot(fT)
         # Do inverse dynamics - velocity dynamics error
         fv = M.dot(v2 - v1) - h*forces
-        return np.concatenate((fp, fv), axis=0)
+        return np.concatenate((fq, fv), axis=0)
 
     # Complementarity Constraint functions for Contact
     def _normal_distance(self, state):
@@ -470,6 +468,17 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         if straj is not None:
             self.prog.SetInitialGuess(self.var_slack, straj)
 
+    def add_quadratic_differenced_cost(self, Q, vars=None, name='DifferenceCost'):
+        def differenced_cost(dvars):
+            v1, v2 = np.split(dvars, 2)
+            return (v2 - v1).dot(Q.dot(v2 - v1))
+        for n in range(1, self.num_time_samples):
+            var1 = vars[:, n-1]
+            var2 = vars[:, n]
+            self.prog.AddCost(differenced_cost, np.concatenate([var1, var2], axis=0), description=name)
+        varnames = vars.item(0).get_name().split('(')[0]
+        self._text['RunningCosts'] += f"\n\t{name}: Differenced Cost on {varnames}"
+
     def add_running_cost(self, cost_func, vars=None, name="RunningCost"):
         """Add a running cost to the program"""
         self._add_running_cost(cost_func, vars, name)
@@ -499,12 +508,17 @@ class ContactImplicitDirectTranscription(OptimizationBase):
             vars: a subset of the decision variables
             name (optional): a string describing the tracking cost
         """
+        assert traj.shape == vars.shape, "Trajectory and decision variable shapes do not match"
+        assert Q.shape[0] == vars.shape[0], "Weight matrix does not have the right dimensions"
+        assert Q.shape[0] == Q.shape[1], "Weight matrix is not square" 
         #TODO: Implement for tracking a trajectory / with variable timesteps
-        for n in range(0, self.num_time_samples-1):
-            integrated_cost = lambda z: z[0]*(z[:1] - traj[:,n]).dot(Q.dot(z[1:] - traj[:,n]))
-            new_vars = [var[:,n] for var in vars]
-            new_vars.insert(0, self.h[n,:])
-            self.prog.AddCost(integrated_cost, np.concatenate(new_vars, axis=0), description=name)
+        for dvar, ref in zip(vars.T, traj.T):
+            self.prog.AddQuadraticErrorCost(Q, ref, dvar).evaluator().set_description(name)        
+        # for n in range(0, self.num_time_samples-1):
+        #     integrated_cost = lambda z: z[0]*(z[:1] - traj[:,n]).dot(Q.dot(z[1:] - traj[:,n]))
+        #     new_vars = [var[:,n] for var in vars]
+        #     new_vars.insert(0, self.h[n,:])
+        #     self.prog.AddCost(integrated_cost, np.concatenate(new_vars, axis=0), description=name)
 
     def add_final_cost(self, cost_func, vars=None, name="FinalCost"):
         """Add a final cost to the program"""
@@ -533,7 +547,7 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         if type(vars) != list:
             vars = [vars]
         # Add the cost
-        quadratic_cost = lambda z: (z -b).dot(Q.dot(z - b))
+        quadratic_cost = lambda z: (z - b).dot(Q.dot(z - b))
         self._add_running_cost(quadratic_cost, vars, name)
         # Add string representing the cost
         varnames = ", ".join([var.item(0).get_name().split('(')[0] for var in vars])

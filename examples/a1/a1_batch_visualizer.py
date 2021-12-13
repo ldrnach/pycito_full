@@ -34,5 +34,5 @@ def main(directory):
         make_a1_visualization(dir)
 
 if __name__ == "__main__":
-    dirname = os.path.join("examples","a1","runs","Aug-06-2021","walking_T2_Height1000_Control1E-02_ControlRefTrue")
+    dirname = os.path.join("examples","a1","lift_test","trackingcost")
     main(dirname)
