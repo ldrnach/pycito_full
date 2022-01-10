@@ -46,6 +46,10 @@ class OptimizationOptions():
         """ Use a decision variable for the slack in the complementarity constraints"""
         self.__complementarity_class = compl.LinearEqualityConstantSlackComplementarity
 
+    def useLinearComplementarityWithCost(self):
+        """ Use a decision variable for the slack in the complementarity constraints, enforce orthogonality in a cost"""
+        self.__complementarity_class = compl.CostRelaxedLinearEqualityComplementarity
+
     @property
     def complementarity(self):
         return self.__complementarity_class

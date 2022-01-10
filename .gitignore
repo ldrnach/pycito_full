@@ -12,3 +12,5 @@ __init__.pyc
 *.txt
 *.mat
 *.gif
+*.zip
+*.mp4
