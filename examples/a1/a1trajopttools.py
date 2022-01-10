@@ -42,7 +42,7 @@ def make_a1_trajopt(a1, N=101, duration=[1, 1]):
     # Add equal timestep constraints
     trajopt.add_equal_time_constraints()
     # Set the solver options
-    trajopt.setSolverOptions({'Iterations limit': 1000000,
+    trajopt.setSolverOptions({'Iterations limit': 10000000,
                             'Major iterations limit': 5000,
                             'Major feasibility tolerance': 1e-6,
                             'Major optimality tolerance': 1e-6,
@@ -86,7 +86,7 @@ def add_joint_tracking_cost(trajopt, weight, qref):
     Add a quadratic joint (configuration) tracking cost to the problem
     """
     Q = weight * np.eye(qref.shape[0])
-    qvars = trajopt.x[:trajopt.plant_f.multubody.num_positiions(), :]
+    qvars = trajopt.x[:trajopt.plant_f.multibody.num_positions(), :]
     trajopt.add_tracking_cost(Q, qref, vars=qvars, name='JointTracking')
     return trajopt
 
@@ -109,6 +109,7 @@ def progressive_solve(trajopt, weights, savedir):
     """
     trajopt.enable_cost_display('figure')
     for weight in weights:
+        print(f"Running optimization with weight {weight:.0e}")
         savedir_this = os.path.join(savedir, f"weight_{weight:.0e}")
         trajopt.complementarity_cost_weight = weight
         results = trajopt.solve()

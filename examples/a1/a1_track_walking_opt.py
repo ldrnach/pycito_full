@@ -63,19 +63,19 @@ def check_walking_reference(N, distance, savedir):
 
 def main():
     # Setup the trajectory optimization
-    savedir = os.path.join('examples','a1','walking','trackingcost')
+    savedir = os.path.join('examples','a1','walking','trackingcost_quarter_51')
     a1 = opttools.make_a1()
     # This setup is for a 1m walk at 0.5m/s with a sampling rate of 50Hz
-    N = 101             # Number of knot points
-    duration = [2, 2]   # Minimum and maximum trajectory duration 
-    distance = 1
+    N = 51        # Number of knot points
+    duration = [1, 1]   # Minimum and maximum trajectory duration 
+    distance = 0.25
 
-    trajopt = opttools.make_trajopt(a1, N, duration)
+    trajopt = opttools.make_a1_trajopt(a1, N, duration)
     # Make and add boundary constraints
     x0, xf = get_walking_boundary(a1, distance)
     trajopt = opttools.add_boundary_constraints(trajopt, x0, xf)
     # Make and add the initial guess
-    x, u, f = get_walking_reference_trajectory(a1, N, distance)
+    x, u, f = get_walking_reference_trajectory(N, distance)
     trajopt.set_initial_guess(xtraj=x, utraj=u, ltraj=f)
     # Add the running costs
     trajopt = opttools.add_control_cost(trajopt, weight=0.01)
@@ -85,5 +85,5 @@ def main():
     opttools.progressive_solve(trajopt, weights, savedir)
 
 if __name__ == '__main__':
-    check_walking_reference(N=101, distance = 1, savedir = os.path.join('examples','a1','walking','trackingcost'))
-    #main()
+    #check_walking_reference(N=51, distance = 0.25, savedir = os.path.join('examples','a1','walking','trackingcost_quarter_51'))
+    main()
