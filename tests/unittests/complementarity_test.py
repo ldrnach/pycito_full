@@ -208,9 +208,20 @@ class LinearComplementarityVariableSlackTest(_ComplementarityBaseTestMixin, unit
         result = self.solve_problem()
         self.check_setting_cost(result)
 
-# class LinearComplementarityWithCost(unittest.TestCase):
-#     def setUp(self):
-#         super(LinearComplementarityWithCost, self).setUp()
+class LinearComplementarityWithCostTest(_ComplementarityBaseTestMixin, unittest.TestCase):
+    def setUp(self):
+        super(LinearComplementarityWithCost, self).setUp()
+        self.expected_num_slacks += 3
+        self.expected_num_variables += 3
+        self.expected_num_costs += 1
+
+    def setup_complementarity_constraints(self):
+        self.cstr = cp.CostRelaxedLinearEqualityComplementarity(self.fcn, xdim = 2, zdim = 2)
+
+    def test_cost_weight(self):
+        """Test if setting the cost weight has an effect"""
+        result = self.solve_problem()
+        self.check_setting_cost(result)
 
 class CollocatedComplementarityBaseTestMixin():
     def setUp(self):
