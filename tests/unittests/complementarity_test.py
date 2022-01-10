@@ -210,9 +210,9 @@ class LinearComplementarityVariableSlackTest(_ComplementarityBaseTestMixin, unit
 
 class LinearComplementarityWithCostTest(_ComplementarityBaseTestMixin, unittest.TestCase):
     def setUp(self):
-        super(LinearComplementarityWithCost, self).setUp()
-        self.expected_num_slacks += 3
-        self.expected_num_variables += 3
+        super(LinearComplementarityWithCostTest, self).setUp()
+        self.expected_num_slacks += 2
+        self.expected_num_variables += 2
         self.expected_num_costs += 1
 
     def setup_complementarity_constraints(self):
