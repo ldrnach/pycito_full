@@ -317,8 +317,7 @@ class RadauCollocation(LagrangeInterpolant):
         return np.asarray(derivs).transpose()
 
     def right_endpoint_weights(self):
-        weights = [basis.eval(1) for basis in self.bases]
-        return np.asarray(weights)
+        return np.asarray([basis.eval(1) for basis in self.bases])
 
     def left_endpoint_weights(self):
         return np.asarray([basis.eval(0) for basis in self.bases])

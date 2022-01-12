@@ -21,7 +21,7 @@ plant.Finalize()
 # Get the default context
 context = plant.multibody.CreateDefaultContext()
 options = ci.OrthogonalOptimizationOptions()
-options.useComplementarityWithCost()
+options.useComlementarityWithConstantSlack()
 # Create a Contact Implicit OrthogonalCollocation
 N = 26
 max_time = 1
@@ -74,16 +74,16 @@ trajopt.setSolverOptions({'Iterations limit': 10000,
                         'Major optimality tolerance': 1e-6,
                         'Scale option': 2})
 
-weights = [1, 10, 100, 1000, 10000]
-for weight in weights:
-    print(f"Solving with complementarity weight: {weight}")
+slacks = [10, 1, 0.1, 0.01, 0.001, 0.]
+for slack in slacks:
+    print(f"Solving with complementarity slack: {slack}")
     # Increase the complementarity cost weight
-    trajopt.complementarity_cost_weight = weight
+    trajopt.const_slack = slack
     # Solve the problem
     result = trajopt.solve()
     utils.printProgramReport(result, trajopt.prog)
     # Save the results
-    dir = os.path.join('data', 'slidingblock', 'collocation_test2',f'weight_{weight}')
+    dir = os.path.join('data', 'slidingblock', 'collocation_slacktest',f'slack_{slack:.0e}')
     soln = trajopt.result_to_dict(result)
     os.makedirs(dir)
     file = os.path.join(dir, 'block_collocation_results.pkl')
