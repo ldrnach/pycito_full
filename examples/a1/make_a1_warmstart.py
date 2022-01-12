@@ -297,6 +297,76 @@ class A1GaitGenerator(A1VirtualBase):
         u, fN = self.make_force_profile(q)
         return q, u, fN
 
+    def make_first_step(self, gait=GaitParameters()):
+        #Start from a static standing pose
+        q0_ = self.standing_pose()
+        q0, _ = self.standing_pose_ik(base_pose=q0_[0:6], guess=q0_)
+        # Get the foot positions
+        context = self.multibody.CreateDefaultContext()
+        self.multibody.SetPositions(context, q0)
+        world = self.multibody.world_frame()
+        foot_point = []
+        for pose, frame in zip(self.collision_poses, self.collision_frames):
+            point = pose.translation().copy()
+            wpoint = self.multibody.CalcPointsPositions(context, frame, point, world)
+            wpoint = np.squeeze(wpoint)
+            foot_point.append(wpoint)
+        # Get the foot trajectory
+        FL, FR, BL, BR = foot_point
+        # First gait cycle
+        feet = A1GaitGenerator.make_a1_half_step(FL, FR, BL, BR, gait, reversed=True)
+        # Get the base trajectory
+        base = self.make_a1_base_trajectory(q0, feet)
+        return feet, base
+
+    def make_first_step_warmstart(self, gait=GaitParameters(), sampling=31):
+        feet, base = self.make_first_step(gait)
+        q = self.make_configuration_profile(feet, base, sampling)
+        u, fN = self.make_force_profile(q)
+        return q, u, fN
+
+    def make_full_cycle(self, gait=GaitParameters()):
+        # Get the standing pose
+        q0_ = self.standing_pose()
+        q0, _ = self.standing_pose_ik(base_pose=q0_[0:6], guess=q0_)
+        # Get the final position from make_first_step
+        feet0, _ = self.make_first_step(gait)
+        feet0 = [foot.vector_values([foot.end_time()]) for foot in feet0]
+        # Get the foot trajectory
+        FL, FR, BL, BR = feet0
+        feet = A1GaitGenerator.make_a1_gait_cycle(FL, FR, BL, BR, gait)                   
+        # Make the base trajectory
+        base = self.make_a1_base_trajectory(q0, feet)
+        return feet, base
+
+    def make_full_cycle_warmstart(self, gait=GaitParameters(), sampling=61):
+        feet, base = self.make_full_cycle(gait)
+        q = self.make_configuration_profile(feet, base, sampling)
+        u, fN = self.make_force_profile(q)
+        return q, u, fN
+
+    def make_last_step(self, gait=GaitParameters()):
+        # Get the standing pose
+        q0_ = self.standing_pose()
+        q0, _ = self.standing_pose_ik(base_pose=q0_[0:6], guess=q0_)
+        # Get the final position from make_first_step
+        feet, _ = self.make_first_step(gait)
+        feet = [foot.vector_values([foot.end_time()]) for foot in feet]
+        # Make the trailing gait cycle
+        # Get the foot trajectory
+        FL, FR, BL, BR = feet
+        # Last gait cycle
+        feet = A1GaitGenerator.make_a1_half_step(FL, FR, BL, BR, gait, reversed=False)
+        base = self.make_a1_base_trajectory(q0, feet)
+        return feet, base
+
+
+    def make_last_step_warmstart(self, gait=GaitParameters(), sampling=31):
+        feet, base = self.make_last_step(gait)
+        q = self.make_configuration_profile(feet, base, sampling)
+        u, fN = self.make_force_profile(q)
+        return q, u, fN
+
 def trajectory_example():
     print('Making trajectory')
     xtraj = A1GaitGenerator.make_foot_swing_trajectory()

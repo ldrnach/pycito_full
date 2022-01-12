@@ -45,7 +45,7 @@ def run_block_trajopt():
     # Plot results
     plot_block_trajectories(trajopt, result)
     # Save
-    #save_block_trajectories(soln, 'block_trajopt.pkl')
+    save_block_trajectories(soln, 'block_trajopt.pkl')
     # Tighten snopt options
     set_tight_snopt_options(trajopt)
     initialize_from_previous(trajopt, soln)
@@ -56,7 +56,7 @@ def run_block_trajopt():
     # Plot results
     plot_block_trajectories(trajopt, result)
     # Save
-    #save_block_trajectories(soln, 'block_trajopt_tight.pkl')
+    save_block_trajectories(soln, 'block_trajopt_tight.pkl')
 
 def setup_block_trajopt():
     """ Create block plant and contact-implicit trajectory optimization"""

@@ -49,6 +49,27 @@ def make_a1_trajopt(a1, N=101, duration=[1, 1]):
                             'Scale option': 2})
     return trajopt
 
+def make_a1_trajopt_linearcost(a1, N=101, duration=[1, 1]):
+    # Create trajopt
+    context = a1.multibody.CreateDefaultContext()
+    options = ci.OptimizationOptions()
+    options.useLinearComplementarityWithCost()
+    min_time = duration[0]
+    max_time = duration[1]
+    trajopt = ci.ContactImplicitDirectTranscription(a1, context,
+                                        num_time_samples=N,
+                                        minimum_timestep=min_time/(N-1),
+                                        maximum_timestep=max_time/(N-1),
+                                        options = options)
+    # Add equal timestep constraints
+    trajopt.add_equal_time_constraints()
+    # Set the solver options
+    trajopt.setSolverOptions({'Iterations limit': 10000000,
+                            'Major iterations limit': 5000,
+                            'Major feasibility tolerance': 1e-6,
+                            'Major optimality tolerance': 1e-6,
+                            'Scale option': 2})
+    return trajopt
 
 def plot_and_save(trajopt, results, savedir):
     """
@@ -89,6 +110,32 @@ def add_joint_tracking_cost(trajopt, weight, qref):
     qvars = trajopt.x[:trajopt.plant_f.multibody.num_positions(), :]
     trajopt.add_tracking_cost(Q, qref, vars=qvars, name='JointTracking')
     return trajopt
+
+def add_force_cost(trajopt, weight):
+    """
+    Add a quadratic cost on the normal forces
+    """
+    nF = trajopt.numN
+    Q = weight * np.eye(nF)
+    b = np.zeros((nF, ))
+    trajopt.add_quadratic_running_cost(Q, b, vars=trajopt.l[:nF, :], name='ForceCost')
+    return trajopt
+
+def add_control_difference_cost(trajopt, weight):
+    """
+    Add a quadratic cost on the change in control torque
+    """
+    Q = weight * np.eye(trajopt.u.shape[0])
+    trajopt.add_quadratic_differenced_cost(Q, vars=trajopt.u, name='ControlDifference')
+    return trajopt
+
+def add_force_difference_cost(trajopt, weight):
+    """
+    Add a quadratic cost on the change in normal force
+    """
+    nF = trajopt.numN
+    Q = weight * np.eye(nF)
+    trajopt.add_quadratic_differenced_cost(Q, vars=trajopt.l[:nF, :], name='ForceDifference')
 
 def add_boundary_constraints(trajopt, x0, xf):
     """
