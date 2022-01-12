@@ -8,9 +8,9 @@ import os
 from time import time
 from datetime import date
 import numpy as np
-from trajopt.optimizer import A1OptimizerConfiguration
+from pycito.trajopt.optimizer import A1OptimizerConfiguration
 from copy import deepcopy
-from utilities import save
+from pycito.utilities import save
 
 # Create the save path
 dirname = os.path.join('examples','a1','runs')

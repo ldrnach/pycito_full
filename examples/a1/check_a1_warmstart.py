@@ -1,6 +1,6 @@
 import os
-from systems.A1.a1 import A1VirtualBase
-import utilities as utils
+from pycito.systems.A1.a1 import A1VirtualBase
+import pycito.utilities as utils
 import numpy as np
 from pydrake.all import PiecewisePolynomial as pp
 import matplotlib.pyplot as plt

@@ -6,10 +6,10 @@ December 13, 2021
 """
 
 import numpy as np
-from systems.A1.a1 import A1VirtualBase
-from trajopt import contactimplicit as ci
+from pycito.systems.A1.a1 import A1VirtualBase
+from pycito.trajopt import contactimplicit as ci
 import os
-import utilities as utils
+import pycito.utilities as utils
 
 def make_a1():
     a1 = A1VirtualBase()

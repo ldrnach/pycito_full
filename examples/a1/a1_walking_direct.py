@@ -8,9 +8,9 @@ November 2021
 # Imports
 import os
 import numpy as np
-import trajopt.contactimplicit as ci
-from systems.A1.a1 import A1VirtualBase
-import utilities as utils
+import pycito.trajopt.contactimplicit as ci
+from pycito.systems.A1.a1 import A1VirtualBase
+import pycito.utilities as utils
 from matplotlib import pyplot as plt
 
 

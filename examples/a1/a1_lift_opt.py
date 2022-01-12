@@ -6,9 +6,9 @@ June 22, 2021
 #TODO: Create a general optimizer class that also handles keeping track of run settings and reporting
 import numpy as np
 import timeit, os
-from trajopt.contactimplicit import ContactImplicitDirectTranscription, OptimizationOptions 
-from systems.A1.a1 import A1VirtualBase
-import utilities as utils
+from pycito.trajopt.contactimplicit import ContactImplicitDirectTranscription, OptimizationOptions 
+from pycito.systems.A1.a1 import A1VirtualBase
+import pycito.utilities as utils
 from pydrake.all import PiecewisePolynomial, IpoptSolver, SnoptSolver
 import matplotlib.pyplot as plt
 

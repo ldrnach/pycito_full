@@ -8,7 +8,7 @@ import numpy as np
 import os
 from examples.a1 import a1trajopttools as opttools
 from examples.a1.make_a1_warmstart import A1GaitGenerator
-from utilities import save
+from pycito.utilities import save
 from pydrake.all import PiecewisePolynomial as pp
 
 def get_walking_boundary(a1, distance):

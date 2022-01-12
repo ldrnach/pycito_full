@@ -11,10 +11,10 @@ October 15, 2020
 # Imports
 import timeit
 import numpy as np
-from trajopt.contactimplicit import ContactImplicitDirectTranscription, OptimizationOptions, ContactConstraintViewer
-from systems.block.block import Block
+from pycito.trajopt.contactimplicit import ContactImplicitDirectTranscription, OptimizationOptions, ContactConstraintViewer
+from pycito.systems.block.block import Block
 from pydrake.solvers.snopt import SnoptSolver
-import utilities as utils
+import pycito.utilities as utils
 #TODO: Check if the ElasticWeight parameter is available in this version of Drake
 
 def run_block_trajopt():
@@ -45,7 +45,7 @@ def run_block_trajopt():
     # Plot results
     plot_block_trajectories(trajopt, result)
     # Save
-    save_block_trajectories(soln, 'block_trajopt.pkl')
+    #save_block_trajectories(soln, 'block_trajopt.pkl')
     # Tighten snopt options
     set_tight_snopt_options(trajopt)
     initialize_from_previous(trajopt, soln)
@@ -56,7 +56,7 @@ def run_block_trajopt():
     # Plot results
     plot_block_trajectories(trajopt, result)
     # Save
-    save_block_trajectories(soln, 'block_trajopt_tight.pkl')
+    #save_block_trajectories(soln, 'block_trajopt_tight.pkl')
 
 def setup_block_trajopt():
     """ Create block plant and contact-implicit trajectory optimization"""

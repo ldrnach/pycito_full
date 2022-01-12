@@ -1,8 +1,8 @@
 import numpy as np
-from systems.hopper.hopper import Hopper
-import trajopt.contactimplicit as ci
+from pycito.systems.hopper.hopper import Hopper
+import pycito.trajopt.contactimplicit as ci
 import os 
-import utilities as utils
+import pycito.utilities as utils
 import matplotlib.pyplot as plt
 
 def create_hopper():

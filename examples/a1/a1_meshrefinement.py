@@ -1,7 +1,7 @@
 import os, errno
-import utilities as utils
+import pycito.utilities as utils
 import numpy as np
-from trajopt.optimizer import A1OptimizerConfiguration, A1VirtualBaseOptimizer
+from pycito.trajopt.optimizer import A1OptimizerConfiguration, A1VirtualBaseOptimizer
 from pydrake.all import PiecewisePolynomial
 import matplotlib.pyplot as plt
 

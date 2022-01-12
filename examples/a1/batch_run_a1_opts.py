@@ -11,8 +11,8 @@ Run all A1 optimization configurations saved in "examples/a1/runs"
 import os, concurrent.futures
 from matplotlib import pyplot as plt
 from datetime import date
-from trajopt.optimizer import A1VirtualBaseOptimizer
-import utilities as utils
+from pycito.trajopt.optimizer import A1VirtualBaseOptimizer
+import pycito.utilities as utils
 
 # Use the current date as part of the filename
 datestr = date.today().strftime("%b-%d-%Y")

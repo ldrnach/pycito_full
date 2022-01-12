@@ -6,7 +6,7 @@ December 10, 2021
 """
 import numpy as np
 from pydrake.all import PiecewisePolynomial
-from trajopt import contactimplicit as ci
+from pycito.trajopt import contactimplicit as ci
 import os
 from examples.a1 import a1trajopttools as opttools
 

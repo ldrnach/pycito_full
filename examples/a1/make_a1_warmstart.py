@@ -1,9 +1,9 @@
 import numpy as np
-from systems.A1.a1 import A1VirtualBase
+from pycito.systems.A1.a1 import A1VirtualBase
 from pydrake.all import PiecewisePolynomial
 import matplotlib.pyplot as plt
 from math import ceil
-import utilities as utils
+import pycito.utilities as utils
 import os
 
 #TODO: Fix problem with static force controller

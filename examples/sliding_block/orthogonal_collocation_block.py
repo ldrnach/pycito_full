@@ -11,9 +11,9 @@ November 5, 2021
 # Imports
 import os
 import numpy as np
-import trajopt.contactimplicit as ci
-from systems.block.block import Block
-import utilities as utils
+import pycito.trajopt.contactimplicit as ci
+from pycito.systems.block.block import Block
+import pycito.utilities as utils
 
 # Create the block plant
 plant = Block()

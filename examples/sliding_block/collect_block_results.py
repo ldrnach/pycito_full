@@ -3,7 +3,7 @@ Collect block results for Zhigen
 
 """
 import os
-import utilities as utils
+import pycito.utilities as utils
 
 def find_pickle_recursive(source):
     for path, dir, files in os.walk(source):

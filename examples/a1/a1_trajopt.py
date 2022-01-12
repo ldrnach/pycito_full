@@ -11,9 +11,9 @@ import numpy as np
 import timeit 
 from pydrake.solvers.snopt import SnoptSolver
 # Project imports
-from systems.A1.a1 import A1 
-from trajopt.contactimplicit import ContactImplicitDirectTranscription
-import utilities as utils
+from pycito.systems.A1.a1 import A1 
+from pycito.trajopt.contactimplicit import ContactImplicitDirectTranscription
+import pycito.utilities as utils
 
 def run_a1_trajopt():
     """ Run trajectory optimization for A1 quadruped"""

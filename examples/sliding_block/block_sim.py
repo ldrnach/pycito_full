@@ -7,9 +7,9 @@ November 9, 2020
 
 import numpy as np
 import matplotlib.pyplot as plt
-import utilities as utils
-from systems.block.block import Block
-from systems.terrain import FlatTerrain, StepTerrain, VariableFrictionFlatTerrain
+import pycito.utilities as utils
+from pycito.systems.block.block import Block
+from pycito.systems.terrain import FlatTerrain, StepTerrain, VariableFrictionFlatTerrain
 from pydrake.all import PiecewisePolynomial
 
 def terrain_sim(plant, x0, dt, u):

@@ -5,8 +5,8 @@ Luke Drnach
 February 2021
 """
 
-from systems.A1.a1 import A1, A1VirtualBase
-import utilities as utils
+from pycito.systems.A1.a1 import A1, A1VirtualBase
+import pycito.utilities as utils
 from pydrake.all import PiecewisePolynomial
 
 # Make an A1 model

@@ -11,11 +11,11 @@ import matplotlib.animation as animation
 from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 
-import utilities as utils
-import systems.gaussianprocess as gp
-from systems.terrainestimator import ResidualTerrainEstimator, ResidualTerrainEstimation_Debug
-from systems.terrain import GaussianProcessTerrain
-from systems.block.block import Block
+import pycito.utilities as utils
+import pycito.systems.gaussianprocess as gp
+from pycito.systems.terrainestimator import ResidualTerrainEstimator, ResidualTerrainEstimation_Debug
+from pycito.systems.terrain import GaussianProcessTerrain
+from pycito.systems.block.block import Block
 
 def get_data():
     """Loads the data from the pickle file"""

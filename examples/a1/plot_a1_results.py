@@ -1,7 +1,7 @@
 from pydrake.all import PiecewisePolynomial
 import numpy as np
-import utilities as utils
-from systems.A1.a1 import A1VirtualBase
+import pycito.utilities as utils
+from pycito.systems.A1.a1 import A1VirtualBase
 import os
 
 def reconstruct_trajectories(solndict):

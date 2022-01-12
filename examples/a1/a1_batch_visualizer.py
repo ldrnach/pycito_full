@@ -5,8 +5,8 @@ Luke Drnach
 July 6. 2021
 """
 import os
-from systems.A1.a1 import A1VirtualBase
-import utilities as utils
+from pycito.systems.A1.a1 import A1VirtualBase
+import pycito.utilities as utils
 from pydrake.all import PiecewisePolynomial
 
 def find_pickle_recursive(source):
