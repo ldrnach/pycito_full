@@ -176,8 +176,8 @@ class MathProgIterationPrinter():
                 self.cost_lines[name] = self.axs[0].plot([self.iteration], [value], linewidth=1.5, label=name)[0]
             for name, value in cstrs.items():
                 self.cstr_lines[name] = self.axs[1].plot([self.iteration], [value], linewidth=1.5, label=name)[0]
-            self.axs[0].legend()
-            self.axs[1].legend()
+            self.axs[0].legend(loc='upper left')
+            self.axs[1].legend(loc='upper left')
         else:
             ymax = self.axs[0].get_ylim()[1]
             for name, value in costs.items():
@@ -327,6 +327,14 @@ def CheckProgram(prog):
     # Return the status flag
     return status
 
+def trajectoryToArray(trajectory, size=None):
+    if size is None:
+        return GetKnotsFromTrajectory(trajectory)
+    else:
+        t = np.linspace(trajectory.start_time(), trajectory.end_time(), size)
+        values = trajectory.vector_values(t)
+        return t, values
+
 def GetKnotsFromTrajectory(trajectory):
     breaks = trajectory.get_segment_times()
     values = trajectory.vector_values(breaks)
@@ -445,7 +453,8 @@ def getDualSolutionDict(prog, result):
             duals[name] = [dual]
     # Stack all repeating duals along the rows
     for name in duals.keys():
-        duals[name] = np.row_stack(duals[name])
+        if name != '':
+            duals[name] = np.row_stack(duals[name])
     return duals
 
 def alphanumeric_sort(text_list):

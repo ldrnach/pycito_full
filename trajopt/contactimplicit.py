@@ -16,7 +16,9 @@ from pydrake.autodiffutils import AutoDiffXd
 import utilities as utils
 import trajopt.complementarity as compl
 import decorators as deco
+import trajopt.constraints as cstrs
 #TODO: Unit testing for whole-body and centrodial optimizers
+#TODO: Label all cost and constraints in Orthogonal Collocation - eliminate '' constraints
 
 class OptimizationOptions():
     """ Keeps track of optional settings for Contact Implicit Trajectory Optimization"""
@@ -43,6 +45,28 @@ class OptimizationOptions():
     def useLinearComplementarityWithConstantSlack(self):
         """ Use a decision variable for the slack in the complementarity constraints"""
         self.__complementarity_class = compl.LinearEqualityConstantSlackComplementarity
+
+    def useLinearComplementarityWithCost(self):
+        """ Use a decision variable for the slack in the complementarity constraints, enforce orthogonality in a cost"""
+        self.__complementarity_class = compl.CostRelaxedLinearEqualityComplementarity
+
+    @property
+    def complementarity(self):
+        return self.__complementarity_class
+
+class OrthogonalOptimizationOptions():
+    """ Keep track of optional settings for Contact Implicit Orthogonal Collocation"""
+    def __init__(self):
+        self.__complementarity_class = compl.CollocatedConstantSlackComplementarity
+
+    def useComplementarityWithCost(self):
+        self.__complementarity_class = compl.CollocatedCostRelaxedComplementarity
+
+    def useComplementarityWithVariableSlack(self):
+        self.__complementarity_class = compl.CollocatedVariableSlackComplementarity
+
+    def useComlementarityWithConstantSlack(self):
+        self.__complementarity_class = compl.CollocatedConstantSlackComplementarity
 
     @property
     def complementarity(self):
@@ -89,7 +113,13 @@ class OptimizationBase():
 
     def generate_report(self, result=None):
         """Generate a solution report from the solver"""
-        text = f"Solver: {type(self.solver).__name__}\n"
+         # Add in the date
+        text = f"\nDate: {date.today().strftime('%B %d, %Y')}\n"
+        # Add the total number of variables, the number of costs, and the number of constraints
+        nconstraints = sum([cstr.evaluator().num_constraints() for cstr in self.prog.GetAllConstraints()])
+        text += f"\nProblem has {self.prog.num_vars()} variables, {len(self.prog.GetAllCosts())} cost terms, and {nconstraints} constraints\n\n"
+        
+        text += f"Solver: {type(self.solver).__name__}\n"
         hrs, rem = divmod(self._elapsed, 3600)
         min, sec = divmod(rem, 60)
         text += f"Solver halted after {hrs:.0f} hours, {min:.0f} minutes, and {sec:.2f} seconds\n"
@@ -128,7 +158,21 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         self.plant_ad = self.plant_f.toAutoDiffXd()       
         self.context_ad = self.plant_ad.multibody.CreateDefaultContext()
         self.options = options
-        self.printer=None
+        self.printer = None
+        # Create a string for recording the optimization parameters
+        self._text = {"header": f"{type(self).__name__} with {self.plant_f.str()}\n",
+        "StateConstraints": '',
+        "RunningCosts": '',
+        "FinalCosts": '',
+        "NormalDissipation": 'False',
+        "EqualTime": 'False'}
+        self._text['header'] += f"\tKnot points: {num_time_samples}\n\tTime range: [{(num_time_samples-1)*minimum_timestep},{(num_time_samples-1)*maximum_timestep}]\n\t"
+        # Set force and control scaling variables
+        self.force_scaling = 1.
+        self.control_scaling = 1.
+        self._setup_optimization()
+
+    def _setup_optimization(self):
         # Check for floating DOF
         self._check_floating_dof()
         # Add decision variables to the program
@@ -142,25 +186,12 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         self._add_contact_constraints()
         # Initialize the timesteps
         self._set_initial_timesteps()
-        # Create a string for recording the optimization parameters
-        self._text = {"header": f"{type(self).__name__} with {self.plant_f.str()}\n",
-        "StateConstraints": '',
-        "RunningCosts": '',
-        "FinalCosts": '',
-        "NormalDissipation": 'False',
-        "EqualTime": 'False'}
-        self._text['header'] += f"\tKnot points: {num_time_samples}\n\tTime range: [{(num_time_samples-1)*minimum_timestep},{(num_time_samples-1)*maximum_timestep}]\n\t"
-        # Set force and control scaling variables
-        self.force_scaling = 1.
-        self.control_scaling = 1.
 
     def generate_report(self, result=None):
         # Generate a report string. Start with the header
         report = self._text['header']
-        # Add in the date
-        report += f"\nDate: {date.today().strftime('%B %d, %Y')}\n"
-        # Add the total number of variables, the number of costs, and the number of constraints
-        report += f"\nProblem has {self.prog.num_vars()} variables, {len(self.prog.GetAllCosts())} cost terms, and {len(self.prog.GetAllConstraints())} constraints\n\n"
+        # Concatenate the report from the solver
+        report += super(ContactImplicitDirectTranscription, self).generate_report(result)
         # Next add the report strings of the complementarity constraints
         report += self.distance_cstr.str() + "\n"
         report += self.sliding_cstr.str() + "\n"
@@ -171,8 +202,7 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         report += f"\nState Constraints: {self._text['StateConstraints']}\n"
         report += f"\nRunning Costs: {self._text['RunningCosts']}\n"
         report += f"\nFinal Costs: {self._text['FinalCosts']}\n"
-        # Concatenate the report from the solver
-        report += super(ContactImplicitDirectTranscription, self).generate_report(result)
+
         # Add the number of iterations, if possible
         if self.printer is not None:
             report += f"\nSolver halted after {self.printer.iteration} iterations\n"
@@ -296,15 +326,13 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         u = self.control_scaling * u
         fN = self.force_scaling * fN
         fT = self.force_scaling * fT
-        # Calculate the position integration error
-        p1, _ = np.split(x1, 2)
-        p2, dp2 = np.split(x2, 2)
-        fp = p2 - p1 - h*dp2
         # Get positions and velocities
-        _, v1 = np.split(x1, [plant.multibody.num_positions()])
+        q1, v1 = np.split(x1, [plant.multibody.num_positions()])
         q2, v2 = np.split(x2, [plant.multibody.num_positions()])
         # Update the context - backward Euler integration
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate((q2,v2), axis=0))
+        # Calculate the position integration error
+        fq = q2 - q1 - h*plant.multibody.MapVelocityToQDot(context, v2)
         # calculate generalized forces
         M = plant.multibody.CalcMassMatrixViaInverseDynamics(context)
         C = plant.multibody.CalcBiasTerm(context)
@@ -321,7 +349,7 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         forces += Jn.transpose().dot(fN) + Jt.transpose().dot(fT)
         # Do inverse dynamics - velocity dynamics error
         fv = M.dot(v2 - v1) - h*forces
-        return np.concatenate((fp, fv), axis=0)
+        return np.concatenate((fq, fv), axis=0)
 
     # Complementarity Constraint functions for Contact
     def _normal_distance(self, state):
@@ -444,16 +472,31 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         if straj is not None:
             self.prog.SetInitialGuess(self.var_slack, straj)
 
+    def add_quadratic_differenced_cost(self, Q, vars=None, name='DifferenceCost'):
+        def differenced_cost(dvars):
+            v1, v2 = np.split(dvars, 2)
+            return (v2 - v1).dot(Q.dot(v2 - v1))
+        for n in range(1, self.num_time_samples):
+            var1 = vars[:, n-1]
+            var2 = vars[:, n]
+            self.prog.AddCost(differenced_cost, np.concatenate([var1, var2], axis=0), description=name)
+        varnames = vars.item(0).get_name().split('(')[0]
+        self._text['RunningCosts'] += f"\n\t{name}: Differenced Cost on {varnames}"
+
     def add_running_cost(self, cost_func, vars=None, name="RunningCost"):
         """Add a running cost to the program"""
-        integrated_cost = lambda x: np.array(x[0] * cost_func(x[1:]))
+        self._add_running_cost(cost_func, vars, name)
+        # Add string representing the cost
+        varnames = ', '.join([var.item(0).get_name().split('(')[0] for var in vars])
+        self._text['RunningCosts'] += f"\n\t{name}: {cost_func.__name__} on {varnames}"
+
+    def _add_running_cost(self, cost_func, vars=None, name='RunningCost'):
+        """Internal method for adding a running cost to the program"""
+        integrated_cost = lambda x: x[0] * cost_func(x[1:])
         for n in range(0, self.num_time_samples-1):
             new_vars = [var[:,n] for var in vars]
             new_vars.insert(0, self.h[n,:])
             self.prog.AddCost(integrated_cost, np.concatenate(new_vars,axis=0), description=name)
-        # Add string representing the cost
-        varnames = ', '.join([var.item(0).get_name().split('(')[0] for var in vars])
-        self._text['RunningCosts'] += f"\n\t{name}: {cost_func.__name__} on {varnames}"
 
     def add_tracking_cost(self, Q, traj, vars=None, name="TrackingCost"):
         """ 
@@ -469,12 +512,17 @@ class ContactImplicitDirectTranscription(OptimizationBase):
             vars: a subset of the decision variables
             name (optional): a string describing the tracking cost
         """
+        assert traj.shape == vars.shape, "Trajectory and decision variable shapes do not match"
+        assert Q.shape[0] == vars.shape[0], "Weight matrix does not have the right dimensions"
+        assert Q.shape[0] == Q.shape[1], "Weight matrix is not square" 
         #TODO: Implement for tracking a trajectory / with variable timesteps
-        for n in range(0, self.num_time_samples-1):
-            integrated_cost = lambda z: z[0]*(z[:1] - traj[:,n]).dot(Q.dot(z[1:] - traj[:,n]))
-            new_vars = [var[:,n] for var in vars]
-            new_vars.insert(0, self.h[n,:])
-            self.prog.AddCost(integrated_cost, np.concatenate(new_vars, axis=0), description=name)
+        for dvar, ref in zip(vars.T, traj.T):
+            self.prog.AddQuadraticErrorCost(Q, ref, dvar).evaluator().set_description(name)        
+        # for n in range(0, self.num_time_samples-1):
+        #     integrated_cost = lambda z: z[0]*(z[:1] - traj[:,n]).dot(Q.dot(z[1:] - traj[:,n]))
+        #     new_vars = [var[:,n] for var in vars]
+        #     new_vars.insert(0, self.h[n,:])
+        #     self.prog.AddCost(integrated_cost, np.concatenate(new_vars, axis=0), description=name)
 
     def add_final_cost(self, cost_func, vars=None, name="FinalCost"):
         """Add a final cost to the program"""
@@ -503,11 +551,8 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         if type(vars) != list:
             vars = [vars]
         # Add the cost
-        integrated_cost = lambda z: z[0]*(z[1:]-b).dot(Q.dot(z[1:]-b))
-        for n in range(0, self.num_time_samples-1):
-            new_vars = [var[:,n] for var in vars]
-            new_vars.insert(0, self.h[n,:])
-            self.prog.AddCost(integrated_cost, np.concatenate(new_vars,axis=0), description=name)
+        quadratic_cost = lambda z: (z - b).dot(Q.dot(z - b))
+        self._add_running_cost(quadratic_cost, vars, name)
         # Add string representing the cost
         varnames = ", ".join([var.item(0).get_name().split('(')[0] for var in vars])
         self._text['RunningCosts'] += f"\n\t{name}: Quadratic cost on {varnames} with weights Q = \n{Q} \n\tand bias b = \n{b}"
@@ -589,7 +634,7 @@ class ContactImplicitDirectTranscription(OptimizationBase):
     def reconstruct_input_trajectory(self, soln):
         """Returns the input trajectory from the solution"""
         t = self.get_solution_times(soln)
-        return PiecewisePolynomial.FirstOrderHold(t, self.control_scaling * soln.GetSolution(self.u))
+        return PiecewisePolynomial.ZeroOrderHold(t, self.control_scaling * soln.GetSolution(self.u))
     
     def reconstruct_reaction_force_trajectory(self, soln):
         """Returns the reaction force trajectory from the solution"""
@@ -598,23 +643,22 @@ class ContactImplicitDirectTranscription(OptimizationBase):
         fT = self.force_scaling * soln.GetSolution(self._tangent_forces)
         gam = soln.GetSolution(self._sliding_vel)
         l = np.concatenate([fN, fT, gam], axis=0)
-        return PiecewisePolynomial.FirstOrderHold(t, l)
+        return PiecewisePolynomial.ZeroOrderHold(t, l)
     
     def reconstruct_limit_force_trajectory(self, soln):
         """Returns the joint limit force trajectory from the solution"""
         if self.Jl is not None:
             t = self.get_solution_times(soln)
-            return PiecewisePolynomial.FirstOrderHold(t, soln.GetSolution(self.jl))
+            return PiecewisePolynomial.ZeroOrderHold(t, soln.GetSolution(self.jl))
         else:
             return None
 
     def reconstruct_slack_trajectory(self, soln):
         
         # Get the slack variables from the complementarity problems
-        if any(isinstance(slack, Variable) for slack in self.var_slack.flatten()):
-            #Filter out 'Variable' types
+        if self.var_slack is not None:
             t = self.get_solution_times(soln)
-            return PiecewisePolynomial.FirstOrderHold(t, soln.GetSolution(self.var_slack))
+            return PiecewisePolynomial.ZeroOrderHold(t, soln.GetSolution(self.var_slack))
         else:
             return None
 
@@ -710,19 +754,27 @@ class ContactImplicitDirectTranscription(OptimizationBase):
     @property
     def var_slack(self):
         """Variable slack for contact complementarity constraints"""
-        return np.row_stack([self.distance_cstr.slack, self.sliding_cstr.slack, self.friction_cstr.slack])
+        slacks = [self.distance_cstr.var_slack, self.sliding_cstr.var_slack, self.friction_cstr.var_slack]
+        if any(slack is None for slack in slacks):
+            return None
+        else:
+            return np.row_stack(slacks)
     
     @property
     def const_slack(self):
         """Constant slack for contact complementarity constraints"""
-        return self.distance_cstr.slack
+        return [self.distance_cstr.const_slack, self.sliding_cstr.const_slack, self.friction_cstr.const_slack]
 
     @const_slack.setter
     def const_slack(self, val):
         """ Set the constant slack variable in the complementarity constraints """
-        self.distance_cstr.slack = val
-        self.sliding_cstr.slack = val
-        self.friction_cstr.slack = val
+        if type(val) == float or type(val) == int:
+            val = (val, val, val)
+        elif len(val) != 3:
+            raise ValueError("Complementarity slack must be either a nonnegative scalar or a triple of nonnegative scalars")
+        self.distance_cstr.const_slack = val[0]
+        self.sliding_cstr.const_slack = val[1]
+        self.friction_cstr.const_slack = val[2]
 
     @property
     def complementarity_cost_weight(self):
@@ -764,6 +816,306 @@ class ContactImplicitDirectTranscription(OptimizationBase):
             self.__control_scaling = val
         else:
             raise ValueError("control_scaling must be a positive numeric value")
+
+class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
+    #TODO: Allow for a more expressive control basis - nonzero order control polynomials
+    #TODO: Check on running cost for states - use collocation weights?
+    #TODO: Check on the continuity equations for states - enforce the beginning equals the end of the previous interval (start with initial state)
+    #TODO: Cleanup notation using state-order, control-order, num_time_samples - get rid of all the +1, -1 nonsense
+    def __init__(self, plant, context, num_time_samples, minimum_timestep, maximum_timestep, state_order = 3, options=OrthogonalOptimizationOptions()):
+        self.state_order = state_order
+        self.control_order = 0
+        super(ContactImplicitOrthogonalCollocation, self).__init__(plant, context, num_time_samples, minimum_timestep, maximum_timestep, options)
+
+    def _setup_optimization(self):
+
+        # Add decision variables to the program
+        self._add_decision_variables()
+        # Add collocation constraints
+        self._add_collocation_constraints()
+        # Add dynamic constraints 
+        self._add_dynamic_constraints()
+        # Add contact constraints
+        self._add_contact_constraints()
+        self._add_joint_limit_constraints()
+        # Initialize the timesteps
+        self._set_initial_timesteps()
+
+    def _add_decision_variables(self):
+        #Timesteps
+        self.h = self.prog.NewContinuousVariables(rows = self.num_intervals, cols=1, name='h')
+        #Controls
+        self.u = self.prog.NewContinuousVariables(rows = self.plant_ad.multibody.num_actuators(), cols = self.num_intervals * (self.control_order + 1) +  1, name='u')
+        # States - add position, velocity, and acceleration separately
+        numknots = 1 + self.num_intervals * self.num_collocation_pts
+        npos = self.plant_ad.multibody.num_positions()
+        assert self.plant_ad.multibody.num_velocities() == npos, "Unequal number of positions and velocities"
+        self.pos = self.prog.NewContinuousVariables(rows = npos, cols = numknots, name = 'position')
+        self.vel = self.prog.NewContinuousVariables(rows = npos, cols = numknots, name = 'velocity')
+        self.accel = self.prog.NewContinuousVariables(rows = npos, cols = numknots, name = 'acceleration')
+        # Reaction forces
+        numN = self.plant_ad.num_contacts()
+        numT = self.plant_ad.num_friction()
+        self._normal_forces = self.prog.NewContinuousVariables(rows = numN, cols = numknots, name='normal_force')
+        self._tangent_forces = self.prog.NewContinuousVariables(rows = numT, cols = numknots, name='tanget_force')
+        self._sliding_vel = self.prog.NewContinuousVariables(rows = numN, cols = numknots, name = 'sliding_velocity')
+        # Joint limits
+        self.Jl = self.plant_ad.joint_limit_jacobian()
+        if self.Jl is not None:
+            qlow = self.plant_ad.multibody.GetPositionLowerLimits()
+            self._liminds = np.isfinite(qlow)
+            nJL = sum(self._liminds)
+            self.jl = self.prog.NewContinuousVariables(rows = 2*nJL, cols = numknots, name="jointlimits")
+        else:
+            self.jl = False
+        # Store the duplication matrix
+        self._e = self.plant_ad.duplicator_matrix()
+
+    def _add_collocation_constraints(self):
+        """Add the collocation constraints to the program"""
+        # Create the constraint and it's variables
+        x_ = self.x
+        dx_ = self.dx
+        self.state_collocation = cstrs.RadauCollocationConstraint(xdim=x_.shape[0], order=self.state_order)
+        # Add the constraint to the program for every finite element
+        for n in range(self.num_intervals):
+            start, stop = self._calc_interval_indices(n)
+            self.state_collocation.addToProgram(self.prog, timestep = self.h[n,:], xvars=x_[:, start:stop], dxvars=dx_[:, start:stop], x_final_last=x_[:, start-1:start])
+
+    def _add_dynamic_constraints(self):
+        """add the dynamics constraints to the mathematical program"""
+        # Timestep constraints
+        all_h = self.h.flatten()
+        self.prog.AddBoundingBoxConstraint(self.minimum_timestep*np.ones(all_h.shape), self.maximum_timestep*np.ones(all_h.shape), all_h).evaluator().set_description('TimestepConstraint')
+        # Dynamics
+        self.dynamics_cstr = cstrs.MultibodyDynamicsConstraint(self.plant_ad, self.plant_f)
+        if self.Jl is not None:
+            forces = np.concatenate([self._normal_forces, self._tangent_forces, self.jl], axis=0)
+        else:
+            forces = np.concatenate([self._normal_forces, self._tangent_forces], axis=0)
+        # Add the dynamics
+        for n in range(self.num_intervals):
+            start = n * self.num_collocation_pts
+            for k in range(self.num_collocation_pts):
+                self.dynamics_cstr.addToProgram(self.prog, self.pos[:, start+k], self.vel[:, start+k], self.accel[:, start+k], self.u[:, n], forces[:, start+k])
+        # Add in constraint at final time - do I need this?
+        self.dynamics_cstr.addToProgram(self.prog, self.pos[:, -1], self.vel[:, -1], self.accel[:, -1], self.u[:, -1], forces[:, -1])
+        
+    def _add_contact_constraints(self):
+        """add the collocated contact constraints to the program"""
+        self.distance_cstr = self.options.complementarity(self._normal_distance, xdim = self.x.shape[0], zdim = self.numN)
+        self.sliding_cstr = self.options.complementarity(self._sliding_velocity, xdim = self.x.shape[0] + self.numN, zdim = self.numT)
+        self.friction_cstr = self.options.complementarity(self._friction_cone, xdim = self.x.shape[0] + self.numN + self.numT, zdim = self.numN)
+        # Update the names
+        self.distance_cstr.set_description('normal_distance')
+        self.sliding_cstr.set_description('sliding_velocity')
+        self.friction_cstr.set_description('friction_cone')
+        # Add the complementarity constraints on the first knot point
+        start, stop = self._calc_interval_indices(0)
+        for n in range(start, stop):
+            self.prog.AddConstraint(self._normal_distance, lb = np.zeros((self.numN, )), ub=np.full((self.numN, ), np.inf), vars=self.x[:, n], description='normal_distance_nonnegativity')
+        self.sliding_cstr.addToProgram(self.prog, xvars=np.concatenate([self.x[:, start:stop], self._sliding_vel[:, start:stop]], axis=0), zvars = self._tangent_forces[:, start:stop])      
+        self.friction_cstr.addToProgram(self.prog,  xvars=np.concatenate([self.x[:, start:stop], self._normal_forces[:, start:stop], self._tangent_forces[:, start:stop]], axis=0), zvars=self._sliding_vel[:, start:stop])
+        # Add complementarity constraints at intermediate points
+        for n in range(1, self.num_intervals):
+            past_start, past_stop = self._calc_interval_indices(n-1)
+            start, stop = self._calc_interval_indices(n)
+            self.distance_cstr.addToProgram(self.prog, xvars=self.x[:, start:stop], zvars=self._normal_forces[:, past_start:past_stop])
+            self.sliding_cstr.addToProgram(self.prog, xvars=np.concatenate([self.x[:, start:stop], self._sliding_vel[:, start:stop]], axis=0), zvars = self._tangent_forces[:, start:stop])
+            self.friction_cstr.addToProgram(self.prog, xvars=np.concatenate([self.x[:, start:stop], self._normal_forces[:, start:stop], self._tangent_forces[:, start:stop]], axis=0), zvars=self._sliding_vel[:, start:stop])
+        # Add at the final interval for normal distance
+        self.distance_cstr.addToProgram(self.prog, xvars=self.x[:, stop:], zvars=self._normal_forces[:, start:stop])
+
+    def _add_joint_limit_constraints(self):
+        """add the joint limit constraints to the program"""
+        if self.Jl is None:
+            return
+        self.joint_limit_cstr = self.options.complementarity(self._joint_limit, xdim = self.x.shape[0], zdim = self.jl.shape[0])
+        self.joint_limit_cstr.set_description('joint_limits')       
+        # Add complementarity to all other knot and collocation points
+        for n in range(self.num_intervals):
+            start, stop = self._calc_interval_indices(n)
+            if n == 0:
+                start = 0
+            self.joint_limit_cstr.addToProgram(self.prog, xvars = self.x[:, start:stop], zvars = self.jl[:, start:stop])
+
+    def add_zero_acceleration_boundary_condition(self):
+        """add in a constraint to enforce the acceleration at the boundaries to be zero"""
+        # Add in constraints on initial and final accelerations
+        zeroaccel = np.zeros((self.accel.shape[0], ))
+        self.prog.AddBoundingBoxConstraint(zeroaccel, zeroaccel, self.accel[:,  0]).evaluator().set_description('ZeroAccelerationBoundary')
+        self.prog.AddBoundingBoxConstraint(zeroaccel, zeroaccel, self.accel[:, -1]).evaluator().set_description('ZeroAccelerationBoundary')
+
+    def add_quadratic_control_cost(self, Q, b, name='QuadraticControlCost'):
+        """
+        Add a quadratic running cost on the control signal to the program
+        
+        Arguments:
+            Q (numpy.array[n,n]): a square numpy array of cost weights
+            b (numpy.array[n,1]): a vector of offset values
+            name (str, optional): a description of the cost function
+        """
+        cost_func = lambda z: (z - b).dot(Q.dot(z - b))
+        self.add_running_control_cost(cost_func, name)
+        self._text['RunningCosts'] += f"\n\t{name}: Quadratic cost on controls with weights Q = \n{Q} \n\tand bias b = \n{b}"
+
+    def add_running_control_cost(self, cost_func, name='RunningControlCost'):
+        """Add a running cost on the controls only"""
+        super(ContactImplicitOrthogonalCollocation, self)._add_running_cost(cost_func, [self.u], name)
+
+    def add_quadratic_running_cost(self, Q, b, vars=None, name="QuadraticCost"):
+        """
+        Add a quadratic running cost to the program
+        
+        Arguments:
+            Q (numpy.array[n,n]): a square numpy array of cost weights
+            b (numpy.array[n,1]): a vector of offset values
+            vars (list): a list of program decision variables subject to the cost
+            name (str, optional): a description of the cost function
+        """
+        quadratic_cost = lambda z: (z - b).dot(Q.dot(z - b))
+        self._add_collocated_running_cost(quadratic_cost, vars, name)
+        # Add string representing the cost
+        varnames = ", ".join([var.item(0).get_name().split('(')[0] for var in vars])
+        self._text['RunningCosts'] += f"\n\t{name}: Quadratic cost on {varnames} with weights Q = \n{Q} \n\tand bias b = \n{b}"
+
+    def add_running_cost(self, cost_func, vars=None, name='RunningCost'):
+        """Add a running cost to the program. Does not include costs on control variables"""
+        self._add_collocated_running_cost(cost_func, vars, name)
+        # Add string representing the cost
+        varnames = ', '.join([var.item(0).get_name().split('(')[0] for var in vars])
+        self._text['RunningCosts'] += f"\n\t{name}: {cost_func.__name__} on {varnames}"
+
+    def _add_collocated_running_cost(self, cost_func, vars=None, name='RunningCost'):
+        # input checking
+        if vars is None:
+            return
+        if type(vars) != list:
+            vars = [vars]
+        # integrate across all collocation points
+        weights = np.concatenate([self.state_collocation.nodes[0:1], np.diff(self.state_collocation.nodes)])
+        index = 0
+        for n in range(self.h.shape[0]):
+            for k in range(weights.shape[0]):
+                new_vars = [dvar[:,index] for dvar in vars]
+                new_vars.insert(0, self.h[n,:])
+                self.prog.AddCost(lambda z: weights[k] * z[0] * cost_func(z[1:]), np.concatenate(new_vars, axis=0), description=name)
+                index += 1
+
+    def reconstruct_state_trajectory(self, soln):
+        """Returns the state trajectory from the solution"""
+        t = self.get_solution_times(soln)
+        xval = soln.GetSolution(self.x)
+        # Create the first trajectory piece
+        xtraj = PiecewisePolynomial.LagrangeInterpolatingPolynomial(t[0:self.state_order+2], xval[:, 0:self.state_order+2])
+        # Create and concatenate all other polynomial pieces
+        for n in range(1, self.num_time_samples-1):
+            start = n*(self.state_order + 1)
+            stop = (n+1)*(self.state_order + 1) + 1
+            piece = PiecewisePolynomial.LagrangeInterpolatingPolynomial(t[start:stop], xval[:, start:stop])
+            xtraj.ConcatenateInTime(piece)
+        return xtraj
+
+    def get_solution_times(self, soln):
+        """Return the sample times for each decision variable in the program (excluding controls)"""
+        h = soln.GetSolution(self.h)
+        h = np.concatenate([np.zeros((1,)), h], axis=0)
+        t_ = np.cumsum(h)
+        nodes = self.state_collocation.nodes
+        t = [t_[n-1] + h[n] * nodes for n in range(1, t_.shape[0])]
+        t.insert(0, np.zeros((1,)))
+        return  np.concatenate(t)
+
+    def get_control_times(self, soln):
+        #TODO: Update once higher order control bases are supported
+        h = soln.GetSolution(self.h)
+        h = np.concatenate([np.zeros((1,)), h], axis=0)
+        return np.cumsum(h)
+
+    def reconstruct_input_trajectory(self, soln):
+        """Return the control trajectory from the solution"""
+        uval = soln.GetSolution(self.u)
+        if self.control_order == 0:
+            h = soln.GetSolution(self.h)
+            t = np.concatenate((np.zeros(1,), h), axis=0)
+            t = np.cumsum(t)
+            return PiecewisePolynomial.ZeroOrderHold(t, uval)
+        else:
+            t = self.get_control_times(soln)
+            # Create the first trajectory
+            utraj = PiecewisePolynomial.LagrangeInterpolatingPolynomial()
+            for n in range(1, self.num_time_samples):
+                start = n * self.control_order
+                stop = (n+1)*self.control_order + 1
+                piece = PiecewisePolynomial.LagrangeInterpolatingPolynomial(t[start:stop], uval[start:stop])
+                utraj.ContactenateInTime(piece)
+            return utraj
+
+    def reconstruct_acceleration_trajectory(self, soln):
+        """Return the acceleration trajectory as a zero-order hold"""
+        #TODO: Determine proper trajectory for acceleration and return
+        t = self.get_solution_times(soln)
+        accel = soln.GetSolution(self.accel)
+        return PiecewisePolynomial.ZeroOrderHold(t, accel)
+
+    def reconstruct_slack_trajectory(self, soln):
+        t = np.cumsum(soln.GetSolution(self.h))
+        return PiecewisePolynomial.ZeroOrderHold(t, soln.GetSolution(self.var_slack))
+
+    def reconstruct_all_trajectories(self, soln):
+        """Returns state, input, reaction force, and joint limit force trajectories from the solution"""
+        state, input, lforce, jlforce, slacks = super(ContactImplicitOrthogonalCollocation, self).reconstruct_all_trajectories(soln)
+        accel = self.reconstruct_acceleration_trajectory(soln) 
+        return (state, input, lforce, jlforce, slacks, accel)
+
+    def result_to_dict(self, soln):
+        """ unpack the trajectories from the program result and store in a dictionary"""
+        t = self.get_solution_times(soln)
+        soln_dict = {"time": t,
+                    "timesteps": soln.GetSolution(self.h),
+                    "state": soln.GetSolution(self.x),
+                    "control": soln.GetSolution(self.u),
+                    "force": soln.GetSolution(self.l),
+                    "jointlimit": None,
+                    "slacks": None,
+                    "acceleration": soln.GetSolution(self.accel),
+                    "solver": soln.get_solver_id().name(),
+                    "success": soln.is_success(),
+                    "exit_code": soln.get_solver_details().info,
+                    "final_cost": soln.get_optimal_cost(),
+                    "duals": utils.getDualSolutionDict(self.prog, soln),
+                    "state_order": self.state_order,
+                    "control_order": self.control_order
+                    }
+        if self.var_slack is not None:
+            soln_dict['slacks'] = soln.GetSolution(self.var_slack)
+        if self.Jl is not None:
+            soln_dict['jointlimit'] = soln.GetSolution(self.jl)
+        return soln_dict
+
+    def _calc_interval_indices(self, n):
+        """Return the start and stop indices of the nth finite element interval"""
+        return n * self.num_collocation_pts + 1, (n+1) * self.num_collocation_pts + 1
+
+    @property
+    def x(self):
+        return np.concatenate([self.pos, self.vel], axis=0)
+
+    @property
+    def dx(self):
+        return np.concatenate([self.vel, self.accel], axis=0)
+
+    @property
+    def total_knots(self):
+        return self.x.shape[1]
+
+    @property
+    def num_intervals(self):
+        return self.num_time_samples - 1
+
+    @property
+    def num_collocation_pts(self):
+        return self.state_order + 1
 
 class CentroidalContactTranscription(ContactImplicitDirectTranscription):
     #TODO: Unit testing for all contact-implicit problems (Block, DoublePendulum, A1)
@@ -1003,8 +1355,7 @@ class CentroidalContactTranscription(ContactImplicitDirectTranscription):
                     "success": soln.is_success(),
                     "exit_code": soln.get_solver_details().info,
                     "final_cost": soln.get_optimal_cost()
-                    }
-     
+                    }  
 class ContactConstraintViewer():
     def __init__(self, trajopt, result_dict):
         self.trajopt = trajopt

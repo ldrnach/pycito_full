@@ -36,7 +36,7 @@ class Block(TimeSteppingMultibodyPlant):
             raise ValueError("trajectory must be a PiecewisePolynomial or 2D numpy array")
         return BlockPyPlotAnimator(self, trajectory)
         
-    def plot_trajectories(self, xtraj=None, utraj=None, ftraj=None, show=True, savename=None):
+    def plot_trajectories(self, xtraj=None, utraj=None, ftraj=None, samples=None, show=True, savename=None):
         """
         plot the state, control, and force trajectories for the Block
         
@@ -46,21 +46,21 @@ class Block(TimeSteppingMultibodyPlant):
         #TODO: generalize for multiple contact points, generalize for free rotation
         # Plot the State trajectories
         if xtraj is not None:
-            self.plot_state_trajectory(xtraj, show=False, savename=utils.append_filename(savename,'_state'))
+            self.plot_state_trajectory(xtraj, samples, show=False, savename=utils.append_filename(savename,'_state'))
         # Plot the controls
         if utraj is not None:
-            self.plot_control_trajectory(utraj, show=False, savename=utils.append_filename(savename, '_control'))
+            self.plot_control_trajectory(utraj, samples, show=False, savename=utils.append_filename(savename, '_control'))
         # Plot the reaction forces
         if ftraj is not None:
-            self.plot_force_trajectory(ftraj, show=False, savename=utils.append_filename(savename, '_forces'))
+            self.plot_force_trajectory(ftraj, samples, show=False, savename=utils.append_filename(savename, '_forces'))
         # Show the plots only when one of the inputs is not None
         if show:
             plt.show()
 
     @deco.showable_fig
     @deco.saveable_fig
-    def plot_state_trajectory(self, xtraj):
-        t, x = utils.GetKnotsFromTrajectory(xtraj)
+    def plot_state_trajectory(self, xtraj, samples=None):
+        t, x = utils.trajectoryToArray(xtraj, samples)
         fig, axs = plt.subplots(2,1)
         axs[0].plot(t, x[0,:], linewidth=1.5, label='horizontal')
         axs[0].plot(t, x[1,:], linewidth=1.5, label='vertical')
@@ -74,8 +74,8 @@ class Block(TimeSteppingMultibodyPlant):
 
     @deco.showable_fig
     @deco.saveable_fig
-    def plot_control_trajectory(self, utraj):
-        t, u = utils.GetKnotsFromTrajectory(utraj)
+    def plot_control_trajectory(self, utraj, samples=None):
+        t, u = utils.trajectoryToArray(utraj, samples)
         fig, axs = plt.subplots(2,1)
         axs[0].plot(t, u[0,:], linewidth=1.5)
         axs[0].set_ylabel('Control (N)')
@@ -84,8 +84,8 @@ class Block(TimeSteppingMultibodyPlant):
 
     @deco.showable_fig
     @deco.saveable_fig
-    def plot_force_trajectory(self, ftraj):
-        t, f = utils.GetKnotsFromTrajectory(ftraj)
+    def plot_force_trajectory(self, ftraj, samples=None):
+        t, f = utils.trajectoryToArray(ftraj, samples)
         fig, axs = plt.subplots(3,1)
         axs[0].plot(t, f[0,:], linewidth=1.5)
         axs[0].set_ylabel('Normal')

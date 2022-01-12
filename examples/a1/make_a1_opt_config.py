@@ -18,27 +18,37 @@ datename = date.today().strftime("%b-%d-%Y")
 # Get the generic configuration
 config = A1OptimizerConfiguration.defaultWalkingConfig()
 # New fixed settings
-num_times = [51, 101, 301]
+config.num_time_samples = 101
 config.maximum_time = 1
 config.minimum_time = 1
 config.useFixedTimesteps = True
 config.solver_options['Major iterations limit']  =  5000
-# Set the control and state costs to None
-config.quadratic_control_cost = None
-config.quadratic_state_cost = None
+# Background material
+Q, xr = config.quadratic_state_cost
+R, ur = config.quadratic_control_cost
+# Upweight the velocities
+weights = np.diag(Q).copy()
+nx = weights.shape[0]
+weights[int(nx/2):] = 100
+config.quadratic_state_cost = (np.diag(weights), xr)
+# Control weights
+# Rweights = np.diag(R).copy()
 
 # Set the slack method
 config.complementarity = 'useNonlinearComplementarityWithCost'
-distance_cost = [1, 10, 100, 1000]
-config.complementarity_cost_weight = [1, 1, 1]
-
-for N in num_times:
-    config.num_time_samples = N
+distance_cost = [1, 10, 100, 1000, 10000]
+config.complementarity_cost_weight = 1
+warmstartdir = os.path.join('data','a1','warmstarts')
+warmstarts = ['liftedlinear','staticwalking']
+warmfiles = [os.path.join(warmstartdir, filename) for filename in warmstarts]
+for file in warmstarts:
+    warmfile = os.path.join(warmstartdir, file+'.pkl')
+    config.initial_guess = ('useCustomGuess', warmfile)
     config_list = []
-    filename = f"a1_walking_feasible_ncc_with_cost_N{N}"
+    filename = f"a1_walking_warmstart_{file}"
     for d_cost in distance_cost:
         new_config = deepcopy(config)
-        new_config.complementarity_cost_weight[0] = d_cost
+        new_config.complementarity_cost_weight = d_cost
         config_list.append(new_config)
     # Save the configuration
     savename = os.path.join(dirname, filename) + '.pkl'
@@ -47,16 +57,7 @@ for N in num_times:
 
 
 
-# # Background material
-# Q, xr = config.quadratic_state_cost
-# R, ur = config.quadratic_control_cost
-# # Upweight the velocities
-# weights = np.diag(Q).copy()
-# nx = weights.shape[0]
-# weights[int(nx/2):] = 100
-# config.quadratic_state_cost = (np.diag(weights), xr)
-# Control weights
-# Rweights = np.diag(R).copy()
+
 
 # Loop over and create configurations
 # for duration in alltimes:
