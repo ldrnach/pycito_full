@@ -8,7 +8,7 @@ Includes classes for creating A1 MultibodyPlant and TimesteppingMultibodyPlant a
 import numpy as np
 import matplotlib.pyplot as plt
 from numpy.lib.function_base import append
-from pydrake.all import PiecewisePolynomial, InverseKinematics, Solve, Body, PrismaticJoint, BallRpyJoint, SpatialInertia, UnitInertia
+from pydrake.all import PiecewisePolynomial, InverseKinematics, Solve, Body, PrismaticJoint, BallRpyJoint, SpatialInertia, UnitInertia, RevoluteJoint
 # Project Imports
 from utilities import FindResource, quat2rpy
 from systems.timestepping import TimeSteppingMultibodyPlant
@@ -21,25 +21,6 @@ class A1(TimeSteppingMultibodyPlant):
     def __init__(self, urdf_file="systems/A1/A1_description/urdf/a1_foot_collision.urdf", terrain=FlatTerrain()):
         # Initialize the time-stepping multibody plant
         super(A1, self).__init__(file=FindResource(urdf_file), terrain=terrain)
-
-    def useFloatingRPYJoint(self):
-        if self.multibody.is_finalized():
-            raise RuntimeError("useFloatingRPYJoint must be called before finalize")
-        zeroinertia = SpatialInertia(0, np.zeros((3,)), UnitInertia(0., 0., 0.))
-        # Create virtual, zero-mass
-        xlink = self.multibody.AddRigidBody('xlink', self.model_index, zeroinertia)
-        ylink = self.multibody.AddRigidBody('ylink', self.model_index, zeroinertia)
-        zlink = self.multibody.AddRigidBody('zlink', self.model_index, zeroinertia)
-        # Create the translational and rotational joints
-        xtrans = PrismaticJoint("xtranslation", self.multibody.world_frame(), xlink.body_frame(), [1., 0., 0.])
-        ytrans = PrismaticJoint("ytranslation", xlink.body_frame(), ylink.body_frame(), [0., 1., 0.])
-        ztrans = PrismaticJoint("ztranslation", ylink.body_frame(), zlink.body_frame(), [0., 0., 1.])
-        rpyrotation = BallRpyJoint("baseorientation", zlink.body_frame(), self.multibody.GetBodyByName('base').body_frame())
-        # Add the joints to the multibody plant
-        self.multibody.AddJoint(xtrans)
-        self.multibody.AddJoint(ytrans)
-        self.multibody.AddJoint(ztrans)
-        self.multibody.AddJoint(rpyrotation)
 
     def print_frames(self, config=None):
         body_indices = self.multibody.GetBodyIndices(self.model_index)
@@ -484,6 +465,196 @@ class A1VirtualBase(A1):
         vis.plant.AddJoint(rpyrotation)
         vis.visualize_trajectory(xtraj=trajectory)
 
+<<<<<<< HEAD
+=======
+class PlanarA1(A1):
+    def __init__(self, urdf_file="systems/A1/A1_description/urdf/a1_foot_collision.urdf", terrain=FlatTerrain()):
+        super(PlanarA1, self).__init__(urdf_file, terrain)
+        # Fix A1 so that it can only move in the xz plane
+        zeroinertia = SpatialInertia(0, np.zeros((3,)), UnitInertia(0., 0., 0.))
+        # Create new links and joints
+        xlink = self.multibody.AddRigidBody('xlink', self.model_index[0], zeroinertia)
+        zlink = self.multibody.AddRigidBody('zlink', self.model_index[0], zeroinertia)
+        xtrans = PrismaticJoint("xtranslation", self.multibody.world_frame(), xlink.body_frame(), [1., 0., 0.])
+        ztrans = PrismaticJoint("ztranslation", xlink.body_frame(), zlink.body_frame(), [0., 0., 1.])
+        yrotation = RevoluteJoint('yrotation', zlink.body_frame(), self.multibody.GetBodyByName('base').body_frame(), [0., 1., 0.])
+        # Add the joints to the plant
+        self.multibody.AddJoint(xtrans)
+        self.multibody.AddJoint(ztrans)
+        self.multibody.AddJoint(yrotation)
+
+    def configuration_sweep(self):
+        """Create a visualization that sweeps through the configuration variables"""
+        # Get the configuration vector
+        context = self.multibody.CreateDefaultContext()
+        pos = self.multibody.GetPositions(context)
+        # Make a trajectory that sweeps each of the configuration variables
+        # The expected order is (Orientation) (COM translation) (Leg Joints)
+        t = np.linspace(0., 1., 101)
+        angle = np.linspace(0., np.pi / 2, 101)
+        trans = np.linspace(0., 1., 101)
+        trajectory = PiecewisePolynomial.FirstOrderHold([0.,1.],np.column_stack((pos, pos)))
+        pos = np.tile(pos, (101,1)).transpose()
+                
+        # Sweep the COM translation
+        for n in range(2):
+            pos_ = pos.copy()
+            pos_[n,:] = trans
+            t_ = t + trajectory.end_time()
+            trajectory.ConcatenateInTime(PiecewisePolynomial.FirstOrderHold(t_, pos_))
+
+        # Sweep the joint positions
+        for n in range(2,pos.shape[0]):
+            pos_ = pos.copy()
+            pos_[n,:] = angle
+            t_ = t + trajectory.end_time()
+            trajectory.ConcatenateInTime(PiecewisePolynomial.FirstOrderHold(t_, pos_))
+
+        PlanarA1.visualize(trajectory)
+
+    def standing_pose(self):
+        # Get the default configuration vector
+        context = self.multibody.CreateDefaultContext()
+        pos = self.multibody.GetPositions(context)
+        # Change the hip pitch to 45 degrees
+        hip_pitch = [4, 7, 10, 13]
+        pos[hip_pitch] = np.pi/4
+        # Change the knee pitch to keep the foot under the hip
+        knee_pitch = [5, 8, 11, 14]
+        pos[knee_pitch] = -np.pi/2
+        # Adjust the base height to make the normal distances 0
+        self.multibody.SetPositions(context, pos)
+        dist = self.GetNormalDistances(context)
+        pos[1] = pos[1] - np.amin(dist)
+        return pos
+
+    def standing_pose_ik(self, base_pose, guess=None):
+        """
+
+        base_pose should be specified as [xyz, rpy], a (6,) array
+        """
+        # Create an IK Problem
+        IK = InverseKinematics(self.multibody, with_joint_limits=True)
+        # Get the context and set the default pose
+        context = self.multibody.CreateDefaultContext()
+        q_0 = np.zeros((self.multibody.num_positions(),))
+        q_0[:3] = base_pose
+        self.multibody.SetPositions(context, q_0)
+        # Constrain the foot positions
+        #TODO: FIX IK so that all points on the collision sphere are above the terrain. Current implementation only constrains the bottom of  the sphere, which is only valid if the legs are straight - ie knees locked
+        world = self.multibody.world_frame()
+        for pose, frame, radius in zip(self.collision_poses, self.collision_frames, self.collision_radius):
+            point = pose.translation().copy()
+            point_w = self.multibody.CalcPointsPositions(context, frame, point, world)
+            point_w[-1] = radius
+            IK.AddPositionConstraint(frame, point, world, point_w, point_w)
+        # Set the base position as a constraint
+        q_vars = IK.q()
+        prog = IK.prog()
+        prog.AddLinearEqualityConstraint(Aeq = np.eye(3), beq = np.expand_dims(base_pose, axis=1), vars=q_vars[:3])
+        # Solve the problem
+        prog = IK.prog()
+        if guess is not None:
+            # Set the initial guess
+            prog.SetInitialGuess(q_vars, guess)
+        result = Solve(prog)
+        # Return the configuration vector
+        return result.GetSolution(IK.q()), result.is_success()
+
+    def foot_pose_ik(self, base_pose, feet_position, guess=None):
+        """
+        Solves for the joint configuration that achieves the desired base and foot positions
+        
+        Arguments:
+            base_pose: (6,) numpy array specifying base position as [xyz, rpy]
+            feet_position: 4-iterable, each element a (3,) numpy array specifying foot positions for [FL, FR, RL, RR] in order
+        Returns:    
+            q: The solved configuration
+            status: a boolean. True if the IK problem was solved successfully
+        """
+        # Create an IK problem
+        IK = InverseKinematics(self.multibody, with_joint_limits=True)
+        # Create context and set pose
+        context = self.multibody.CreateDefaultContext()
+        q_0 = np.zeros((self.multibody.num_positions(),))
+        q_0[:3] = base_pose
+        self.multibody.SetPositions(context, q_0)
+        # Constrain the foot positions in the world frame
+        world = self.multibody.world_frame()
+        for frame, fpose, wpose in zip(self.collision_frames, self.collision_poses, feet_position):
+            point = fpose.translation().copy()
+            IK.AddPositionConstraint(frame, point, world, wpose, wpose)
+        # Set the base position as a constraint
+        qvar = IK.q()
+        prog = IK.prog()
+        prog.AddLinearEqualityConstraint(Aeq = np.eye(3), beq = np.expand_dims(base_pose, axis=1), vars=qvar[:3])
+        # Set an initial guess
+        if guess is None:
+            guess = self.standing_pose()
+        prog.SetInitialGuess(qvar, guess)
+        # Solve the problem
+        result = Solve(prog)
+        return result.GetSolution(qvar), result.is_success()
+
+    def plot_state_trajectory(self, xtraj, samples=None, show=True, savename=None):
+        """ Plot the state trajectory for A1"""
+        # Get the configuration and velocity trajectories as arrays
+        t, x = utils.trajectoryToArray(xtraj, samples)
+        nq = self.multibody.num_positions()
+        q, v = np.split(x, [nq])
+        # Plot Base orientation and position
+        self._plot_base_position(t, q[:3, :], show=show, savename=utils.append_filename(savename, 'BaseConfiguration'))
+        # Plot Base Velocity
+        self._plot_base_velocity(t, v[:3, :], show=show, savename=utils.append_filename(savename, 'BaseVelocity'))
+        # Plot Joint Angles
+        self._plot_joint_position(t, q[3:, :], show=show, savename=utils.append_filename(savename, 'JointAngles'))
+        # Plot joint velocities
+        self._plot_joint_velocity(t, v[3:, :], show=show, savename=utils.append_filename(savename, 'JointVelocity'))
+        
+    @deco.showable_fig
+    @deco.saveable_fig
+    def _plot_base_position(self, t, pos):
+        """Make a plot of the position and orientation of the base"""
+        fig, axs = plt.subplots(3,1)
+        labels=["Horizontal (m)", "Vertical (m)", "Rotation (rad)"]
+        for n in range(3):
+            axs[n].plot(t, pos[n,:], linewidth=1.5)
+            axs[n].set_ylabel(labels[n])
+        axs[-1].set_xlabel('Time (s)')
+        axs[0].set_title("Base Configuration")
+        return fig, axs
+
+    @deco.showable_fig
+    @deco.saveable_fig
+    def _plot_base_velocity(self, t, vel):
+        """Plot COM orientation rate and translational velocity"""
+        fig, axs = plt.subplots(3, 1)
+        labels=["Horizontal (m/s)", "Vertical (m/s)", "Rotation (rad/s)"]
+        for n in range(3):
+            axs[n].plot(t, vel[n,:], linewidth=1.5)
+            axs[n].set_ylabel(labels[n])
+        axs[-1].set_xlabel('Time (s)')
+        axs[0].set_title("Base Velocities")
+        return fig, axs
+
+    @staticmethod
+    def visualize(trajectory=None):
+        vis = Visualizer("systems/A1/A1_description/urdf/a1_no_collision.urdf")
+        # Add in virtual joints to represent the floating base
+        zeroinertia = SpatialInertia(0, np.zeros((3,)), UnitInertia(0., 0., 0.))
+        # Create new links and joints
+        xlink = vis.plant.AddRigidBody('xlink', vis.model_index, zeroinertia)
+        zlink = vis.plant.AddRigidBody('zlink', vis.model_index, zeroinertia)
+        xtrans = PrismaticJoint("xtranslation", vis.plant.world_frame(), xlink.body_frame(), [1., 0., 0.])
+        ztrans = PrismaticJoint("ztranslation", xlink.body_frame(), zlink.body_frame(), [0., 0., 1.])
+        yrotation = RevoluteJoint('yrotation', zlink.body_frame(), vis.plant.GetBodyByName('base').body_frame(), [0., 1., 0.])
+        # Add the joints to the multibody plant
+        vis.plant.AddJoint(xtrans)
+        vis.plant.AddJoint(ztrans)
+        vis.plant.AddJoint(yrotation)
+        vis.visualize_trajectory(xtraj=trajectory)
+
+>>>>>>> 876e345bf0697c1ff8283327e6427cd753280df7
 def describe_a1():
     a1 = A1()
     a1.Finalize()
@@ -524,11 +695,20 @@ def example_pose():
     print(f"The normal distances are {a1.GetNormalDistances(context)}")
     
 def run_configuration_sweep():
+<<<<<<< HEAD
     a1 = A1VirtualBase()
+=======
+    a1 = PlanarA1()
+>>>>>>> 876e345bf0697c1ff8283327e6427cd753280df7
     a1.Finalize()
     a1.configuration_sweep()
 
 if __name__ == "__main__":
     #describe_a1()
+<<<<<<< HEAD
     #run_configuration_sweep()
     example_pose()
+=======
+    run_configuration_sweep()
+    #example_pose()
+>>>>>>> 876e345bf0697c1ff8283327e6427cd753280df7

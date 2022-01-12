@@ -10,7 +10,8 @@ from abc import ABC, abstractmethod
 
 #TODO: Update eval, upper_bound, lower_bound methods in CollocatedComplementarity for compatibility
 #TODO: Unittesting for CollocatedComplementarity and it's subclasses
-
+#TODO: Implement CostRelaxedLinearEqualityComplementarity
+#TODO: Implement automatic slack variable initialization
 class ComplementarityConstraint(ABC):
     """
     Base class for implementing complementarity constraint functions of the form:
@@ -444,6 +445,81 @@ class LinearEqualityVariableSlackComplementarity(ComplementarityConstraint):
                     cost.evaluator().UpdateCoefficients(new_a = val*np.ones((nvars,)))
         else:
             raise ValueError("cost_weight must be a nonnegative numeric value")
+
+class CostRelaxedLinearEqualityComplementarity(ComplementarityConstraint):
+    """
+    Introduces new variables and an equality constraint to implement the nonlinear constraint as a linear complementarity constraint with a nonlinear equality constraint. The original problem is implemented as:
+        min s*z
+            s - f(x) = 0
+            s >= 0, z>= 0
+    where s is the extra set of variables
+    """
+    def __init__(self, fcn, xdim=1, zdim=1):
+        super(CostRelaxedLinearEqualityComplementarity, self).__init__(fcn, xdim, zdim)
+        self.name = fcn.__name__
+        self._slack_cost = []
+        self._cost_weight = 1.
+
+    def str(self):
+        text = super(CostRelaxedLinearEqualityComplementarity, self).str()
+        text += f"\tCost weight: {self.cost_weight}"
+        return text
+
+    def eval(self, vars):
+        """
+        Evaluate the inequality constraints only
+        
+        The argument must be a numpy array of decision variables ordered as [x, z]
+        """
+        x, z, s = np.split(vars, np.cumsum([self.xdim, self.zdim]))
+        val = self.fcn(x)
+        return np.concatenate([s - val, s, z], axis=0)
+
+    def lower_bound(self):
+        """Return the lower bound"""
+        return np.zeros((3*self.zdim))
+
+    def upper_bound(self):
+        """Return the upper bound"""
+        return np.concatenate([np.zeros((self.zdim, )), np.full((2*self.zdim,), np.inf)], axis=0)
+
+    def product_cost(self, vars):
+        """
+        Returns the product constraint as a scalar for use as a cost
+        The argument must be a numpy array of decision variables organized as [s, z]
+        """
+        z, s = np.split(vars, [self.xdim])
+        return self.cost_weight * s.dot(z)
+
+    def addToProgram(self, prog, xvars, zvars):
+        xvars, zvars = self._check_vars(xvars, zvars)
+        # Create new slack variables
+        new_slacks = prog.NewContinuousVariables(rows = zvars.shape[0], cols=zvars.shape[1], name=self.name + "_slacks")
+        # Add bounding box constraints
+        dvars = np.concatenate([xvars, zvars, new_slacks], axis=0)
+        # Add complementarity constraints
+        for n in range(dvars.shape[1]):
+            prog.AddConstraint(self,lb=self.lower_bound(), ub=self.upper_bound(), vars=dvars[:,n], description=self.name)
+            prog.AddCost(self.product_cost, vars=dvars[self.xdim:,n], description=self.name+"Cost")
+        # Add a cost on the slack variables
+        # Store the variables
+        if self._var_slack is not None:
+            self._var_slack = np.column_stack([self._var_slack, new_slacks])
+        else:
+            self._var_slack = new_slacks
+
+    @property
+    def cost_weight(self):
+        return self._cost_weight
+
+    @cost_weight.setter
+    def cost_weight(self, val):
+        if (type(val) == int or type(val) == float) and val >= 0.:
+            self._cost_weight = val
+        else:
+            raise ValueError("cost_weight must be a nonnegative numeric value")   
+
+
 class CollocatedComplementarity(ComplementarityConstraint):
     """
     Base class for implementing complementarity constraints for collocation problems. Collocated complementarity problems take the form:

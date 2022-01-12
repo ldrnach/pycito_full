@@ -7,9 +7,10 @@ June 22, 2021
 import numpy as np
 import timeit, os
 from trajopt.contactimplicit import ContactImplicitDirectTranscription, OptimizationOptions 
-from systems.A1.a1 import A1VirtualBase
+from systems.A1.a1 import PlanarA1
 import utilities as utils
-from pydrake.all import PiecewisePolynomial, IpoptSolver, SnoptSolver
+from pydrake.all import PiecewisePolynomial
+from pydrake.solvers.snopt import SnoptSolver
 import matplotlib.pyplot as plt
 
 #TODO: Initialize from the standing optimization solution
@@ -31,7 +32,7 @@ def control_difference_cost(dvar):
     return 0.1 * (u2 - u1) @ (u2 - u1)
 
 # Create the plant for A1 and the associated trajectory optimization
-a1 = A1VirtualBase()
+a1 = PlanarA1()
 a1.terrain.friction = 1.0
 a1.Finalize()
 context = a1.multibody.CreateDefaultContext()
@@ -56,10 +57,10 @@ trajopt.add_equal_time_constraints()
 pose = a1.standing_pose()
 pose2 = pose.copy()
 # Set the final height
-pose[2] = pose[2]/2
+pose[1] = pose[1]/2
 # Solve for feasible poses
-pose_ik, status = a1.standing_pose_ik(base_pose = pose[0:6], guess = pose.copy())
-pose2_ik, status = a1.standing_pose_ik(base_pose = pose2[0:6], guess = pose2.copy())
+pose_ik, status = a1.standing_pose_ik(base_pose = pose[:3], guess = pose.copy())
+pose2_ik, status = a1.standing_pose_ik(base_pose = pose2[:3], guess = pose2.copy())
 # Append zeros to make a full state
 no_vel = np.zeros((a1.multibody.num_velocities(), ))
 x0 = np.concatenate((pose_ik, no_vel),axis=0)
@@ -102,16 +103,15 @@ trajopt.add_quadratic_differenced_cost(Rd, vars=trajopt.u, name='ControlDifferen
 if not utils.CheckProgram(trajopt.prog):
     quit()
 # Set SNOPT solver options
-# solver = SnoptSolver()
-# trajopt.prog.SetSolverOption(solver.solver_id(), "Iterations Limit", 1000000)
-# #trajopt.prog.SetSolverOption(solver.solver_id(), "Major iterations limit", 0)
-# trajopt.prog.SetSolverOption(solver.solver_id(), "Major Feasibility Tolerance", 1e-6)
-# #trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Minor Feasibility Tolerance", 1e-6)
-# trajopt.prog.SetSolverOption(solver.solver_id(), "Major Optimality Tolerance", 1e-6)
-# trajopt.prog.SetSolverOption(solver.solver_id(), "Scale Option", 2)
-# outfile = os.path.abspath("/workspaces/pyCITO/examples/a1/snopt.txt")
-# trajopt.prog.SetSolverOption(solver.solver_id(), "Print file", outfile)
-solver = IpoptSolver()
+solver = SnoptSolver()
+trajopt.prog.SetSolverOption(solver.solver_id(), "Iterations Limit", 1000000)
+#trajopt.prog.SetSolverOption(solver.solver_id(), "Major iterations limit", 0)
+trajopt.prog.SetSolverOption(solver.solver_id(), "Major Feasibility Tolerance", 1e-6)
+#trajopt.prog.SetSolverOption(SnoptSolver().solver_id(), "Minor Feasibility Tolerance", 1e-6)
+trajopt.prog.SetSolverOption(solver.solver_id(), "Major Optimality Tolerance", 1e-6)
+trajopt.prog.SetSolverOption(solver.solver_id(), "Scale Option", 2)
+outfile = os.path.abspath("/workspaces/pyCITO/examples/a1_planar/snopt.txt")
+trajopt.prog.SetSolverOption(solver.solver_id(), "Print file", outfile)
 trajopt.enable_cost_display('figure')
 #trajopt.enable_iteration_visualizer()
 print("Solving trajectory optimization")
@@ -120,7 +120,7 @@ result = solver.Solve(trajopt.get_program())
 stop = timeit.default_timer()
 print(f"Elapsed time: {stop-start}")
 # Print details of solution
-savedir = os.path.join('examples','a1','lift_test','lowcost')
+savedir = os.path.join('examples','a1_planar','lift_test','lowcost')
 if not os.path.exists(savedir):
     os.makedirs(savedir)
 text = trajopt.generate_report(result)

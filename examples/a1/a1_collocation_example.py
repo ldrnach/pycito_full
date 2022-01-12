@@ -105,11 +105,7 @@ def progressive_solve(trajopt, plant, weights, useipopt):
     if useipopt:
         dir_base = os.path.join('data','a1_walking','collocation_ipopt')
     else:
-        dir_base = os.path.join('data','a1_walking','collocatio')
-        
-
-    
-
+        dir_base = os.path.join('data','a1_walking','collocation')
     for weight in weights:
         print(f"Solving with complementarity weight: {weight}")
         # Increase the complementarity cost weight

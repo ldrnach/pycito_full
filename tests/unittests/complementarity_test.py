@@ -16,7 +16,6 @@ June 14, 2021
 
 import unittest
 import numpy as np
-from numpy.testing._private.utils import assert_equal
 from trajopt import complementarity as cp
 from pydrake.all import MathematicalProgram, Solve
 
@@ -30,115 +29,199 @@ def example_constraint(z):
 def test_constraint(x):
     return x - 1
 
-class ComplementarityTest(unittest.TestCase):
+class _ComplementarityBaseTestMixin():
+    """
+    Test the implementation of complementarity constraints with the example problem:
+        min (z-2)**2
+        x - 1 >= 0
+        z >= 0
+        z*(x-1) = 0
+
+    The solution should be (x, z) = (1, 2)
+    """
     def setUp(self):
         # Create the program and associated variables
         self.prog = MathematicalProgram()
+        self.fcn = test_constraint
         self.x = self.prog.NewContinuousVariables(rows=2, cols=1, name='x')
-        self.y = self.prog.NewContinuousVariables(rows=1, cols=1, name='y')
-        # Add the cost and constraint
-        self.prog.AddLinearCost(a = np.ones((2,)), b = 0., vars = self.x)
-        self.prog.AddConstraint(example_constraint, lb=np.ones((1,)), ub=np.ones((1,)), vars=np.concatenate([self.x, self.y]))
-        # Set the initial guess for the solution to all ones
-        self.prog.SetInitialGuess(self.x, np.ones((2,)))
-        self.prog.SetInitialGuess(self.y, np.ones((1,)))
+        self.z = self.prog.NewContinuousVariables(rows=2, cols=1, name='z')
+        # Setup the complementarity constraint
+        self.setup_complementarity_constraints()
+        self.cstr.addToProgram(self.prog, xvars = self.x, zvars = self.z)
+        # Add a cost to the program to regularize it
+        Q = np.eye(2)
+        b = 2 * np.ones((2,))
+        self.prog.AddQuadraticErrorCost(Q, b, vars=self.z)
+        # Expected test output values
+        self.expected_num_variables = 4
+        self.expected_num_constraints = 1
+        self.expected_num_costs = 1
+        self.expected_num_slacks = 0
 
-    def solve_problem(self, cstr):
+        # Store the optimal solution
+        self.x_expected = np.ones((2,))
+        self.z_expected = 2*np.ones((2,))
+        
+        # Set the initial guess for the program - initialize at the solution
+        self.prog.SetInitialGuess(self.x, self.x_expected)
+        self.prog.SetInitialGuess(self.z, self.z_expected)
+
+    def setup_complementarity_constraints(self):
+        raise NotImplementedError()
+
+    def solve_problem(self):
         """ Helper function to solve the complementarity problem """
         # Check that the problem solves successfully
         result = Solve(self.prog)
-        self.assertTrue(result.is_success(), msg=f"Failed to solve complementarity problem with {type(cstr).__name__}")
+        self.assertTrue(result.is_success(), msg=f"Failed to solve complementarity problem with {type(self.cstr).__name__}")
         return result
 
-    def check_result(self, result, cstr):
+    def check_result(self, result):
         """ Check that the results are reasonably accurate"""
         x_ = result.GetSolution(self.x)
-        y_ = result.GetSolution(self.y)
-        np.testing.assert_allclose(x_, np.zeros((2,)), atol= 1e-3, err_msg=f"Results are not close to the expected solution using {type(cstr).__name__}")
-        np.testing.assert_allclose(y_, np.ones((1,)), atol=1e-3, err_msg =f"Results are not close to the expected solution using {type(cstr).__name__}")
+        z_ = result.GetSolution(self.z)
+        np.testing.assert_allclose(x_, self.x_expected, atol= 1e-3, err_msg=f"Results are not close to the expected solution using {type(self.cstr).__name__}")
+        np.testing.assert_allclose(z_, self.z_expected, atol=1e-3, err_msg =f"Results are not close to the expected solution using {type(self.cstr).__name__}")
 
     def get_constraint_upper_bound(self):
         """ Get the upper bound for the complementarity constraint"""
         for cstr in self.prog.GetAllConstraints():
-            if cstr.evaluator().get_description() == "pass_through":
+            if cstr.evaluator().get_description() == self.fcn.__name__:
                 return cstr.evaluator().upper_bound()
 
-    def check_constant_slack(self, cstr):
+    def check_constant_slack(self):
         """ Test snippet for checking if setting a constant slack changes the upper bounds"""
         ub_1 = self.get_constraint_upper_bound()
-        cstr.const_slack = 1.
+        self.cstr.const_slack = 1.
         ub_2 = self.get_constraint_upper_bound()
-        self.assertTrue(np.any(np.not_equal(ub_1, ub_2)), msg=f"Changing constant slack does not change the upper bound for {type(cstr).__name__}")
+        self.assertTrue(np.any(np.not_equal(ub_1, ub_2)), msg=f"Changing constant slack does not change the upper bound for {type(self.cstr).__name__}")
 
-    def check_setting_cost(self, cstr, result):
+    def check_setting_cost(self, result):
         """ Test snippet for checking if setting a cost weight works"""
-        cstr.cost_weight = 1.
+        self.cstr.cost_weight = 1.
         cost1 = self.eval_complementarity_cost(result)
-        cstr.cost_weight = 10.
+        self.cstr.cost_weight = 10.
         cost2 = self.eval_complementarity_cost(result)
-        self.assertAlmostEqual(cost1*10, cost2, delta=1e-7, msg=f"Setting cost_weight does not change cost for {type(cstr).__name__}")
+        self.assertAlmostEqual(cost1*10, cost2, delta=1e-7, msg=f"Setting cost_weight does not change cost for {type(self.cstr).__name__}")
 
     def eval_complementarity_cost(self, result):
         """ Evaluate the cost associated with the complementarity constraint"""
         costs = self.prog.GetAllCosts()
         for cost in costs:
-            if cost.evaluator().get_description() in ["pass_throughSlackCost", "pass_throughCost"]:
+            if cost.evaluator().get_description() in [f"{self.fcn.__name__}SlackCost", f"{self.fcn.__name__}Cost"]:
                 dvars = cost.variables()
                 dvals = result.GetSolution(dvars)
                 break
         return cost.evaluator().Eval(dvals) 
 
-    def test_nonlinear_constant_slack(self):
-        """Test NonlinearComplementarityConstantSlack """
-        # Test with zero slack
-        cstr = cp.NonlinearConstantSlackComplementarity(pass_through, xdim=1, zdim=1)
-        cstr.addToProgram(self.prog, xvars=self.x[0], zvars=self.x[1])
-        result = self.solve_problem(cstr)
-        # Check the answer
-        self.check_result(result, cstr)
-        # Check changing the constant slack
-        self.check_constant_slack(cstr)
+    def test_constraints_added(self):
+        """Check that the program has the correct number of constraints added"""
+        self.assertEqual(len(self.prog.GetAllConstraints()), self.expected_num_constraints, msg = 'Unexpected number of constraints')
 
-    def test_nonlinear_variable_slack(self):
-        """ Test NonlinearComplementarityVariableSlack constraint"""
-        # Test with cost-weight 1
-        cstr = cp.NonlinearVariableSlackComplementarity(pass_through, xdim=1, zdim=1)
-        cstr.addToProgram(self.prog, xvars=self.x[0], zvars=self.x[1])
-        result = self.solve_problem(cstr)
-        # Check the answer
-        self.check_result(result, cstr)
-        # Check changing the cost weight
-        self.check_setting_cost(cstr, result)
+    def test_costs_added(self):
+        """Check that the program has the expected number of costs added"""
+        self.assertEqual(len(self.prog.GetAllCosts()), self.expected_num_costs, msg='Unexpected number of costs')
 
-    def test_nonlinear_cost(self):
-        """ Test CostRelaxedNonlinearComplementarity"""
-        cstr = cp.CostRelaxedNonlinearComplementarity(pass_through, xdim=1, zdim=1)
-        cstr.addToProgram(self.prog, xvars=self.x[0], zvars=self.x[1])
-        result = self.solve_problem(cstr)
-        # Check the result
-        self.check_result(result, cstr)
-        # Check changing the cost
-        self.check_setting_cost(cstr, result)
+    def test_get_slacks(self):
+        """Check that the correct number of slack variables has been added"""
 
-    def test_linear_constant_slack(self):
-        """ Test LinearEqualityConstantSlackComplementarity """
-        cstr = cp.LinearEqualityConstantSlackComplementarity(pass_through, xdim=1, zdim=1)
-        cstr.addToProgram(self.prog, xvars=self.x[0], zvars=self.x[1])
-        result = self.solve_problem(cstr)
-        # Check the result
-        self.check_result(result, cstr)
-        # Check changing the constant slack
-        self.check_constant_slack(cstr)
+        # Note: Constant slack methods return None as the var_slack, 
+        if self.cstr.var_slack is not None:
+            self.assertEqual(self.cstr.var_slack.size, self.expected_num_slacks, msg = 'Unexpected number of slack variables')
+        else:
+            self.assertEqual(0, self.expected_num_slacks, msg='Unexpected number of slack variables')
+
+    def test_number_variables(self):
+        """Check the total number of variables"""
+        self.assertEqual(self.prog.num_vars(), self.expected_num_variables, msg="Unexpected number of decision variables")
+
+    def test_solve_problem(self):
+        """ Test that solving the problem achieves the desired solution """
+        result = self.solve_problem()
+        self.check_result(result)
+
+
+class NonlinearComplementarityConstantSlackTest(_ComplementarityBaseTestMixin, unittest.TestCase):
+    def setUp(self):
+        super(NonlinearComplementarityConstantSlackTest, self).setUp()
+
+    def setup_complementarity_constraints(self):
+        self.cstr = cp.NonlinearConstantSlackComplementarity(self.fcn, xdim = 2, zdim = 2)
+
+    def test_constant_slack(self):
+        """Test that setting constant slack variables changes the program"""
+        self.check_constant_slack()
         
-    def test_linear_variable_slack(self):
-        """ Test LinearEqualityVariableSlackComplementarity """
-        cstr = cp.LinearEqualityVariableSlackComplementarity(pass_through, xdim=1, zdim=1)
-        cstr.addToProgram(self.prog, xvars=self.x[0], zvars=self.x[1])
-        result = self.solve_problem(cstr)
-        # Check the result
-        self.check_result(result, cstr)
-        # Check changing the cost
-        self.check_setting_cost(cstr, result)
+class NonlinearComplementarityVariableSlackTest(_ComplementarityBaseTestMixin, unittest.TestCase):
+    def setUp(self):
+        super(NonlinearComplementarityVariableSlackTest, self).setUp()
+        self.expected_num_slacks += 1
+        self.expected_num_variables += 1
+        self.expected_num_costs += 1
+
+    def setup_complementarity_constraints(self):
+        self.cstr = cp.NonlinearVariableSlackComplementarity(self.fcn, xdim = 2, zdim = 2)
+
+    def test_cost_weight(self):
+        """Test if setting the cost weight has any effect"""
+        result = self.solve_problem()
+        self.check_setting_cost(result)
+
+class NonlinearComplementarityWithCostTest(_ComplementarityBaseTestMixin, unittest.TestCase):
+    def setUp(self):
+        super(NonlinearComplementarityWithCostTest, self).setUp()
+        self.expected_num_costs += 1
+
+    def setup_complementarity_constraints(self):
+        self.cstr = cp.CostRelaxedNonlinearComplementarity(self.fcn, xdim=2, zdim=2)
+
+    def test_cost_weight(self):
+        """Test if setting the cost weight has any effect"""
+        result = self.solve_problem()
+        self.check_setting_cost(result)
+
+class LinearComplementarityConstantSlackTest(_ComplementarityBaseTestMixin, unittest.TestCase):
+    def setUp(self):
+        super(LinearComplementarityConstantSlackTest, self).setUp()
+        self.expected_num_slacks += 2
+        self.expected_num_variables += 2
+
+    def setup_complementarity_constraints(self):
+        self.cstr = cp.LinearEqualityConstantSlackComplementarity(self.fcn, xdim=2, zdim=2)
+
+    def test_constant_slack(self):
+        """Test that setting constant slack variables changes the program"""
+        self.check_constant_slack()
+
+class LinearComplementarityVariableSlackTest(_ComplementarityBaseTestMixin, unittest.TestCase):
+    def setUp(self):
+        super(LinearComplementarityVariableSlackTest, self).setUp()
+        self.expected_num_slacks += 3
+        self.expected_num_variables += 3
+        self.expected_num_costs += 1
+
+    def setup_complementarity_constraints(self):
+        self.cstr = cp.LinearEqualityVariableSlackComplementarity(self.fcn, xdim=2, zdim=2)
+
+    def test_cost_weight(self):
+        """Test if setting the cost weight has any effect"""
+        result = self.solve_problem()
+        self.check_setting_cost(result)
+
+class LinearComplementarityWithCostTest(_ComplementarityBaseTestMixin, unittest.TestCase):
+    def setUp(self):
+        super(LinearComplementarityWithCostTest, self).setUp()
+        self.expected_num_slacks += 2
+        self.expected_num_variables += 2
+        self.expected_num_costs += 1
+
+    def setup_complementarity_constraints(self):
+        self.cstr = cp.CostRelaxedLinearEqualityComplementarity(self.fcn, xdim = 2, zdim = 2)
+
+    def test_cost_weight(self):
+        """Test if setting the cost weight has an effect"""
+        result = self.solve_problem()
+        self.check_setting_cost(result)
 
 class CollocatedComplementarityBaseTestMixin():
     def setUp(self):
@@ -204,7 +287,6 @@ class CollocatedComplementarityBaseTestMixin():
         expected = np.array([0., 0., 6., 6.])
         np.testing.assert_allclose(slack_vals[:4], expected, err_msg = "Solved values for collocation slack variables is incorrect")
 
-
 class CollocatedComplementarityConstantSlackTest(CollocatedComplementarityBaseTestMixin, unittest.TestCase):
     def setUp(self):
         super(CollocatedComplementarityConstantSlackTest, self).setUp()
@@ -228,8 +310,6 @@ class CollocatedComplementarityConstantSlackTest(CollocatedComplementarityBaseTe
         np.testing.assert_allclose(lb_post, lb_pre, err_msg='Lower bounds changed when adding slack')
         np.testing.assert_allclose(ub_pre,  np.zeros((self.z.shape[0],)), err_msg = 'Upper bounds incorrect before adding slack')
         np.testing.assert_allclose(ub_post, np.ones((self.z.shape[0],)), err_msg = 'Upper bounds incorrect after adding slack')
-
-
 
 class CollocatedComplementarityVariableSlackTest(CollocatedComplementarityBaseTestMixin, unittest.TestCase):
     def setUp(self):

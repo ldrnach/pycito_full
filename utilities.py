@@ -176,8 +176,8 @@ class MathProgIterationPrinter():
                 self.cost_lines[name] = self.axs[0].plot([self.iteration], [value], linewidth=1.5, label=name)[0]
             for name, value in cstrs.items():
                 self.cstr_lines[name] = self.axs[1].plot([self.iteration], [value], linewidth=1.5, label=name)[0]
-            self.axs[0].legend()
-            self.axs[1].legend()
+            self.axs[0].legend(loc='upper left')
+            self.axs[1].legend(loc='upper left')
         else:
             ymax = self.axs[0].get_ylim()[1]
             for name, value in costs.items():
