@@ -22,25 +22,6 @@ class A1(TimeSteppingMultibodyPlant):
         # Initialize the time-stepping multibody plant
         super(A1, self).__init__(file=FindResource(urdf_file), terrain=terrain)
 
-    def useFloatingRPYJoint(self):
-        if self.multibody.is_finalized():
-            raise RuntimeError("useFloatingRPYJoint must be called before finalize")
-        zeroinertia = SpatialInertia(0, np.zeros((3,)), UnitInertia(0., 0., 0.))
-        # Create virtual, zero-mass
-        xlink = self.multibody.AddRigidBody('xlink', self.model_index, zeroinertia)
-        ylink = self.multibody.AddRigidBody('ylink', self.model_index, zeroinertia)
-        zlink = self.multibody.AddRigidBody('zlink', self.model_index, zeroinertia)
-        # Create the translational and rotational joints
-        xtrans = PrismaticJoint("xtranslation", self.multibody.world_frame(), xlink.body_frame(), [1., 0., 0.])
-        ytrans = PrismaticJoint("ytranslation", xlink.body_frame(), ylink.body_frame(), [0., 1., 0.])
-        ztrans = PrismaticJoint("ztranslation", ylink.body_frame(), zlink.body_frame(), [0., 0., 1.])
-        rpyrotation = BallRpyJoint("baseorientation", zlink.body_frame(), self.multibody.GetBodyByName('base').body_frame())
-        # Add the joints to the multibody plant
-        self.multibody.AddJoint(xtrans)
-        self.multibody.AddJoint(ytrans)
-        self.multibody.AddJoint(ztrans)
-        self.multibody.AddJoint(rpyrotation)
-
     def print_frames(self, config=None):
         body_indices = self.multibody.GetBodyIndices(self.model_index)
         context = self.multibody.CreateDefaultContext()
