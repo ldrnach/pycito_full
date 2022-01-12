@@ -136,6 +136,7 @@ def add_force_difference_cost(trajopt, weight):
     nF = trajopt.numN
     Q = weight * np.eye(nF)
     trajopt.add_quadratic_differenced_cost(Q, vars=trajopt.l[:nF, :], name='ForceDifference')
+    return trajopt
 
 def add_boundary_constraints(trajopt, x0, xf):
     """
