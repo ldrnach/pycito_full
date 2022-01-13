@@ -30,6 +30,13 @@ class _A1TestBase(ABC):
         """Assert the model has the expected number of velocity variables"""
         self.assertEqual(self.a1.multibody.num_velocities(), self.expected_num_velocities, msg=f"Expected {self.expected_num_velocities} velocity variables, got {self.a1.multibody.num_velocities()} for {self.a1.__class__}")
 
+    def test_num_foot_points(self):
+        """Check the number of foot positions"""
+        q0 = self.a1.standing_pose()
+        context = self.a1.multibody.CreateDefaultContext()
+        self.a1.multibody.SetPositions(context, q0)
+        feet = self.a1.get_foot_position_in_world(context)
+        self.assertEqual(len(feet), 4, msg=f"Expected 4 foot positions, got {len(feet)}")
 class A1FloatingBaseTest(_A1TestBase, unittest.TestCase):
     def setUp(self):
         super(A1FloatingBaseTest, self).setUp()

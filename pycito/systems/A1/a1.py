@@ -71,6 +71,14 @@ class A1(TimeSteppingMultibodyPlant):
 
         A1.visualize(trajectory)
 
+    def get_foot_position_in_world(self, context):
+        world = self.multibody.world_frame()
+        feet = []
+        for pose, frame in zip(self.collision_poses, self.collision_frames):
+            point = pose.translation().copy()
+            feet.append(self.multibody.CalcPointsPositions(context, frame, point, world))
+        return feet
+
     def get_joint_limits(self):
         return (self.multibody.GetPositionLowerLimits(), self.multibody.GetPositionUpperLimits())
 
