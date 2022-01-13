@@ -488,7 +488,7 @@ class CostRelaxedLinearEqualityComplementarity(ComplementarityConstraint):
         Returns the product constraint as a scalar for use as a cost
         The argument must be a numpy array of decision variables organized as [s, z]
         """
-        z, s = np.split(vars, [self.xdim])
+        z, s = np.split(vars, [self.zdim])
         return self.cost_weight * s.dot(z)
 
     def addToProgram(self, prog, xvars, zvars):
