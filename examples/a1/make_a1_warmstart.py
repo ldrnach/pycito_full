@@ -223,7 +223,6 @@ class A1GaitGenerator(A1VirtualBase):
 
     @staticmethod
     def make_a1_base_trajectory(q0, feet_traj):
-        total_time = feet_traj[0].end_time()
         base_0 = q0[:6]
         breaks = feet_traj[0].get_segment_times()
         travel = np.row_stack([foot.vector_values(breaks)[0,:] for foot in feet_traj])
