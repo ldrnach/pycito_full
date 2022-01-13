@@ -31,7 +31,7 @@ def make_and_solve_trajopt(a1, xref, uref, fref, duration, savedir):
     # Set the initial guess
     trajopt.set_initial_guess(xtraj=xref, utraj=uref, ltraj=fref)
     # Require joint tracking                               
-    trajopt = opttools.add_joint_tracking_cost(trajopt, weight=1e2, qref=xref[:a1.multibody.num_positions(), :])
+    trajopt = opttools.add_joint_tracking_cost(trajopt, weight=1e4, qref=xref[:a1.multibody.num_positions(), :])
     # Set a small cost on control
     trajopt = opttools.add_control_cost(trajopt, weight=1e-2)
     # Add small cost on force
@@ -41,7 +41,7 @@ def make_and_solve_trajopt(a1, xref, uref, fref, duration, savedir):
     # Add small cost on force difference
     trajopt = opttools.add_force_difference_cost(trajopt, weight=1e-2)
     # Solve the problem using different complementarity cost weights
-    weights = [1, 1e2, 1e3, 1e4]
+    weights = [1, 1e1, 1e2, 1e3]
     opttools.progressive_solve(trajopt, weights, savedir)
 
 def visualize_and_save_warmstart(a1, x, u, f, savedir):
@@ -132,7 +132,7 @@ def last_step_optimization(savedir, visstart=False):
 
 
 if __name__ == '__main__':
-    savedir = os.path.join(os.getcwd(), 'examples', 'a1', 'gaitoptimization')
+    savedir = os.path.join(os.getcwd(), 'examples', 'a1', 'gaitoptimization','tracking_cost_1e4')
     first_step_optimization(savedir, visstart=False)
     full_cycle_optimization(savedir, visstart=False)
     last_step_optimization(savedir, visstart=False)

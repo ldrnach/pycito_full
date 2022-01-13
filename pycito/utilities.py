@@ -207,11 +207,11 @@ class MathProgIterationPrinter():
     def figure_setup(self):
         self.fig, self.axs = plt.subplots(2,1)
         self.axs[0].set_ylabel('Cost')
-        self.axs[0].set_yscale('symlog', linthreshy=self._thresh)
+        self.axs[0].set_yscale('symlog', linthresh=self._thresh)
         self.axs[0].grid(True)
         self.axs[1].set_ylabel('Constraint Violation')
         self.axs[1].set_xlabel('Iteration')
-        self.axs[1].set_yscale('symlog', linthreshy=self._thresh)
+        self.axs[1].set_yscale('symlog', linthresh=self._thresh)
         self.axs[1].grid(True)
         self.cost_lines = {}
         self.cstr_lines = {}
