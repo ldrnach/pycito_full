@@ -23,7 +23,11 @@ class A1(TimeSteppingMultibodyPlant):
         super(A1, self).__init__(file=FindResource(urdf_file), terrain=terrain)
 
     def __deepcopy__(self):
-        return super(A1, self).__deepcopy__()
+        copy = A1(self.files[0], self.terrain)
+        if len(self.files) > 1:
+            for files in self.files:
+                copy.add_model(file)
+        return copy
 
     def print_frames(self, config=None):
         body_indices = self.multibody.GetBodyIndices(self.model_index)
@@ -328,7 +332,7 @@ class A1VirtualBase(A1):
         self.multibody.AddJoint(rpyrotation)
     
     def __deepcopy__(self):
-        copy = A1VirtualBase(self.file[0], self.terrain)
+        copy = A1VirtualBase(self.files[0], self.terrain)
         if len(self.files) > 1:
             for file in self.files[1:]:
                 copy.add_model(file)
@@ -501,7 +505,7 @@ class PlanarA1(A1):
         self.multibody.AddJoint(yrotation)
 
     def __deepcopy__(self):
-        copy = PlanarA1(self.file[0], self.terrain)
+        copy = PlanarA1(self.files[0], self.terrain)
         if len(self.files) > 1:
             for file in self.files[1:]:
                 copy.add_model(file)
