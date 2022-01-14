@@ -22,25 +22,6 @@ import a1trajopttools as opttools
 #TODO: Generate successive gait cycles
 #TODO: Finish 
 
-
-def make_ellipse_trajectory(xstart, xgoal, zpeak, samples):
-    d = 0.5*(xgoal - xstart)
-    x = np.linspace(xstart, xgoal, samples)
-    r = 1 - (x - (xstart + d))**2  / (d**2)
-    r[r < 0] = 0
-    z = zpeak * np.sqrt(r)
-    return x, z
-
-def make_quadratic_trajectory(xstart, xgoal, zpeak, samples):
-    x, z = make_ellipse_trajectory(xstart, xgoal, 1., samples)
-    z = zpeak * (z**2)
-    return x, z
-
-def make_quartic_trajectory(xstart, xgoal, zpeak, samples):
-    x, z = make_ellipse_trajectory(xstart, xgoal, 1., samples)
-    z = zpeak * (z**4)
-    return x, z
-
 class A1FootTrackingCost():
     def __init__(self, a1, weight, traj):
         # Save the plant
@@ -54,22 +35,22 @@ class A1FootTrackingCost():
 
     def addToProgram(self, prog, qvars):
         """Add the cost to an existing mathematical program"""
-        prog.AddCost(self.eval_cost, vars=qvars, description='FootTrackingCost')
+        prog.AddCost(self.eval_cost, vars=qvars.flatten(), description='FootTrackingCost')
+        self._q_shape = qvars.shape
         return prog
 
     def eval_cost(self, qvars):
         """
         Evaluate the tracking cost
-        
-        TODO: Rewrite so it works with multiple feet. FOOT_Traj is a list of foot trajectories? / check the type of FOOT_TRAJ
-        TODO: FOOT_Q is a list of foot positions, so this won't work
         """
+        qvars = np.reshape(qvars, self._q_shape)
         cost = 0
         a1, context = self._autodiff_or_float(qvars)
-        for q, ft in zip(qvars.T, self.foot_traj.T):
+        for k, q in enumerate(qvars.T):
             a1.multibody.SetPositions(context, q)
-            foot_q = a1.get_foot_positions_in_world(context)
-            cost += self.cost_weight * (foot_q - ft).dot(foot_q - ft)
+            foot_q = a1.get_foot_position_in_world(context)
+            for foot, foot_ref in zip(foot_q, self.foot_traj):
+                cost += self.cost_weight * (foot_ref[:, k] - foot[:,0]).dot(foot_ref[:, k] - foot[:,0])
         return cost
 
     def _autodiff_or_float(self, z):
@@ -78,75 +59,151 @@ class A1FootTrackingCost():
         else:
             return (self.a1_ad, self.context_ad)
 
-def make_a1_foot_trajectory(a1, q0, step_length=0.25, step_height=0.1, swing_phase=0.8, samples=101):
-    # Get the starting feet positions
-    context = a1.multibody.CreateDefaultContext()
-    a1.multibody.SetPositions(context, q0)
-    feet = a1.get_foot_position_in_world(context)  #FOOT ORDERING: FL, FR, BL, BR
-    # Create a single swing trajectory for FR and BL
-    xFR, zFR = make_ellipse_trajectory(feet[1][0], feet[1][0] + step_length, step_height, int(samples * swing_phase))
-    xBL, zBL = make_ellipse_trajectory(feet[2][0], feet[2][0] +  step_length, step_height, int(samples * swing_phase))
-    stance = (samples - int(swing_phase * samples))//2 
-    FR = np.repeat(feet[1], repeats = samples, axis=1)
-    BL = np.repeat(feet[2], repeats = samples, axis=1)
-    FR[0, stance:stance + xFR.shape[0]] = xFR[:, 0]
-    FR[0, stance+xFR.shape[0]:] = xFR[-1, 0]
-    FR[2, stance:stance + zFR.shape[0]] = feet[1][2] + zFR[:, 0]
-    
-    BL[0, stance:stance + xBL.shape[0]] = xBL[:, 0]
-    BL[0, stance+xBL.shape[0]:] = xBL[-1, 0]
-    BL[2, stance:stance + xBL.shape[0]] = feet[2][2] + zBL[:, 0]
+class GaitType():
+    def __init__(self, stride_length = 0.2, step_height=0.1, swing_phase=0.8, duration=0.5):
+        self.stride_length = stride_length
+        self.step_height = step_height
+        self.swing_phase = swing_phase
+        self.duration = duration
+        self.reversed = False
+        self.generator = GaitType.make_ellipse_trajectory
 
-    # Create a static trajectory for FL and BR
-    FL = np.repeat(feet[0], repeats=samples, axis=1)
-    BR = np.repeat(feet[-1], repeats=samples, axis=1)
+    def use_ellipse(self):
+        self.generator = GaitType.make_ellipse_trajectory
 
-    return FL, FR, BL, BR
+    def use_quadratic(self):
+        self.generator = GaitType.make_quadratic_trajectory
 
-def make_a1_base_trajectory(q0, feet_traj):
-    base_0 = q0[:6]
-    travel = np.row_stack([foot[0,:] for foot in feet_traj])
-    offset = np.min(travel[:, 0])
-    travel = travel - offset
-    base_travel = np.average(travel, axis=0)
-    base_travel += offset
-    N = base_travel.shape[0]
-    travel += offset
-    base = np.repeat(np.expand_dims(base_0, axis=1), N, axis=1)
-    base[0,:] = base_travel
-    return base
+    def use_quartic(self):
+        self.generator = GaitType.make_quartic_trajectory
 
-def make_configuration_profile(a1, feet, base):
-    """
-    Run IK To get a configuration profile from the feet and base trajectories
-    """
-    q = np.zeros((a1.multibody.num_positions(), base.shape[1]))
-    q_ = a1.standing_pose()
-    feet_pos = [foot[:, 0] for foot in feet]
-    q[:, 0], status = a1.foot_pose_ik(base[:, 0], feet_pos, guess=q_)
-    if not status:
-        print(f"Foot position IK failed at index 0")
-    for n in range(1, base.shape[1]):
-        feet_pos = [foot[:, n] for foot in feet]
-        q[:, n], status = a1.foot_pose_ik(base[:, n], feet_pos, q[:, n-1])
+    @staticmethod
+    def make_ellipse_trajectory(xstart, xgoal, zpeak, samples):
+        d = 0.5*(xgoal - xstart)
+        x = np.linspace(xstart, xgoal, samples)
+        r = 1 - (x - (xstart + d))**2  / (d**2)
+        r[r < 0] = 0
+        z = zpeak * np.sqrt(r)
+        return x, z
+
+    @staticmethod
+    def make_quadratic_trajectory(xstart, xgoal, zpeak, samples):
+        x, z = GaitType.make_ellipse_trajectory(xstart, xgoal, 1., samples)
+        z = zpeak * (z**2)
+        return x, z
+
+    @staticmethod
+    def make_quartic_trajectory(xstart, xgoal, zpeak, samples):
+        x, z = GaitType.make_ellipse_trajectory(xstart, xgoal, 1., samples)
+        z = zpeak * (z**4)
+        return x, z
+
+class GaitGenerator():
+    def __init__(self, a1):
+        self.a1 = a1
+
+    def make_foot_stride_trajectory(self, q0, gait=GaitType(), samples=101):
+        # Get the starting feet positions
+        context = self.a1.multibody.CreateDefaultContext()
+        self.a1.multibody.SetPositions(context, q0)
+        feet = self.a1.get_foot_position_in_world(context)  #FOOT ORDERING: FR, FL, BR, BL
+        # Create a single swing trajectory for FR and BL
+        feet = [np.repeat(foot, repeats = samples, axis=1) for foot in feet]
+        if gait.reversed:
+            # Make trajectories for FR, BL (index 0, 3)
+            swing_idx = [0, 3]        
+        else:  
+            # Make trajectories for FL, BR (index 1, 2)
+            swing_idx = [1, 2]
+
+        for idx in swing_idx:
+            xSwing, zSwing = gait.generator(feet[idx][0,:], feet[idx][0,:] + gait.stride_length, gait.step_height, int(samples * gait.swing_phase))
+            stance = (samples - int(gait.swing_phase * samples))//2
+            feet[idx][0, stance:stance + xSwing.shape[0]] = xSwing[:, 0]
+            feet[idx][0, stance+xSwing.shape[0]:] = xSwing[-1, 0]
+            feet[idx][2, stance:stance + zSwing.shape[0]] = feet[idx][2,0] + zSwing[:, 0]
+        return feet
+
+    @staticmethod
+    def make_base_trajectory(q0, feet_traj):
+        base_0 = q0[:6]
+        travel = np.row_stack([foot[0,:] for foot in feet_traj])
+        offset = np.min(travel[:, 0])
+        travel = travel - offset
+        base_travel = np.average(travel, axis=0)
+        base_travel += offset
+        N = base_travel.shape[0]
+        travel += offset
+        base = np.repeat(np.expand_dims(base_0, axis=1), N, axis=1)
+        base[0,:] = base_travel
+        return base
+
+    def make_configuration_profile(self, feet, base):
+        """
+        Run IK To get a configuration profile from the feet and base trajectories
+        """
+        q = np.zeros((self.a1.multibody.num_positions(), base.shape[1]))
+        q_ = self.a1.standing_pose()
+        feet_pos = [foot[:, 0] for foot in feet]
+        q[:, 0], status = self.a1.foot_pose_ik(base[:, 0], feet_pos, guess=q_)
         if not status:
-            print(f"Foot position IK failed at index {n}")
-    return q
+            print(f"Foot position IK failed at index 0")
+        for n in range(1, base.shape[1]):
+            feet_pos = [foot[:, n] for foot in feet]
+            q[:, n], status = self.a1.foot_pose_ik(base[:, n], feet_pos, q[:, n-1])
+            if not status:
+                print(f"Foot position IK failed at index {n}")
+        return q
 
-def visualize_foot_trajectory(a1):
+def solve_forces(a1, qtraj):
+    u = np.zeros((a1.multibody.num_actuators(), qtraj.shape[1]))
+    fN = np.zeros((4, qtraj.shape[1]))
+    for n in range(qtraj.shape[1]):
+        u[:, n], fN[:, n] = a1.static_controller(qtraj[:, n])
+    return u, fN
 
+def make_a1_step_trajectories(a1):
+    generator = GaitGenerator(a1)
+    #Starting configuration
     q0 = a1.standing_pose()
     q0, _ = a1.standing_pose_ik(base_pose = q0[:6], guess=q0)
-    feet = make_a1_foot_trajectory(a1, q0)
-    base = make_a1_base_trajectory(q0, feet)
-    q = make_configuration_profile(a1, feet, base)
+    # Make the gait types
+    gaits = [GaitType(stride_length=0.1, duration = 0.25), 
+            GaitType(stride_length=0.2, duration=0.5),
+            GaitType(stride_length=0.2, duration=0.5),
+            GaitType(stride_length=0.1, duration = 0.25)]
+    gaits[1].reversed = True
+    gaits[3].reversed = True
+    for gait in gaits:
+        gait.use_quartic()
+    samples = [26, 51, 51, 26]
+    # Make the gait trajectories
+    step = []
+    base = []
+    q = []
+    for gait, sample in zip(gaits, samples):
+        step.append(generator.make_foot_stride_trajectory(q0, gait, sample))
+        base.append(generator.make_base_trajectory(q0, step[-1]))
+        q.append(generator.make_configuration_profile(step[-1], base[-1]))
+        q0 = q[-1][:, -1]
+
+    return step, base, q
+
+def visualize_foot_trajectory(a1):
+    feet_, base, q = make_a1_step_trajectories(a1)
+    feet = []
+    for k in range(4):
+        feet.append(np.concatenate([foot[k] for foot in feet_ ], axis=1))
+    #feet = np.concatenate(feet, axis=0)
+    base = np.concatenate(base, axis=1)
+    q = np.concatenate(q, axis=1)
     t = np.linspace(0, 1, q.shape[1])
     x = np.concatenate([q, np.zeros_like(q)], axis=0)
     xtraj = PiecewisePolynomial.FirstOrderHold(t, x)
     a1.visualize(xtraj)
     # Plot the data
-    fig, axs = plt.subplots(3,1)
-    labels = ['FL','FR','BL','BR']
+    _, axs = plt.subplots(3,1)
+    labels = ['FR','FL','BR','BL']  
     axislabels = ['X','Y','Z']
     for n in range(3):
         for k, foot in enumerate(feet):
@@ -156,14 +213,63 @@ def visualize_foot_trajectory(a1):
     axs[0].legend()
     plt.show()
 
+def check_foot_tracking_cost(a1):
+    foot, _, q = make_a1_step_trajectories(a1)
+    footCost = A1FootTrackingCost(a1, weight=1, traj = foot[0])
+    cost = footCost.eval_cost(q[0])
+    print(f'FootCost = {cost}')
 
-def check_foot_tracking_cost():
-    pass
+def add_base_tracking(trajopt, qref, weight):
+    base_vars = trajopt.x[:6,:].flatten()
+    base_vals = qref[:6,:].flatten()
+    Q = weight * np.eye(base_vars.shape[0])
+    trajopt.prog.AddQuadraticErrorCost(Q, base_vals, base_vars).evaluator().set_description('BaseTrackingCost')
+    return trajopt
 
+
+def optimize_foot_tracking_gait(a1, qref, uref, fref, foot_ref, duration, savedir):
+    """Generically solve the trajopt with foot and base tracking costs"""
+    if not os.path.isdir(savedir):
+        os.makedirs(savedir)
+    N = qref.shape[1]
+    nV = np.zeros((a1.multibody.num_velocities(), N))
+    xref = np.concatenate([qref, nV], axis=0)
+    # Setup the trajectory optimization
+    trajopt = opttools.make_a1_trajopt_linearcost(a1, N, [duration, duration])
+    # Add boundary constraints
+    trajopt = opttools.add_boundary_constraints(trajopt, xref[:, 0], xref[:, -1])
+    # Set the initial guess
+    trajopt.set_initial_guess(xtraj=xref, utraj=uref, ltraj=fref)
+    # Require foot tracking                           
+    foot_cost = A1FootTrackingCost(a1, weight=1e4, traj=foot_ref)
+    trajopt.prog = foot_cost.addToProgram(trajopt.prog, qvars=trajopt.x[:qref.shape[0],:])
+    # Require base tracking
+    trajopt = add_base_tracking(trajopt, qref, weight=1e2)
+    # Set a small cost on control
+    trajopt = opttools.add_control_cost(trajopt, weight=1e-2)
+    # Add small cost on force
+    trajopt = opttools.add_force_cost(trajopt, weight=1e-2)
+    # Add small cost on control difference
+    trajopt = opttools.add_control_difference_cost(trajopt, weight=1e-2)
+    # Add small cost on force difference
+    trajopt = opttools.add_force_difference_cost(trajopt, weight=1e-2)
+    # Solve the problem using different complementarity cost weights
+    weights = [1, 1e1, 1e2, 1e3]
+    opttools.progressive_solve(trajopt, weights, savedir)
 
 def main():
+    savedir = os.path.join('examples','a1','foot_tracking_gait')
+    parts = ['start_step','first_step','second_step','last_step']
     a1 = opttools.make_a1()
-    visualize_foot_trajectory(a1)
+    feet, _, qtraj = make_a1_step_trajectories(a1)
+    durations = [0.25, 0.5, 0.5, 0.25]
+    for q, foot, filepart, duration in zip(qtraj, feet, parts, durations):
+        u, fN = solve_forces(a1, q)
+        f = np.zeros((2*a1.num_contacts() + a1.num_friction(), fN.shape[1]))
+        f[:fN.shape[0], :] = fN
+        optimize_foot_tracking_gait(a1, q, u, f, foot, duration, os.path.join(savedir, filepart))
+
+    
 
             
     
