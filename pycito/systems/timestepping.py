@@ -44,6 +44,13 @@ class TimeSteppingMultibodyPlant():
         #Store the urdf files
         self.files = [file]
 
+    def __deepcopy__(self):
+        copy = TimeSteppingMultibodyPlant(file=self.files[0], terrain=self.terrain.__deepcopy__(), dlevel=1)
+        if len(self.files) > 1:
+            for file in self.files[1:]:
+                copy.add_model(file)
+        return copy
+
     def str(self):
         """ String describing the timestepping plant"""
         text = f"{type(self).__name__} on {self.terrain.str()}\n"
@@ -195,7 +202,7 @@ class TimeSteppingMultibodyPlant():
         """Covert the MultibodyPlant to use AutoDiffXd instead of Float"""
 
         # Create a new TimeSteppingMultibodyPlant model
-        copy_ad = TimeSteppingMultibodyPlant(file=None, terrain=self.terrain, dlevel=self._dlevel)
+        copy_ad = self.__deepcopy__()
         # Instantiate the plant as the Autodiff version
         copy_ad.multibody = self.multibody.ToAutoDiffXd()
         copy_ad.scene_graph = self.scene_graph.ToAutoDiffXd()

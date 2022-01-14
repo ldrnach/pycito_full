@@ -59,6 +59,9 @@ class FlatTerrain2D(Terrain):
         self.height = height
         self.friction  = friction
 
+    def __deepcopy__(self):
+        return FlatTerrain2D(height = self.height, friction=self.friction)
+
     def str(self):
         return super(FlatTerrain2D, self).str() + f"with height {self.height} and friction {self.friction}"
 
@@ -102,6 +105,9 @@ class FlatTerrain(Terrain):
         self.height = height
         self.friction = friction
     
+    def __deepcopy__(self):
+        return FlatTerrain(self.height, self.friction)
+
     def str(self):
         return super(FlatTerrain, self).str() + f"with height {self.height} and friction {self.friction}"
 
@@ -148,6 +154,9 @@ class StepTerrain(FlatTerrain):
         self.step_height = step_height
         self.step_location = step_location
 
+    def __deepcopy__(self):
+        return StepTerrain(self.height, self.step_height, self.step_location)
+
     def str(self):
         return super(StepTerrain, self).str() + f"with height {self.height}, step height {self.step_height} and location {self.step_location} and friction {self.friction}"
 
@@ -174,6 +183,9 @@ class SlopeStepTerrain(FlatTerrain):
         super().__init__(height, friction)
         self.slope = slope
         self.slope_location = slope_location
+
+    def __deepcopy__(self):
+        return SlopeStepTerrain(self.height, self.slope, self.slope_location, self.friction)
 
     def str(self):
         return super(SlopeStepTerrain, self).str() + f"with height {self.height} and slope {self.slope} starting at {self.slope_location} and friction {self.friction}"
@@ -222,6 +234,9 @@ class VariableFrictionFlatTerrain(FlatTerrain):
         else:
             self.friction = fric_func
 
+    def __deepcopy__(self):
+        return VariableFrictionFlatTerrain(self.height, self.friction)
+
     def str(self):
         return super(VariableFrictionFlatTerrain, self).str() + f"with height {self.height} and variable friction defined by {self.fric_func.__name__}"
 
@@ -252,6 +267,9 @@ class GaussianProcessTerrain(FlatTerrain):
         # Set up the terrain heightmap GP
         self.height = height_gp
         self.friction = friction_gp
+
+    def __deepcopy__(self):
+        return GaussianProcessTerrain(self.height.deepcopy(), self.friction.deepcopy())
 
     def str(self):
         return super(GaussianProcessTerrain, self).str() + f"with height defined by {str(self.height)} and friction defined by {str(self.friction)}"

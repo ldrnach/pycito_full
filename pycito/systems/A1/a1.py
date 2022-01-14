@@ -22,6 +22,9 @@ class A1(TimeSteppingMultibodyPlant):
         # Initialize the time-stepping multibody plant
         super(A1, self).__init__(file=FindResource(urdf_file), terrain=terrain)
 
+    def __deepcopy__(self):
+        return super(A1, self).__deepcopy__()
+
     def print_frames(self, config=None):
         body_indices = self.multibody.GetBodyIndices(self.model_index)
         context = self.multibody.CreateDefaultContext()
@@ -324,6 +327,14 @@ class A1VirtualBase(A1):
         self.multibody.AddJoint(ztrans)
         self.multibody.AddJoint(rpyrotation)
     
+    def __deepcopy__(self):
+        copy = A1VirtualBase(self.file[0], self.terrain)
+        if len(self.files) > 1:
+            for file in self.files[1:]:
+                copy.add_model(file)
+        return copy
+
+
     def configuration_sweep(self):
         """Create a visualization that sweeps through the configuration variables"""
         # Get the configuration vector
@@ -488,6 +499,13 @@ class PlanarA1(A1):
         self.multibody.AddJoint(xtrans)
         self.multibody.AddJoint(ztrans)
         self.multibody.AddJoint(yrotation)
+
+    def __deepcopy__(self):
+        copy = PlanarA1(self.file[0], self.terrain)
+        if len(self.files) > 1:
+            for file in self.files[1:]:
+                copy.add_model(file)
+        return copy
 
     def configuration_sweep(self):
         """Create a visualization that sweeps through the configuration variables"""
