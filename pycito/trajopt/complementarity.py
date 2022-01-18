@@ -389,7 +389,7 @@ class LinearEqualityVariableSlackComplementarity(ComplementarityConstraint):
 
     def str(self):
         text = super(LinearEqualityVariableSlackComplementarity, self).str()
-        text += f"\tSlack cost weight: {self.__cost_weight}\n"
+        text += f"\tSlack cost weight: {self._cost_weight}\n"
         return text
 
     def eval(self, vars):
