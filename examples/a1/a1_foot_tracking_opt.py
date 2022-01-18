@@ -226,7 +226,6 @@ def add_base_tracking(trajopt, qref, weight):
     trajopt.prog.AddQuadraticErrorCost(Q, base_vals, base_vars).evaluator().set_description('BaseTrackingCost')
     return trajopt
 
-
 def optimize_foot_tracking_gait(a1, qref, uref, fref, foot_ref, duration, savedir):
     """Generically solve the trajopt with foot and base tracking costs"""
     if not os.path.isdir(savedir):
@@ -236,6 +235,36 @@ def optimize_foot_tracking_gait(a1, qref, uref, fref, foot_ref, duration, savedi
     xref = np.concatenate([qref, nV], axis=0)
     # Setup the trajectory optimization
     trajopt = opttools.make_a1_trajopt_linearcost(a1, N, [duration, duration])
+    # Add boundary constraints
+    trajopt = opttools.add_boundary_constraints(trajopt, xref[:, 0], xref[:, -1])
+    # Set the initial guess
+    trajopt.set_initial_guess(xtraj=xref, utraj=uref, ltraj=fref)
+    # Require foot tracking                           
+    foot_cost = A1FootTrackingCost(a1, weight=1e4, traj=foot_ref)
+    trajopt.prog = foot_cost.addToProgram(trajopt.prog, qvars=trajopt.x[:qref.shape[0],:])
+    # Require base tracking
+    trajopt = add_base_tracking(trajopt, qref, weight=1e2)
+    # Set a small cost on control
+    trajopt = opttools.add_control_cost(trajopt, weight=1e-2)
+    # Add small cost on force
+    trajopt = opttools.add_force_cost(trajopt, weight=1e-2)
+    # Add small cost on control difference
+    trajopt = opttools.add_control_difference_cost(trajopt, weight=1e-2)
+    # Add small cost on force difference
+    trajopt = opttools.add_force_difference_cost(trajopt, weight=1e-2)
+    # Solve the problem using different complementarity cost weights
+    weights = [1, 1e1, 1e2, 1e3]
+    opttools.progressive_solve(trajopt, weights, savedir)
+
+def optimize_foot_tracking_slackcost(a1, qref, uref, fref, foot_ref, duration, savedir):
+    """Generically solve the trajopt with foot and base tracking costs, using variable slack complementarity"""
+    if not os.path.isdir(savedir):
+        os.makedirs(savedir)
+    N = qref.shape[1]
+    nV = np.zeros((a1.multibody.num_velocities(), N))
+    xref = np.concatenate([qref, nV], axis=0)
+    # Setup the trajectory optimization
+    trajopt = opttools.make_a1_trajopt_linearslackcost(a1, N, [duration, duration])
     # Add boundary constraints
     trajopt = opttools.add_boundary_constraints(trajopt, xref[:, 0], xref[:, -1])
     # Set the initial guess
@@ -269,11 +298,21 @@ def main():
         f[:fN.shape[0], :] = fN
         optimize_foot_tracking_gait(a1, q, u, f, foot, duration, os.path.join(savedir, filepart))
 
-    
+def slackcost_main():
+    savedir = os.path.join('examples','a1','foot_tracking','slackcost')
+    parts = ['start_step','first_step','second_step','stop_step']
+    a1 = opttools.make_a1()
+    feet, _, qtraj = make_a1_step_trajectories(a1)
+    durations = [0.25, 0.5, 0.5, 0.25]
+    for q, foot, filepart, duration in zip(qtraj, feet, parts, durations):
+        u, fN = solve_forces(a1, q)
+        f = np.zeros((2*a1.num_contacts() + a1.num_friction(), fN.shape[1]))
+        f[:fN.shape[0], :] = fN
+        optimize_foot_tracking_slackcost(a1, q, u, f, foot, duration, os.path.join(savedir, filepart))
 
             
     
 
 
 if __name__ == '__main__':
-    main()
+    slackcost_main()

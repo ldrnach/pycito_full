@@ -71,6 +71,28 @@ def make_a1_trajopt_linearcost(a1, N=101, duration=[1, 1]):
                             'Scale option': 2})
     return trajopt
 
+def make_a1_trajopt_linearslackcost(a1, N=101, duration=[1, 1]):
+    # Create trajopt
+    context = a1.multibody.CreateDefaultContext()
+    options = ci.OptimizationOptions()
+    options.useLinearComplementarityWithVariableSlack()
+    min_time = duration[0]
+    max_time = duration[1]
+    trajopt = ci.ContactImplicitDirectTranscription(a1, context,
+                                        num_time_samples=N,
+                                        minimum_timestep=min_time/(N-1),
+                                        maximum_timestep=max_time/(N-1),
+                                        options = options)
+    # Add equal timestep constraints
+    trajopt.add_equal_time_constraints()
+    # Set the solver options
+    trajopt.setSolverOptions({'Iterations limit': 10000000,
+                            'Major iterations limit': 5000,
+                            'Major feasibility tolerance': 1e-6,
+                            'Major optimality tolerance': 1e-6,
+                            'Scale option': 2})
+    return trajopt
+
 def plot_and_save(trajopt, results, savedir):
     """
     Plot and save the results of trajectory optimization
