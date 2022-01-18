@@ -37,6 +37,18 @@ class _A1TestBase(ABC):
         self.a1.multibody.SetPositions(context, q0)
         feet = self.a1.get_foot_position_in_world(context)
         self.assertEqual(len(feet), 4, msg=f"Expected 4 foot positions, got {len(feet)}")
+
+    def test_get_foot_trajectory(self):
+        """Check that we can calculate the foot trajectory"""
+        q0 = self.a1.standing_pose()
+        x = np.concatenate([q0, np.zeros((self.a1.multibody.num_velocities(), ))])
+        xtraj = np.repeat(np.expand_dims(x, axis=1), repeats=5, axis=1)
+        feet = self.a1.state_to_foot_trajectory(xtraj)
+        self.assertEqual(len(feet), 4, msg=f"Expected 4 foot trajectories, got {len(feet)}")
+        for foot in feet:
+            self.assertEqual(foot.shape, (3, 5), msg=f"Expected (3,5) array of foot trajectories. Got {foot.shape} instead")
+
+
 class A1FloatingBaseTest(_A1TestBase, unittest.TestCase):
     def setUp(self):
         super(A1FloatingBaseTest, self).setUp()

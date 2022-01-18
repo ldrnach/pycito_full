@@ -8,7 +8,7 @@ December 13, 2021
 import numpy as np
 from pycito.systems.A1.a1 import A1VirtualBase
 from pycito.trajopt import contactimplicit as ci
-import os
+import os, time
 import pycito.utilities as utils
 
 def make_a1():
@@ -114,6 +114,9 @@ def plot_and_save(trajopt, results, savedir):
     utils.save(file, trajopt.result_to_dict(results))
     x, u, l, jl, s = trajopt.reconstruct_all_trajectories(results)
     trajopt.plant_f.plot_trajectories(x, u, l, jl, show=False, savename=os.path.join(savedir,'A1Opt.png'))
+    # Plot the foot trajectory
+    trajopt.plant_f.plot_foot_trajectory(x, show=False, savename=os.path.join(savedir, 'A1OptFootTrajectory.png'))
+
 
 def add_control_cost(trajopt, weight=0.01):
     """
@@ -186,3 +189,5 @@ def progressive_solve(trajopt, weights, savedir):
         plot_and_save(trajopt, results, savedir_this)
         trajopt.initialize_from_previous(results)
         trajopt.printer.save_and_clear(savename=os.path.join(savedir_this, 'CostsAndConstraints.png'))
+        # Pause and allow python to clear figures and the like
+        time.sleep(1.0)

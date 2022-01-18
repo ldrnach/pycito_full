@@ -25,7 +25,7 @@ class A1(TimeSteppingMultibodyPlant):
     def __deepcopy__(self):
         copy = A1(self.files[0], self.terrain)
         if len(self.files) > 1:
-            for files in self.files:
+            for file in self.files:
                 copy.add_model(file)
         return copy
 
@@ -78,6 +78,10 @@ class A1(TimeSteppingMultibodyPlant):
 
         A1.visualize(trajectory)
 
+    def get_foot_frames(self):
+        """Returns the foot frames"""
+        return [self.multibody.GetFrameByName(frame_name) for frame_name in self.foot_frame_names]
+
     def get_foot_position_in_world(self, context):
         world = self.multibody.world_frame()
         feet = []
@@ -85,6 +89,23 @@ class A1(TimeSteppingMultibodyPlant):
             point = pose.translation().copy()
             feet.append(self.multibody.CalcPointsPositions(context, frame, point, world))
         return feet
+
+    def state_to_foot_trajectory(self, xtraj):
+        """
+        Convert a single sequence of state samples to a list of foot position sequences.
+
+        Feet are listed in order: Front-Right, Front-Left, Back-Right, Back-Left
+        """
+        context = self.multibody.CreateDefaultContext()
+        feet = []
+        for x in xtraj.T:
+            self.multibody.SetPositionsAndVelocities(context, x)
+            feet.append(self.get_foot_position_in_world(context))
+        # Combine all the feet points into a single list of arrays
+        feet_traj = []
+        for k in range(4):
+            feet_traj.append(np.concatenate([foot_point[k] for foot_point in feet], axis=1))
+        return feet_traj
 
     def get_joint_limits(self):
         return (self.multibody.GetPositionLowerLimits(), self.multibody.GetPositionUpperLimits())
@@ -178,7 +199,7 @@ class A1(TimeSteppingMultibodyPlant):
         self._plot_joint_position(t, q[7:, :], show=show, savename=utils.append_filename(savename, 'JointAngles'))
         # Plot joint velocities
         self._plot_joint_velocity(t, v[6:,:], show=show, savename=utils.append_filename(savename, 'JointVelocity'))
-        
+
     @deco.showable_fig
     @deco.saveable_fig
     def _plot_base_position(self, t, pos):
@@ -306,10 +327,31 @@ class A1(TimeSteppingMultibodyPlant):
         axs[0].legend()
         return fig, axs
 
+    @deco.showable_fig
+    @deco.saveable_fig
+    def plot_foot_trajectory(self, xtraj, samples=None):
+        t, x = utils.trajectoryToArray(xtraj, samples)
+        feet = self.state_to_foot_trajectory(x)
+        fig, axs = plt.subplots(3,1)
+        vlabels = ['Forward Position (m)','Lateral Position (m)','Vertical Position (m)']
+        flabels = self.foot_frame_names
+        for n, vlabel in enumerate(vlabels):
+            for foot, flabel in zip(feet, flabels):
+                axs[n].plot(t, foot[n,:], linewidth=1.5, label=flabel)
+            axs[n].set_ylabel(vlabel)
+        axs[-1].set_xlabel("Time (s)")
+        axs[0].legend()
+        axs[0].set_title('Foot Trajectory')
+        return fig, axs
+    
     @staticmethod
     def visualize(trajectory=None):
         vis = Visualizer("systems/A1/A1_description/urdf/a1_no_collision.urdf")
         vis.visualize_trajectory(xtraj=trajectory)
+
+    @property
+    def foot_frame_names(self):
+        return ['FR_foot','FL_foot','RR_foot', 'RL_foot']
 
 class A1VirtualBase(A1):
     def __init__(self, urdf_file="systems/A1/A1_description/urdf/a1_foot_collision.urdf", terrain=FlatTerrain()):
@@ -682,6 +724,8 @@ class PlanarA1(A1):
         vis.plant.AddJoint(yrotation)
         vis.visualize_trajectory(xtraj=trajectory)
 
+
+
 def describe_a1():
     a1 = A1()
     a1.Finalize()
@@ -727,6 +771,6 @@ def run_configuration_sweep():
     a1.configuration_sweep()
 
 if __name__ == "__main__":
-    #describe_a1()
-    run_configuration_sweep()
+    describe_a1()
+    #run_configuration_sweep()
     #example_pose()
