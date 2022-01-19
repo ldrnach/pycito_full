@@ -333,7 +333,7 @@ class A1(TimeSteppingMultibodyPlant):
         t, x = utils.trajectoryToArray(xtraj, samples)
         feet = self.state_to_foot_trajectory(x)
         fig, axs = plt.subplots(3,1)
-        vlabels = ['Forward Position (m)','Lateral Position (m)','Vertical Position (m)']
+        vlabels = ['Forward (m)','Lateral (m)','Vertical (m)']
         flabels = self.foot_frame_names
         for n, vlabel in enumerate(vlabels):
             for foot, flabel in zip(feet, flabels):
@@ -341,7 +341,7 @@ class A1(TimeSteppingMultibodyPlant):
             axs[n].set_ylabel(vlabel)
         axs[-1].set_xlabel("Time (s)")
         axs[0].legend()
-        axs[0].set_title('Foot Trajectory')
+        axs[0].set_title('Foot Position Trajectory')
         return fig, axs
     
     @staticmethod
