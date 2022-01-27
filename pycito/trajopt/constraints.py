@@ -7,6 +7,7 @@ October 6, 2021
 
 import numpy as np
 from pycito.trajopt.collocation import RadauCollocation
+
 class RadauCollocationConstraint(RadauCollocation):
     #TODO: Double check the collocation constraint. Should only apply at (order) points  -DONE?
     def __init__(self, xdim, order):
@@ -41,7 +42,6 @@ class RadauCollocationConstraint(RadauCollocation):
         # Apply the collocation constraint
         dt, x, dx = np.split(dvars, [1, 2+self.order])
         return dt * dx - self.differentiation_matrix[:-1, :].dot(x)
-
 
 class MultibodyConstraint():
     def __init__(self, plant_ad, plant_f):
