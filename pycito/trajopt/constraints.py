@@ -53,8 +53,18 @@ class MultibodyConstraint(abc.ABC):
         self.plant = plant
         self._description = "multibody_constraint"
 
+    def __call__(self, dvals):
+        """Wrapper for _eval, supports single input needed to work with MathematicalProgram"""
+        plant, context = self._autodiff_or_float(dvals)
+        args = self.parse(dvals)
+        return self.eval(plant, context, *args)
+
     @abc.abstractmethod
     def eval(self, dvals):
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def parse(self, dvals):
         raise NotImplementedError
 
     @property
@@ -77,7 +87,7 @@ class MultibodyConstraint(abc.ABC):
 
     def addToProgram(self, prog, *args):
         dvars = np.concatenate(args)
-        prog.AddConstraint(self.eval, lb = self.lower_bound, ub=self.upper_bound, vars=dvars, description = self.description)
+        prog.AddConstraint(self, lb = self.lower_bound, ub=self.upper_bound, vars=dvars, description = self.description)
         return prog
 
     @property
@@ -101,26 +111,8 @@ class MultibodyDynamicsConstraint(MultibodyConstraint):
     def lower_bound(self):
         return np.zeros((self.plant.multibody.num_velocities(),))
 
-    def addToProgram(self, prog, pos, vel, accel, ctrl, force):
-        dvars = np.concatenate([pos, vel, accel, ctrl, force])
-        prog.AddConstraint(self.eval, lb = self.lower_bound, ub = self.upper_bound, vars=dvars, description='multibody_dynamics')
-        return prog
-
-    def eval(self, dvars):
-        """
-        eval: wrapper for _eval, supports a single input for use in MathematicalProgram
-        
-        """
-        # Split the variables
-        nx = self.plant_ad.multibody.num_positions()
-        nv = self.plant_ad.multibody.num_velocities()
-        nu = self.plant_ad.multibody.num_actuators()
-        pos, vel, accel, control, force = np.split(dvars, np.cumsum([nx, nv, nv, nu]))
-        # Evaluate multibody dynamics
-        return self._eval(pos, vel, accel, control, force)
-
-    def _eval(self, plant, context, pos, vel, accel, control, force):
-        plant, context = self._autodiff_or_float(pos)
+    @staticmethod
+    def eval(plant, context, pos, vel, accel, control, force):
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate([pos, vel], axis=0))
         # Get the dynamics properties
         M = plant.multibody.CalcMassMatrixViaInverseDynamics(context)
@@ -140,8 +132,33 @@ class MultibodyDynamicsConstraint(MultibodyConstraint):
         # Do inverse dynamics
         return M.dot(accel) - gen_forces
 
+    def parse(self, dvals):
+        """Split the decision variable list into state, control, and force"""
+        # Get the sizes of each variable
+        nx = self.plant.multibody.num_positions()
+        nv = self.plant.multibody.num_velocities()
+        nu = self.plant.multibody.num_actuators()
+        # Split the variables (position, velocity, acceleration, control, external forces)
+        return np.split(dvals, np.cumsum([nx, nv, nv, nu]))
+
+
 class BackwardEulerDynamicsConstraint(MultibodyConstraint):
-    pass
+    def __init__(self, plant):
+        super(BackwardEulerDynamicsConstraint, self).__init__(plant)
+        self._description = "backwardeuler_dynamics"
+
+    @property
+    def upper_bound(self):
+        return np.zeros((self.plant.multibody.num_positions() + self.plant.multibody.num_velocities(), ))
+
+    @property
+    def lower_bound(self):
+        return np.zeros((self.plant.multibody.num_positions() + self.plant.multibody.num_velocities(), ))
+
+    def eval(self, dvals):
+        """
+        Wrapper for _eval, supports a single input for MathematicalProgram
+        """
 
 class NormalDistanceConstraint(MultibodyConstraint):
     pass
