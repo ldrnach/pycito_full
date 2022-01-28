@@ -4,7 +4,7 @@ General constraint implementations for trajectory optimization
 Luke Drnach
 October 6, 2021
 """
-
+#TODO: Unittesting for all classes in this file
 import numpy as np
 import abc
 
@@ -141,11 +141,10 @@ class MultibodyDynamicsConstraint(MultibodyConstraint):
         # Split the variables (position, velocity, acceleration, control, external forces)
         return np.split(dvals, np.cumsum([nx, nv, nv, nu]))
 
-
 class BackwardEulerDynamicsConstraint(MultibodyConstraint):
     def __init__(self, plant):
         super(BackwardEulerDynamicsConstraint, self).__init__(plant)
-        self._description = "backwardeuler_dynamics"
+        self._description = "BE_dynamics"
 
     @property
     def upper_bound(self):
@@ -155,10 +154,41 @@ class BackwardEulerDynamicsConstraint(MultibodyConstraint):
     def lower_bound(self):
         return np.zeros((self.plant.multibody.num_positions() + self.plant.multibody.num_velocities(), ))
 
-    def eval(self, dvals):
-        """
-        Wrapper for _eval, supports a single input for MathematicalProgram
-        """
+    @staticmethod
+    def eval(plant, context, dt, state1, state2, control, force):
+        # Get positions and velocities
+        q1, v1 = np.split(state1, [plant.multibody.num_positions()])
+        q2, v2 = np.split(state2, [plant.multibody.num_positions()])
+        # Update the context - backward Euler integration
+        plant.multibody.SetPositionsAndVelocities(context, state2)
+        # Calculate the position integration error
+        fq = q2 - q1 - dt*plant.multibody.MapVelocityToQDot(context, v2)
+        # calculate generalized forces
+        M = plant.multibody.CalcMassMatrixViaInverseDynamics(context)
+        C = plant.multibody.CalcBiasTerm(context)
+        G = plant.multibody.CalcGravityGeneralizedForces(context)
+        B = plant.multibody.MakeActuationMatrix()
+        # Integrated Generalized forces
+        forces = (B.dot(control) - C + G)
+        # External forces
+        fN, fT = np.split(force, [plant.num_contacts()])
+        # Joint limits
+        if plant.has_joint_limits:
+            fT, jl = np.split(fT, [plant.num_friction()])
+            forces += plant.joint_limit_jacobian().dot(jl)
+        # Contact reaction forces
+        Jn, Jt = plant.GetContactJacobians(context)
+        forces += Jn.transpose().dot(fN) + Jt.transpose().dot(fT)
+        # Do inverse dynamics - velocity dynamics error
+        fv = M.dot(v2 - v1) - dt*forces
+        return np.concatenate((fq, fv), axis=0)
+ 
+    def parse(self, dvals):
+        """Split decision variables into states, controls, forces, etc"""
+        # Get the state dimension
+        nx = self.plant.multibody.num_positions() + self.plant.num_velocities()
+        nu = self.plant.multiobdy.num_actuators()
+        return np.split(dvals, np.cumsum([1, nx, nx, nu]))
 
 class NormalDistanceConstraint(MultibodyConstraint):
     pass
