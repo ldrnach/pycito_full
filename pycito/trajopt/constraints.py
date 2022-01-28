@@ -213,7 +213,25 @@ class NormalDistanceConstraint(MultibodyConstraint):
         """Returns the decision variable list"""
         return dvals
 class MaximumDissipationConstraint(MultibodyConstraint):
-    pass
+    def __init__(self, plant):
+        super(MaximumDissipationConstraint, self).__init__(plant)
+        self._description = 'max_dissipation'
+
+    @property
+    def upper_bound(self):
+        return np.full((self.plant.num_friction(), ), np.inf)
+
+    @property
+    def lower_bound(self):
+        return np.zeros((self.plant.num_friction(), ))
+
+    @staticmethod
+    def eval(plant, context, pos, vel, slacks):
+        plant.multibody.SetPositionsAndVelocities(context, np.concatenate([pos, vel], axis=0))
+        # Get the contact Jacobian
+        _, Jt = plant.GetContactJacobians(context)
+        # Match sliding slacks to sliding velocities
+        return plant.duplicator_matrix().T.dot(slacks) + Jt.dot(vel)
 
 class FrictionConeConstraint(MultibodyConstraint):
     pass
