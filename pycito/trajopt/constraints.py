@@ -191,8 +191,27 @@ class BackwardEulerDynamicsConstraint(MultibodyConstraint):
         return np.split(dvals, np.cumsum([1, nx, nx, nu]))
 
 class NormalDistanceConstraint(MultibodyConstraint):
-    pass
+    def __init__(self, plant):
+        super(NormalDistanceConstraint, self).__init__(plant)
+        self._description = "normal_distance"
 
+    @property
+    def upper_bound(self):
+        return np.full((self.plant.num_contacts(), ), np.inf)
+
+    @property
+    def lower_bound(self):
+        return np.zeros((self.plant.num_contacts(), ))
+
+    @staticmethod
+    def eval(plant, context, state):
+        # Calculate the normal distance
+        plant.multibody.SetPositionsAndVelocities(context, state)    
+        return plant.GetNormalDistances(context)
+
+    def parse(self, dvals):
+        """Returns the decision variable list"""
+        return dvals
 class MaximumDissipationConstraint(MultibodyConstraint):
     pass
 
