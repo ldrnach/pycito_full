@@ -5,7 +5,7 @@ Luke Drnach
 October 6, 2021
 """
 #TODO: Unittesting for all classes in this file
-#TODO: Add methods for linearizing all the constraints
+#TODO: Add methods for linearizing all the constraints - implement LinearizedMultibodyConstraint
 import numpy as np
 import abc
 
@@ -157,6 +157,21 @@ class BackwardEulerDynamicsConstraint(MultibodyConstraint):
 
     @staticmethod
     def eval(plant, context, dt, state1, state2, control, force):
+        """
+        Uses Backward Euler integration to evaluate the multibody plant dynamics
+
+        Arguments:
+            plant: The TimeSteppingMultibodyPlant model to operate on
+            context: the associated MultibodyPlant Context
+            dt: scalar, the integration timestep
+            state1: the current state of the plant
+            state2: the next state of the plant
+            control: the control torques on the plant
+            force: all external forces on the plant (contact forces and joint limits)
+
+        Returns:
+            an array of constraint defects, (pos_err, vel_err) containing the position integration error pos_err and the velocity integration error vel_err
+        """
         # Get positions and velocities
         q1, v1 = np.split(state1, [plant.multibody.num_positions()])
         q2, v2 = np.split(state2, [plant.multibody.num_positions()])
@@ -192,6 +207,10 @@ class BackwardEulerDynamicsConstraint(MultibodyConstraint):
         return np.split(dvals, np.cumsum([1, nx, nx, nu]))
 
 class NormalDistanceConstraint(MultibodyConstraint):
+    """
+    Implements a normal distance constraint. Ensures the normal contact distance is nonnegative.
+    """
+    
     def __init__(self, plant):
         super(NormalDistanceConstraint, self).__init__(plant)
         self._description = "normal_distance"
@@ -206,6 +225,7 @@ class NormalDistanceConstraint(MultibodyConstraint):
 
     @staticmethod
     def eval(plant, context, state):
+        """Evaluate the normal contact distance"""
         # Calculate the normal distance
         plant.multibody.SetPositionsAndVelocities(context, state)    
         return plant.GetNormalDistances(context)
@@ -214,6 +234,13 @@ class NormalDistanceConstraint(MultibodyConstraint):
         """Returns the decision variable list"""
         return dvals
 class MaximumDissipationConstraint(MultibodyConstraint):
+    """
+    Implements the maximum dissipation constraint (the sliding velocity portion)
+    
+    Maximum dissipation ensures that the contact point slides only when the maximum value of friction is reached.
+
+    This constrain ensures only that the dissipation (the tangential sliding velocity) is nonnegative
+    """
     def __init__(self, plant):
         super(MaximumDissipationConstraint, self).__init__(plant)
         self._description = 'max_dissipation'
@@ -228,6 +255,7 @@ class MaximumDissipationConstraint(MultibodyConstraint):
 
     @staticmethod
     def eval(plant, context, pos, vel, slacks):
+        """Evaluate the relative sliding velocity"""
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate([pos, vel], axis=0))
         # Get the contact Jacobian
         _, Jt = plant.GetContactJacobians(context)
@@ -235,20 +263,29 @@ class MaximumDissipationConstraint(MultibodyConstraint):
         return plant.duplicator_matrix().T.dot(slacks) + Jt.dot(vel)
 
 class FrictionConeConstraint(MultibodyConstraint):
+    """
+    Implements a linearized friction cone constraint for multiple contact points.
+
+    The friction cone constraint ensures that friction forces are nonnegative and do not exceed the maximum value (friction)*normal_force
+    """
+    
     def __init__(self, plant):
         super(FrictionConeConstraint, self).__init__(plant)
         self._description = "friction_cone"
 
     @property
     def upper_bound(self):
+        """Upper bound of the friction cone constraint"""
         return np.full((self.plant.num_contacts(), ), np.inf)
 
     @property
     def lower_bound(self):
+        """Lower bound of the friction cone constraint"""
         return np.zeros((self.plant.num_friction(), ))
 
     @staticmethod
     def eval(plant, context, state, normal_force, friction_force):
+        """Evaluate the linearized friction cone"""
         plant.multibody.SetPositionsAndVelocities(context, state)
         mu = plant.GetFrictionCoefficients(context)
         mu = np.diag(mu)
@@ -256,6 +293,7 @@ class FrictionConeConstraint(MultibodyConstraint):
         return mu.dot(normal_force) - plant.duplicator_matrix().dot(friction_force)
 
     def parse(self, dvals):
+        """Split the decition variables into (state, normal_force, friction_force)"""
         nx = self.plant.multibody.num_positions() + self.plant.multibody.num_velocities()
         nf = self.plant.num_contacts()
         return np.split(dvals, np.cumsum([nx, nf]))
