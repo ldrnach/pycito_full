@@ -724,8 +724,6 @@ class PlanarA1(A1):
         vis.plant.AddJoint(yrotation)
         vis.visualize_trajectory(xtraj=trajectory)
 
-
-
 def describe_a1():
     a1 = A1()
     a1.Finalize()

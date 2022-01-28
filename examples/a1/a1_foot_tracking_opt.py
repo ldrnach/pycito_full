@@ -10,17 +10,10 @@ import numpy as np
 import os
 import matplotlib.pyplot as plt
 
-from pydrake.all import PiecewisePolynomial
+from pydrake.all import PiecewisePolynomial as PP
 
-from pycito.utilities import save
-
-from make_a1_warmstart import A1GaitGenerator, GaitParameters
+import pycito.utilities as utils
 import a1trajopttools as opttools
-
-#TODO: Refactor and clean up all the warmstart generating code
-#TODO(REFACTOR): factory method to choose between ellipse, quadratic, and quartic
-#TODO: Generate successive gait cycles
-#TODO: Finish 
 
 class A1FootTrackingCost():
     def __init__(self, a1, weight, traj):
@@ -199,7 +192,7 @@ def visualize_foot_trajectory(a1):
     q = np.concatenate(q, axis=1)
     t = np.linspace(0, 1, q.shape[1])
     x = np.concatenate([q, np.zeros_like(q)], axis=0)
-    xtraj = PiecewisePolynomial.FirstOrderHold(t, x)
+    xtraj = PP.FirstOrderHold(t, x)
     a1.visualize(xtraj)
     # Plot the data
     _, axs = plt.subplots(3,1)
@@ -226,24 +219,23 @@ def add_base_tracking(trajopt, qref, weight):
     trajopt.prog.AddQuadraticErrorCost(Q, base_vals, base_vars).evaluator().set_description('BaseTrackingCost')
     return trajopt
 
-def optimize_foot_tracking_gait(a1, qref, uref, fref, foot_ref, duration, savedir):
+def optimize_foot_tracking_gait(a1, foot_ref, base_ref, duration, warmstart, savedir, options=None):
     """Generically solve the trajopt with foot and base tracking costs"""
     if not os.path.isdir(savedir):
         os.makedirs(savedir)
-    N = qref.shape[1]
-    nV = np.zeros((a1.multibody.num_velocities(), N))
-    xref = np.concatenate([qref, nV], axis=0)
+    N = warmstart['state'].shape[1]
+    nQ = a1.multibody.num_positions()
     # Setup the trajectory optimization
     trajopt = opttools.make_a1_trajopt_linearcost(a1, N, [duration, duration])
     # Add boundary constraints
-    trajopt = opttools.add_boundary_constraints(trajopt, xref[:, 0], xref[:, -1])
+    trajopt = opttools.add_boundary_constraints(trajopt, warmstart['state'][:, 0], warmstart['state'][:, -1])
     # Set the initial guess
-    trajopt.set_initial_guess(xtraj=xref, utraj=uref, ltraj=fref)
+    trajopt.set_initial_guess(xtraj=warmstart['state'], utraj=warmstart['control'], ltraj=warmstart['force'], jltraj=warmstart['jointlimit'],straj=warmstart['slacks'])
     # Require foot tracking                           
     foot_cost = A1FootTrackingCost(a1, weight=1e4, traj=foot_ref)
-    trajopt.prog = foot_cost.addToProgram(trajopt.prog, qvars=trajopt.x[:qref.shape[0],:])
+    trajopt.prog = foot_cost.addToProgram(trajopt.prog, qvars=trajopt.x[:nQ,:])
     # Require base tracking
-    trajopt = add_base_tracking(trajopt, qref, weight=1e2)
+    trajopt = add_base_tracking(trajopt, base_ref, weight=1e2)
     # Set a small cost on control
     trajopt = opttools.add_control_cost(trajopt, weight=1e-2)
     # Add small cost on force
@@ -252,67 +244,96 @@ def optimize_foot_tracking_gait(a1, qref, uref, fref, foot_ref, duration, savedi
     trajopt = opttools.add_control_difference_cost(trajopt, weight=1e-2)
     # Add small cost on force difference
     trajopt = opttools.add_force_difference_cost(trajopt, weight=1e-2)
+    # Update the solver options
+    if options:
+        trajopt.setSolverOptions(options)
     # Solve the problem using different complementarity cost weights
     weights = [1, 1e1, 1e2, 1e3]
     opttools.progressive_solve(trajopt, weights, savedir)
 
-def optimize_foot_tracking_slackcost(a1, qref, uref, fref, foot_ref, duration, savedir):
-    """Generically solve the trajopt with foot and base tracking costs, using variable slack complementarity"""
-    if not os.path.isdir(savedir):
-        os.makedirs(savedir)
-    N = qref.shape[1]
-    nV = np.zeros((a1.multibody.num_velocities(), N))
-    xref = np.concatenate([qref, nV], axis=0)
-    # Setup the trajectory optimization
-    trajopt = opttools.make_a1_trajopt_linearslackcost(a1, N, [duration, duration])
-    # Add boundary constraints
-    trajopt = opttools.add_boundary_constraints(trajopt, xref[:, 0], xref[:, -1])
-    # Set the initial guess
-    trajopt.set_initial_guess(xtraj=xref, utraj=uref, ltraj=fref)
-    # Require foot tracking                           
-    foot_cost = A1FootTrackingCost(a1, weight=1e4, traj=foot_ref)
-    trajopt.prog = foot_cost.addToProgram(trajopt.prog, qvars=trajopt.x[:qref.shape[0],:])
-    # Require base tracking
-    trajopt = add_base_tracking(trajopt, qref, weight=1e2)
-    # Set a small cost on control
-    trajopt = opttools.add_control_cost(trajopt, weight=1e-2)
-    # Add small cost on force
-    trajopt = opttools.add_force_cost(trajopt, weight=1e-2)
-    # Add small cost on control difference
-    trajopt = opttools.add_control_difference_cost(trajopt, weight=1e-2)
-    # Add small cost on force difference
-    trajopt = opttools.add_force_difference_cost(trajopt, weight=1e-2)
-    # Solve the problem using different complementarity cost weights
-    weights = [1, 1e1, 1e2, 1e3]
-    opttools.progressive_solve(trajopt, weights, savedir)
-
-def main():
+def main_step_optimization():
     savedir = os.path.join('examples','a1','foot_tracking_gait')
     parts = ['start_step','first_step','second_step','last_step']
     a1 = opttools.make_a1()
     feet, _, qtraj = make_a1_step_trajectories(a1)
     durations = [0.25, 0.5, 0.5, 0.25]
+    warmstart = {'state': None,
+                'control': None,
+                'force': None,
+                'jointlimit': None,
+                'slacks': None}
     for q, foot, filepart, duration in zip(qtraj, feet, parts, durations):
-        u, fN = solve_forces(a1, q)
-        f = np.zeros((2*a1.num_contacts() + a1.num_friction(), fN.shape[1]))
-        f[:fN.shape[0], :] = fN
-        optimize_foot_tracking_gait(a1, q, u, f, foot, duration, os.path.join(savedir, filepart))
+        warmstart['control'], fN = solve_forces(a1, q)
+        warmstart['force'] = np.zeros((2*a1.num_contacts() + a1.num_friction(), fN.shape[1]))
+        warmstart['force'][:fN.shape[0], :] = fN
+        warmstart['state'] = np.concatenate([q, np.zeros((a1.multibody.num_velocities(), q.shape[1]))], axis=0)
+        optimize_foot_tracking_gait(a1, foot, q[:6, :], duration, warmstart, os.path.join(savedir, filepart))
 
-def slackcost_main():
-    savedir = os.path.join('examples','a1','foot_tracking','slackcost')
-    parts = ['start_step','first_step','second_step','stop_step']
+""" For full gait optimization """
+def getdatakeys():
+    return ['state','control','force','jointlimit','slacks']
+
+def load_full_gait():
+    sources = ['start_step','first_step','second_step','last_step']
+    datakeys = getdatakeys()
+    fullgait = utils.load(os.path.join('examples','a1','foot_tracking_gait', sources[0],'weight_1e+03','trajoptresults.pkl'))
+    for source in sources[1:]:
+        file = os.path.join('examples','a1','foot_tracking_gait', source,'weight_1e+03','trajoptresults.pkl')
+        data = utils.load(file)
+        for key in datakeys:
+            fullgait[key] = np.concatenate([fullgait[key], data[key][:, 1:]], axis=1)
+        data['time'] += fullgait['time'][-1]
+        fullgait['time'] = np.concatenate([fullgait['time'], data['time'][1:]], axis=0)
+    # Pop the extra data fields
+    poppables = ['solver','success','exit_code','final_cost','duals']
+    for poppable in poppables:
+        fullgait.pop(poppable)
+    return fullgait
+
+def visualize_full_gait(show=True, savename=None):
+    if savename and not os.path.isdir(savename):
+        os.makedirs(savename)
+    # Make the model
+    a1 = opttools.make_a1()
+    # Get the data and convert to piecewise polynomials
+    data = load_full_gait()
+    datakeys = getdatakeys()
+    for key in datakeys:
+        data[key] = PP.FirstOrderHold(data['time'], data[key])
+    # Plot the data
+    a1.plot_trajectories(xtraj=data['state'], utraj=data['control'], ftraj=data['force'], jltraj=data['jointlimit'], show=show, savename=os.path.join(savename,
+    "A1Gait.png"))
+    # Plot the foot trajectory
+    a1.plot_foot_trajectory(data['state'], show=False, savename=os.path.join(savename,'FootTrajectory.png'))
+    # Make a meshcat visualization
+    a1.visualize(data['state'])
+
+def concatenate_foot_trajectories(feet):
+    foot_ref = []
+    for k in range(4):
+        foot_ref.append(np.concatenate([foot[k] for foot in feet], axis=1))
+    return foot_ref
+
+
+def main_fullgait_optimization():
+    # Get the foot reference trajectory
+    savedir = os.path.join('examples','a1','foot_tracking_gait','fullgait')
     a1 = opttools.make_a1()
     feet, _, qtraj = make_a1_step_trajectories(a1)
-    durations = [0.25, 0.5, 0.5, 0.25]
-    for q, foot, filepart, duration in zip(qtraj, feet, parts, durations):
-        u, fN = solve_forces(a1, q)
-        f = np.zeros((2*a1.num_contacts() + a1.num_friction(), fN.shape[1]))
-        f[:fN.shape[0], :] = fN
-        optimize_foot_tracking_slackcost(a1, q, u, f, foot, duration, os.path.join(savedir, filepart))
+    # Concatenate the foot trajectories together
+    foot_ref = concatenate_foot_trajectories(feet)
+    # Create the base trajectory
+    base_ref = qtraj.pop()[:6, :]
+    for q in qtraj:
+        base_ref = np.concatenate([base_ref, q[:6, 1:]], axis=1)
+    # Get the warmstart data
+    warmstart = load_full_gait()
+    duration= warmstart['time'][-1]
+    #Change the solver options
+    #options = {'Superbasics limit': 2000}
+    # Generate the optimization
+    optimize_foot_tracking_gait(a1, foot_ref, base_ref, duration, warmstart, savedir)
 
-            
     
-
-
 if __name__ == '__main__':
-    slackcost_main()
+    main_fullgait_optimization()
