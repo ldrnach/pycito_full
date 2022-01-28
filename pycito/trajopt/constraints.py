@@ -5,6 +5,7 @@ Luke Drnach
 October 6, 2021
 """
 #TODO: Unittesting for all classes in this file
+#TODO: Add methods for linearizing all the constraints
 import numpy as np
 import abc
 
@@ -234,9 +235,30 @@ class MaximumDissipationConstraint(MultibodyConstraint):
         return plant.duplicator_matrix().T.dot(slacks) + Jt.dot(vel)
 
 class FrictionConeConstraint(MultibodyConstraint):
-    pass
+    def __init__(self, plant):
+        super(FrictionConeConstraint, self).__init__(plant)
+        self._description = "friction_cone"
 
+    @property
+    def upper_bound(self):
+        return np.full((self.plant.num_contacts(), ), np.inf)
 
+    @property
+    def lower_bound(self):
+        return np.zeros((self.plant.num_friction(), ))
+
+    @staticmethod
+    def eval(plant, context, state, normal_force, friction_force):
+        plant.multibody.SetPositionsAndVelocities(context, state)
+        mu = plant.GetFrictionCoefficients(context)
+        mu = np.diag(mu)
+        # Evaluate linearized friction cone
+        return mu.dot(normal_force) - plant.duplicator_matrix().dot(friction_force)
+
+    def parse(self, dvals):
+        nx = self.plant.multibody.num_positions() + self.plant.multibody.num_velocities()
+        nf = self.plant.num_contacts()
+        return np.split(dvals, np.cumsum([nx, nf]))
 
 if __name__ == '__main__':
     print('Hello from constraints.py!')
