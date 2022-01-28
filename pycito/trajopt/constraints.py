@@ -6,6 +6,8 @@ October 6, 2021
 """
 
 import numpy as np
+import abc
+
 from pycito.trajopt.collocation import RadauCollocation
 
 class RadauCollocationConstraint(RadauCollocation):
@@ -43,30 +45,61 @@ class RadauCollocationConstraint(RadauCollocation):
         dt, x, dx = np.split(dvars, [1, 2+self.order])
         return dt * dx - self.differentiation_matrix[:-1, :].dot(x)
 
-class MultibodyConstraint():
-    def __init__(self, plant_ad, plant_f):
-        self.plant_ad = plant_ad
-        self.plant_f = plant_f
-        self.context_ad = self.plant_ad.multibody.CreateDefaultContext()
-        self.context_f = self.plant_f.multibody.CreateDefaultContext()
+class MultibodyConstraint(abc.ABC):
+    """
+    Class template for implementing constraints related to multibody dynamics
+    """
+    def __init__(self, plant):
+        self.plant = plant
+        self._description = "multibody_constraint"
+
+    @abc.abstractmethod
+    def eval(self, dvals):
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def lower_bound(self):
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def upper_bound(self):
+        raise NotImplementedError
 
     def _autodiff_or_float(self, z):
+        """Check if we evaluate the multibody plant using autodiff or float type"""
         if z.dtype == "float":
-            return self.plant_f, self.context_f
+            return self.plant, self.plant.multibody.CreateDefaultContext()
         else:
-            return self.plant_ad, self.context_ad
+            plant_ad = self.plant.getAutoDiffXd()
+            return plant_ad, plant_ad.multibody.CreateDefaultContext()
+
+    def addToProgram(self, prog, *args):
+        dvars = np.concatenate(args)
+        prog.AddConstraint(self.eval, lb = self.lower_bound, ub=self.upper_bound, vars=dvars, description = self.description)
+        return prog
+
+    @property
+    def description(self):
+        return self._description
+
+    @description.setter
+    def description(self, text):
+        self._description = str(text)
 
 class MultibodyDynamicsConstraint(MultibodyConstraint):
-    def __init__(self, plant_ad, plant_f):
-        super(MultibodyDynamicsConstraint, self).__init__(plant_ad, plant_f)
+    def __init__(self, plant):
+        super(MultibodyDynamicsConstraint, self).__init__(plant)
+        self._description = 'multibody_dynamics'
 
     @property
     def upper_bound(self):
-        return np.zeros((self.plant_ad.multibody.num_velocities(),))
+        return np.zeros((self.plant.multibody.num_velocities(),))
 
     @property
     def lower_bound(self):
-        return np.zeros((self.plant_ad.multibody.num_velocities(),))
+        return np.zeros((self.plant.multibody.num_velocities(),))
 
     def addToProgram(self, prog, pos, vel, accel, ctrl, force):
         dvars = np.concatenate([pos, vel, accel, ctrl, force])
@@ -86,7 +119,7 @@ class MultibodyDynamicsConstraint(MultibodyConstraint):
         # Evaluate multibody dynamics
         return self._eval(pos, vel, accel, control, force)
 
-    def _eval(self, pos, vel, accel, control, force):
+    def _eval(self, plant, context, pos, vel, accel, control, force):
         plant, context = self._autodiff_or_float(pos)
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate([pos, vel], axis=0))
         # Get the dynamics properties
@@ -106,6 +139,20 @@ class MultibodyDynamicsConstraint(MultibodyConstraint):
         gen_forces += Jn.transpose().dot(fN) + Jt.transpose().dot(fT)
         # Do inverse dynamics
         return M.dot(accel) - gen_forces
+
+class BackwardEulerDynamicsConstraint(MultibodyConstraint):
+    pass
+
+class NormalDistanceConstraint(MultibodyConstraint):
+    pass
+
+class MaximumDissipationConstraint(MultibodyConstraint):
+    pass
+
+class FrictionConeConstraint(MultibodyConstraint):
+    pass
+
+
 
 if __name__ == '__main__':
     print('Hello from constraints.py!')
