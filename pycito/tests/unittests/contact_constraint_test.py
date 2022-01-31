@@ -29,7 +29,10 @@ class NormalDistanceTest(unittest.TestCase):
         # Check the expected distance
         self.expected_dist = np.array([2 - 0.25 * np.cos(np.pi/6) - 0.05, 2 + 0.25 * np.cos(np.pi/6) - 0.05])
         self.expected_dist_zero = np.array([-0.25-0.05, 0.25-0.05])
-
+        # The linearization
+        self.A_expected = np.array([[0, 1, 0.25 * np.sin(np.pi/6), 0, 0, 0], 
+                                   [0, 1, -0.25 * np.sin(np.pi/6), 0, 0, 0]])
+                            
     def test_eval_float(self):
         """Check that we can evaluate the normal distance constraint"""
         # Test at the zero configuration
@@ -62,6 +65,12 @@ class NormalDistanceTest(unittest.TestCase):
         dist_val = np.squeeze(ad.autoDiffToValueMatrix(dist_ad))
         np.testing.assert_allclose(dist_val, self.expected_dist, atol=1e-7, err_msg=f"Evaluating NormalDistance with autodiff types produces incorrect results")
 
+    def test_linearization(self):
+        """Test the linearization of the constraint"""
+        A, b = self.cstr_fcn.linearize(self.x1)
+        np.testing.assert_allclose(np.squeeze(b), self.expected_dist, atol=1e-7, err_msg=f"Linearization fails to accurately evaluate the constraint")
+        np.testing.assert_allclose(A, self.A_expected, atol=1e-7, err_msg=f"Linearization fails to accurately evaluate the gradient of the constraint")
+
 class DissipationTest(unittest.TestCase):
     def setUp(self):
         # Create a plant model
@@ -83,6 +92,16 @@ class DissipationTest(unittest.TestCase):
         v = Jt.dot(self.x1[3:])
         s_expected = np.array([1, 1, 1, 1, 2, 2, 2, 2])
         self.expected_diss = s_expected + v
+        # Linearization
+        self.A_expected = np.zeros((8, 8))
+        self.A_expected[[0, 6], 2] = 0.25*np.sin(np.pi/6)*0.1
+        self.A_expected[[2, 4], 2] = -0.25*np.sin(np.pi/6)*0.1
+        self.A_expected[[0, 4], 3] = 1
+        self.A_expected[[2, 6], 3] = -1
+        self.A_expected[[0, 6], 5] = -0.25*np.cos(np.pi/6)
+        self.A_expected[[2, 4], 5] = 0.25*np.cos(np.pi/6)
+        self.A_expected[[0, 1, 2, 3], 6] = 1
+        self.A_expected[[4, 5, 6, 7], 7] = 1
 
     def test_add_to_program(self):
         """Check that we can add the constraint to the program"""
@@ -118,6 +137,12 @@ class DissipationTest(unittest.TestCase):
         diss_vals = np.squeeze(ad.autoDiffToValueMatrix(diss_ad))
         np.testing.assert_allclose(diss_vals, self.expected_diss, atol=1e-7, err_msg=f"Evaluating MaximumDissipationConstraint with autodiff type produces inaccurate resutls")
 
+    def test_linearization(self):
+        """Test that the linearization is accurate"""
+        A, b = self.cstr_fcn.linearize(self.x1, self.s1)
+        np.testing.assert_allclose(np.squeeze(b), self.expected_diss, atol=1e-7, err_msg=f"Linearization fails to evaluate the constraint accurately")
+        np.testing.assert_allclose(A, self.A_expected, atol=1e-7, err_msg=f"Linearization fails to evaluate the gradient accurately")
+
 class FrictionConeTest(unittest.TestCase):
     def setUp(self):
         # Create a plant model
@@ -134,6 +159,8 @@ class FrictionConeTest(unittest.TestCase):
         self.fn = np.array([10, 5])
         self.ft = np.array([1, 0, 2, 1, 2, -1, 0, 3])
         self.friccone_expected = np.array([1, -1.5])
+        self.A_expected = np.array([[0, 0, 0, 0, 0, 0, 0.5, 0.0, -1, -1, -1, -1, 0., 0., 0., 0.],
+                                    [0, 0, 0, 0, 0, 0, 0.0, 0.5, 0., 0., 0., 0., -1, -1, -1, -1]])
 
     def test_add_to_program(self):
         """Check that we can add the constraint to the program"""
@@ -168,6 +195,12 @@ class FrictionConeTest(unittest.TestCase):
         friccone_vals = np.squeeze(ad.autoDiffToValueMatrix(friccone_ad))
         # Check the values
         np.testing.assert_allclose(friccone_vals, self.friccone_expected, atol=1e-7, err_msg=f"Evalutaing FricconeConstraint with autodiff type produces inaccurate results")
+
+    def test_linearization(self):
+        """Test the linearization of the constraint"""
+        A, b = self.cstr_fcn.linearize(self.x1, self.fn, self.ft)
+        np.testing.assert_allclose(np.squeeze(b), self.friccone_expected, atol=1e-7, err_msg=f"Linearization fails to evaluate the constraint accurately")
+        np.testing.assert_allclose(A, self.A_expected, atol=1e-7, err_msg=f"Linearization failed to evaluate gradient accurately")
 
 if __name__ == "__main__":
     unittest.main()

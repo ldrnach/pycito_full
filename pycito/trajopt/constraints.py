@@ -4,10 +4,11 @@ General constraint implementations for trajectory optimization
 Luke Drnach
 October 6, 2021
 """
-#TODO: Unittesting for all classes in this file
 #TODO: Add methods for linearizing all the constraints - implement LinearizedMultibodyConstraint
 import numpy as np
 import abc
+
+import pydrake.autodiffutils as ad
 
 from pycito.trajopt.collocation import RadauCollocation
 
@@ -90,6 +91,23 @@ class MultibodyConstraint(abc.ABC):
         dvars = np.concatenate(args)
         prog.AddConstraint(self, lb = self.lower_bound, ub=self.upper_bound, vars=dvars, description = self.description)
         return prog
+
+    def linearize(self, *args):
+        """
+        returns a linearization of the constraint
+        For the constraint function:
+            g(x)
+        The linearization returns the parameters (A, b) such that
+            g(x + dx) ~= A*dx + b
+        The parameters:
+            b = g(x)
+            A = dg/dx
+        """
+        dvals = np.concatenate(args)
+        # Promote to AutoDiffType
+        ad_vals = ad.initializeAutoDiffGivenGradientMatrix(dvals, np.eye(dvals.size))
+        fcn_ad = self(ad_vals)
+        return ad.ExtractGradient(fcn_ad), ad.ExtractValue(fcn_ad)
 
     @property
     def description(self):
