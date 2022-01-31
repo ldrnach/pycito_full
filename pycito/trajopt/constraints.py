@@ -112,6 +112,10 @@ class MultibodyDynamicsConstraint(MultibodyConstraint):
     def lower_bound(self):
         return np.zeros((self.plant.multibody.num_velocities(),))
 
+    def addToProgram(self, prog, pos, vel, accel, control, force):
+        """Thin wrapper showing call syntax for MultibodyDynamicsConstraint.addToProgram"""
+        return super(MultibodyDynamicsConstraint, self).addToProgram(prog, pos, vel, accel, control, force)
+
     @staticmethod
     def eval(plant, context, pos, vel, accel, control, force):
         plant.multibody.SetPositionsAndVelocities(context, np.concatenate([pos, vel], axis=0))
@@ -154,6 +158,10 @@ class BackwardEulerDynamicsConstraint(MultibodyConstraint):
     @property
     def lower_bound(self):
         return np.zeros((self.plant.multibody.num_positions() + self.plant.multibody.num_velocities(), ))
+
+    def addToProgram(self, prog, dt, state1, state2, control, force):
+        """Thin wrapper showing call syntax for BackwardEulerDynamicsConstraint.addToProgram"""
+        return super(BackwardEulerDynamicsConstraint, self).addToProgram(prog, dt, state1, state2, control, force)
 
     @staticmethod
     def eval(plant, context, dt, state1, state2, control, force):
@@ -223,6 +231,10 @@ class NormalDistanceConstraint(MultibodyConstraint):
     def lower_bound(self):
         return np.zeros((self.plant.num_contacts(), ))
 
+    def addToProgram(self, prog, state):
+        """Thin wrapper for call syntax for NormalDistanceConstraint.addToProgram"""
+        return super(NormalDistanceConstraint, self).addToProgram(prog, state)
+
     @staticmethod
     def eval(plant, context, state):
         """Evaluate the normal contact distance"""
@@ -253,6 +265,10 @@ class MaximumDissipationConstraint(MultibodyConstraint):
     def lower_bound(self):
         return np.zeros((self.plant.num_friction(), ))
 
+    def addToProgram(self, prog, state, slacks):
+        """Thin wrapper showing call syntax for MaximumDissipationConstraint.addToProgram"""
+        return super(MaximumDissipationConstraint, self).addToProgram(prog, state, slacks)
+
     @staticmethod
     def eval(plant, context, pos, vel, slacks):
         """Evaluate the relative sliding velocity"""
@@ -282,6 +298,10 @@ class FrictionConeConstraint(MultibodyConstraint):
     def lower_bound(self):
         """Lower bound of the friction cone constraint"""
         return np.zeros((self.plant.num_friction(), ))
+
+    def addToProgram(self, prog, state, normal_force, friction_force):
+        """Thin wrapper showing call syntax for FrictionConeConstraint.addToProgram"""
+        return super(FrictionConeConstraint, self).addToProgram(self, prog, state, normal_force, friction_force)
 
     @staticmethod
     def eval(plant, context, state, normal_force, friction_force):
