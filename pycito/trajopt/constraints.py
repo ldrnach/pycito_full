@@ -244,7 +244,7 @@ class NormalDistanceConstraint(MultibodyConstraint):
 
     def parse(self, dvals):
         """Returns the decision variable list"""
-        return dvals
+        return [dvals]
 class MaximumDissipationConstraint(MultibodyConstraint):
     """
     Implements the maximum dissipation constraint (the sliding velocity portion)
@@ -278,6 +278,12 @@ class MaximumDissipationConstraint(MultibodyConstraint):
         # Match sliding slacks to sliding velocities
         return plant.duplicator_matrix().T.dot(slacks) + Jt.dot(vel)
 
+    def parse(self, dvals):
+        """Parse and return the decision variables"""
+        nq = self.plant.multibody.num_positions()
+        nv = self.plant.multibody.num_velocities()
+        return np.split(dvals, [nq, nq+nv])
+
 class FrictionConeConstraint(MultibodyConstraint):
     """
     Implements a linearized friction cone constraint for multiple contact points.
@@ -297,11 +303,11 @@ class FrictionConeConstraint(MultibodyConstraint):
     @property
     def lower_bound(self):
         """Lower bound of the friction cone constraint"""
-        return np.zeros((self.plant.num_friction(), ))
+        return np.zeros((self.plant.num_contacts(), ))
 
     def addToProgram(self, prog, state, normal_force, friction_force):
         """Thin wrapper showing call syntax for FrictionConeConstraint.addToProgram"""
-        return super(FrictionConeConstraint, self).addToProgram(self, prog, state, normal_force, friction_force)
+        return super(FrictionConeConstraint, self).addToProgram(prog, state, normal_force, friction_force)
 
     @staticmethod
     def eval(plant, context, state, normal_force, friction_force):
