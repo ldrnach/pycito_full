@@ -76,7 +76,7 @@ class FallingRod(TimeSteppingMultibodyPlant):
         # Make the visualization
         vis.visualize_trajectory(trajectory)
 
-if __name__ == "__main__":
+def falling_rod_main():
     # Create a falling rod example
     terrain = FlatTerrain(height=0., friction=0.6)
     rod = FallingRod(terrain=terrain)
