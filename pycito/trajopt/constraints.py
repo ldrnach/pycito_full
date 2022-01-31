@@ -4,7 +4,6 @@ General constraint implementations for trajectory optimization
 Luke Drnach
 October 6, 2021
 """
-#TODO: Add methods for linearizing all the constraints - implement LinearizedMultibodyConstraint
 import numpy as np
 import abc
 
@@ -341,6 +340,39 @@ class FrictionConeConstraint(MultibodyConstraint):
         nx = self.plant.multibody.num_positions() + self.plant.multibody.num_velocities()
         nf = self.plant.num_contacts()
         return np.split(dvals, np.cumsum([nx, nf]))
+
+class JointLimitConstraint(MultibodyConstraint):
+    def __init__(self, plant):
+        super(JointLimitConstraint, self).__init__(plant)
+        self._description = 'joint_limits'
+        qmin = plant.multibody.GetPositionLowerLimits()
+        qmax = plant.multibody.GetPositionUpperLimits()
+        qmin_valid = np.isfinite(qmin)
+        qmax_valid = np.isfinite(qmax)
+        assert np.all(qmin_valid == qmax_valid), "One-sided joint limits not supported"
+        self.num_joint_limits = np.sum(qmin_valid)
+
+    @property 
+    def upper_bound(self):
+        return np.full((self.num_joint_limits, ), np.inf)
+
+    @property
+    def lower_bound(self):
+        return np.zeros((self.num_joint_limits, ))
+
+    def addToProgram(self, prog, qvars):
+        return super(JointLimitConstraint, self).addToProgram(prog, qvars)
+
+    @staticmethod
+    def eval(plant, context, qvars):
+        # Check which of the joints have limits
+        qmin = plant.multibody.GetPositionLowerLimits()
+        qmax = plant.multibody.GetPositionUpperLimits()
+        qvalid = np.isfinite(qmin)
+        return np.concatenate([qvars[qvalid] - qmin[qvalid], qmax[qvalid] - qvars[qvalid]], axis=0)
+
+    def parse(self, dvals):
+        return [dvals]
 
 if __name__ == '__main__':
     print('Hello from constraints.py!')
