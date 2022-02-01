@@ -7,7 +7,6 @@ January 26, 2022
 import numpy as np
 import warnings 
 
-
 class MixedLinearComplementarityConstraint():
     """
     Implements the Mixed Linear Complementarity Constraint of the form:

@@ -262,6 +262,7 @@ class NormalDistanceConstraint(MultibodyConstraint):
     def parse(self, dvals):
         """Returns the decision variable list"""
         return [dvals]
+
 class MaximumDissipationConstraint(MultibodyConstraint):
     """
     Implements the maximum dissipation constraint (the sliding velocity portion)
@@ -373,6 +374,21 @@ class JointLimitConstraint(MultibodyConstraint):
 
     def parse(self, dvals):
         return [dvals]
+
+class LinearImplicitDynamics():
+    """
+    Just a linear constraint
+    """
+    def __init__(self, A, b):
+        assert A.shape[0] == b.shape[0], "A and b must have the same number of rows"
+        self.A = A
+        self.b = b
+
+    def addToProgram(self, prog, *args):
+        dvars = np.concatenate(args)
+        assert self.A.shape[1] == dvars.shape[0], f"Expected {self.A.shape[1]} variables, but {dvars.shape[0]} were given"
+        prog.AddLinearEqualityConstraint(Aeq = self.A, beq = -self.b, vars=dvars, name='linear_dynamics')
+        return prog
 
 if __name__ == '__main__':
     print('Hello from constraints.py!')
