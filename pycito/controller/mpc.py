@@ -4,10 +4,6 @@ Class for Linear Contact-Implicit MPC
 January 26, 2022
 Luke Drnach
 """
-#TODO: Write class for running MPC on linearized constraints
-#TODO: Add programmable cost weights to MPC
-#TODO: Check if we need to re-linearize the slack constraints within Dissipation and FrictionCone - DONE
-
 import numpy as np
 
 from pydrake.all import MathematicalProgram, Solve
@@ -166,6 +162,13 @@ class LinearizedContactTrajectory():
     def slack_dim(self):
         return self.slacks.shape[0]
 
+    @property
+    def jlimit_dim(self):
+        if self.jointlimits is not None:
+            self.jointlimits.shape[0]
+        else:
+            return 0
+
 class LinearContactMPC():
     def __init__(self, linear_traj, horizon):
         """
@@ -185,6 +188,10 @@ class LinearContactMPC():
         self._control_weight = np.eye(self.control_dim)
         self._force_weight = np.eye(self.force_dim)
         self._slack_weight = np.eye(self.slack_dim)
+        if self.jlimit_dim > 0:
+            self._jlimit_weight = np.eye(self.jlimit_dim)
+        else:
+            self._jlimit_weight = None
         # Default complementarity cost weight
         self._complementarity_weight = 1
 
@@ -200,6 +207,9 @@ class LinearContactMPC():
         return u + du
 
     def create_mpc_program(self, t, x0):
+        """
+        Create a MathematicalProgram to solve the MPC problem
+        """
         index = self.lintraj.GetTimeIndex(t)
         self._initialize_mpc(index, x0)
         for n in range(index, index+self.horizon):
@@ -222,6 +232,7 @@ class LinearContactMPC():
         self._du = []
         self._dl = []
         self._ds = []
+        self._djl = []
 
     def _add_decision_variables(self, index):
         """
@@ -232,6 +243,10 @@ class LinearContactMPC():
         self._du.append(self.prog.NewContinuousVariables(rows = self.control_dim, cols=1, name='control'))
         self._dl.append(self.prog.NewContinuousVariables(rows = self.force_dim, cols=1, name='force'))
         self._ds.append(self.prog.NewContinuousVariables(rows = self.slack_dim, cols=1, name='slack'))
+        # Add and initialize joint limits
+        if self.jlimit_dim > 0:
+            self._djl.append(self.prog.NewContinuousVariables(rows = self.jlimit_dim, cols=1, name='joint_limits'))
+            self.prog.SetInitialGuess(self._djl[-1], self.lintraj.GetJointLimits(index+1))
         # Initalize the decision variables
         self.prog.SetInitialGuess(self._dl[-1], self.lintraj.GetForces(index+1))
         self.prog.SetInitialGuess(self._ds[-1], self.lintraj.GetSlacks(index+1))
@@ -243,25 +258,36 @@ class LinearContactMPC():
         """
         Add the linear contact-implicit dynamics constraints at the specified index
         """
-        #TODO: Proper indexing for the forces
-        #TODO: Group the complementarity variables together
-        #TODO: Joint limit constraints
-        self.lintraj.getDynamicsConstraint(index).addToProgram(self.prog, self._dx[-2], self._dx[-1], self._du[-1], self._dl[-1])
-        self.lintraj.getDistanceConstraint(index+1).addToProgram(self.prog, self._dx[-1], self._normal_force[-1])
-        self.lintraj.getDissipationConstraint(index+1).addToProgram(self.prog, self._dx[-1], self._ds[-1], self._tangent_force[-1])
-        self.lintraj.getFrictionConeConstraint(index+1).addToProgram(self.prog, self._dx[-1], self._dl[-1], self._ds[-1])
+        # Some necessary parameters
+        nQ = self.lintraj.plant.multibody.num_positions()
+        nC = self.lintraj.plant.num_contacts()
+        nF = self.lintraj.plant.num_friction()
+        # Add the dynamics and joint limit constraints
+        if self.jlimit_dim > 0:
+            dl_all = np.concatenate([self._dl[-1], self._djl[-1]], axis=0)
+            self.lintraj.getDynamicsConsraint(index).addToProgram(self.prog, self._dx[-2], self._dx[-1], self._du[-1], dl_all)
+            self.lintraj.getJointLimitConstraint(index+1).addToProgram(self.prog, self._dx[-1][:nQ], self._djl[-1])
+        else:
+            self.lintraj.getDynamicsConstraint(index).addToProgram(self.prog, self._dx[-2], self._dx[-1], self._du[-1], self._dl[-1])
         # Update the complementarity cost weights
         self.lintraj.getDistanceConstraint(index+1).cost_weight = self._complementarity_weight
         self.lintraj.getDissipationConstraint(index+1).cost_weight = self._complementarity_weight
         self.lintraj.getFrictionConeConstraint(index+1).cost_weight = self._complementarity_weight
+        # Add the contact constraints
+        self.lintraj.getDistanceConstraint(index+1).addToProgram(self.prog, self._dx[-1], self._dl[-1][:nC])
+        self.lintraj.getDissipationConstraint(index+1).addToProgram(self.prog, np.concatenate([self._dx[-1], self._ds[-1]], axis=0), self._dl[-1][nC:nC+nF])
+        self.lintraj.getFrictionConeConstraint(index+1).addToProgram(self.prog, np.concatenate([self._dx[-1], self._dl[-1][:nC+nF]], axis=0), self._ds[-1])
 
     def _add_costs(self, index):
         """Add cost terms on the most recent variables"""
-        # TODO: Joint limit costs
+        # We add quadratic error costs on all variables, regularizing states and controls to 0 and complementarity variables to their trajectory values
         self.prog.AddQuadraticErrorCost(self._state_weight, np.zeros((self.state_dim, )), vars=self._dx[-1], description = 'state_cost')
         self.prog.AddQuadraticErrorCost(self._control_weight, np.zeros((self.control_dim, )), vars=self._du[-1], description = 'control_cost')
         self.prog.AddQuadraticErrorCost(self._force_weight, self.lintraj.GetForces(index+1), vars=self._dl[-1], description = 'force_cost')
         self.prog.AddQuadraticErrorCost(self._slack_weight, self.lintraj.GetSlacks(index+1), vars=self._ds[-1], description = 'slack_cost')
+        # Add a cost for joint limits
+        if self.jlimit_dim > 0:
+            self.prog.AddQuadraticErrorCost(self._jlimit_weight, self.lintraj.GetJointLimits(index+1), vars=self._djl[-1], description = 'joint_limit_cost')
 
     def solve(self):
         pass
@@ -281,6 +307,65 @@ class LinearContactMPC():
     @property
     def slack_dim(self):
         return self.lintraj.slack_dim
+
+    @property
+    def jlimit_dim(self):
+        return self.lintraj.jlimit_dim
+
+    @property
+    def statecost(self):
+        return self._state_weight
+
+    @statecost.setter
+    def statecost(self, val):
+        assert val.shape == self._state_weight.shape, f"statecost must be an {self._state_weight.shape} array"
+        self._state_weight = val
+
+    @property
+    def controlcost(self):
+        return self._control_weight
+
+    @controlcost.setter
+    def controlcost(self, val):
+        assert val.shape == self._control_weight.shape, f"controlcost must be an {self._control_weight.shape} array"
+        self._control_weight = val
+
+    @property
+    def forcecost(self):
+        return self._force_weight
+
+    @forcecost.setter
+    def forcecost(self, val):
+        assert val.shape == self._force_weight.shape, f"forcecost must be an {self._force_weight.shape} array"
+        self._force_weight = val
+
+    @property
+    def slackcost(self):
+        return self._slack_weight
+
+    @slackcost.setter
+    def slackcost(self, val):
+        assert val.shape == self._slack_weight.shape, f"slackcost  must be a {self._slack_weight.shape} array"
+        self._slack_weight = val
+
+    @property
+    def limitcost(self):
+        return self._jlimit_weight
+
+    @limitcost.setter
+    def limitcost(self, val):
+        assert self.jlimit_dim > 0, f"Current model has no joint limits"
+        assert val.shape == self._jlimit_weight.shape, f"limitcost must be a {self._jlimit_weight.shape} array"
+        self._jlimit_weight = val
+
+    @property
+    def complementaritycost(self):
+        return self._complementarity_weight
+
+    @complementaritycost.setter
+    def complementaritycost(self, val):
+        assert isinstance(val, (int, float)), f"complementaritycost must be a float or an int"
+        self._complementarity_weight = val
 
 if __name__ == "__main__":
     print("Hello from MPC!")
