@@ -4,6 +4,8 @@ Class for Linear Contact-Implicit MPC
 January 26, 2022
 Luke Drnach
 """
+#TODO: Allow user to specify MPC solver, settings
+
 import numpy as np
 
 from pydrake.all import MathematicalProgram, Solve
@@ -290,7 +292,9 @@ class LinearContactMPC():
             self.prog.AddQuadraticErrorCost(self._jlimit_weight, self.lintraj.GetJointLimits(index+1), vars=self._djl[-1], description = 'joint_limit_cost')
 
     def solve(self):
-        pass
+        """Solves the created MPC problem"""
+        #TODO: Allow user to set options for solving the problem
+        return Solve(self.prog)
 
     @property
     def state_dim(self):
