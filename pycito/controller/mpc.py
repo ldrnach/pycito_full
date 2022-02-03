@@ -5,6 +5,7 @@ January 26, 2022
 Luke Drnach
 """
 #TODO: Allow user to specify MPC solver, settings
+#TODO: Double check implementation of joint limit linearization in the dynamics
 
 import numpy as np
 
@@ -14,21 +15,111 @@ import pycito.utilities as utils
 import pycito.trajopt.constraints as cstr
 import pycito.controller.mlcp as mlcp
 
-class LinearizedContactTrajectory():
-    def __init__(self, plant, xtraj, utraj, ftraj, jltraj=None, lcp=mlcp.CostRelaxedMixedLinearComplementarity):
+class ReferenceTrajectory():
+    """
+    Container class for holding a optimized trajectory and it's respective plant model
+    """
+    def __init__(self, plant, time, state, control, force, jointlimit=None):
         self.plant = plant
+        self._time = time
+        self._state = state
+        self._control = control
+        nC, nF = plant.num_contacts(), plant.num_friction()
+        self._force = force[:nC+nF, :]
+        self._slack = force[nC+nF:, :]
+        self._jlimit = jointlimit
+
+    @classmethod
+    def load(cls, plant, filename):
+        data = utils.load(utils.FindResource(filename))
+        if data['jointlimit'] is not None:
+            return cls(plant, data['time'], data['state'], data['control'], data['force'], data['jointlimit'])
+        else:
+            return cls(plant, data['time'], data['state'], data['control'], data['force'])
+    
+    def getTimeIndex(self, t):
+        """Return the index of the last timepoint less than the current time"""
+        if t < self._time[0]:
+            return 0
+        elif t > self._time[-1]:
+            return self.num_timesteps
+        else:
+            return np.argmax(self._time > t) - 1
+    
+    def getState(self, index):
+        """
+        Return the state at the given index, returning the last state if the index is out of bounds
+        """
+        index = min(max(0,index), self.num_timesteps-1)
+        return self._state[:, index]
+
+    def getControl(self, index):
+        """
+        Return the control at the given index, returning the last control if the index is out of bounds
+        """
+        index = min(max(0,index), self.num_timesteps-1)
+        return self._control[:, index]
+
+    def getForce(self, index):
+        """
+        Return the force at the given index, returning the last force vector if the index is out of bounds
+        """
+        index = min(max(0, index), self.num_timesteps-1)
+        return self._force[:, index]
+
+    def getSlack(self, index):
+        """
+        Return the velocity slacks at the given index, returning the last slack vector if the index is out of bounds
+        """
+        index = min(max(index,0), self.num_timesteps-1)
+        return self._slack[:, index]
+    
+    def getJointLimit(self, index):
+        """
+        Return the joint limit forces at the given index, returning the last joint limit vector if the index is out of bounds
+        """
+        index = min(max(0, index), self.num_timesteps-1)
+        return self._jlimit[:, index]
+
+    @property
+    def num_timesteps(self):
+        return self._time.size
+
+    @property
+    def state_dim(self):
+        return self._state.shape[0]
+    
+    @property
+    def control_dim(self):
+        return self._control.shape[0]
+
+    @property
+    def force_dim(self):
+        return self._force.shape[0]
+
+    @property
+    def slack_dim(self):
+        return self._slack.shape[0]
+
+    @property
+    def jlimit_dim(self):
+        if self.has_joint_limits:
+            return self._jlimit.shape[0]
+        else:
+            return 0
+
+    @property
+    def has_joint_limits(self):
+        return self._jlimit is not None
+
+class LinearizedContactTrajectory(ReferenceTrajectory):
+    def __init__(self, plant, time, state, control, force, jointlimit=None, lcp=mlcp.CostRelaxedMixedLinearComplementarity):
+        super(LinearizedContactTrajectory, self).__init__(plant, time, state, control, force, jointlimit)
         self.lcp = lcp
         # Store the trajectory values
-        self.time, self.state = utils.GetKnotsFromTrajectory(xtraj)
-        self.control = utraj.vector_values(self.time)
-        forces = ftraj.vector_values(self.time)
-        self.forces = forces[:self.plant.num_contacts() + self.plant.num_friction(), :]
-        self.slacks = forces[self.plant.num_contacts() + self.plant.num_friction():, :]
-        if jltraj is not None:
-            self.jointlimits = jltraj.vector_values(self.time)
+        if self.has_joint_limits:
             self._linearize_joint_limits()
         else:
-            self.jointlimits = None
             self.joint_limit_cstr = None
         # Store the linearized parameter values
         self._linearize_dynamics()
@@ -36,18 +127,27 @@ class LinearizedContactTrajectory():
         self._linearize_maximum_dissipation()
         self._linearize_friction_cone()
 
+    @classmethod
+    def load(cls, plant, filename, lcp=mlcp.CostRelaxedMixedLinearComplementarity):
+        """Class Method for generating a LinearizedContactTrajectory from a file containing a trajectory"""
+        data = utils.load(filename)
+        if data['jointlimit'] is not None:
+            return cls(plant, data['time'], data['state'], data['control'], data['force'], data['jointlimit'], lcp=lcp)
+        else:
+            return cls(plant, data['time'], data['state'], data['control'], data['force'], lcp=lcp)
+
     def _linearize_dynamics(self):
         """Store the linearization of the dynamics constraints"""
         self.dynamics_cstr = []
-        force_idx = 2*self.state.shape[0] + self.control.shape[0] + 1
+        force_idx = 2*self.state_dim + self.control_dim + 1
         dynamics = cstr.BackwardEulerDynamicsConstraint(self.plant)
-        if self.jointlimits is not None:
-            force = np.concatenate([self.forces, self.jointlimits], axis=0)
+        if self.has_joint_limits:
+            force = np.concatenate([self._force, self._jlimit], axis=0)
         else:
-            force = self.forces
-        for n in range(self.time.size-1):
-            h = self.time[n+1] - self.time[n]
-            A, _ = dynamics.linearize(h, self.state[:,n], self.state[:, n+1], self.control[:,n+1], force[:, n+1])
+            force = self._force
+        for n in range(self.num_timesteps-1):
+            h = self._time[n+1] - self._time[n]
+            A, _ = dynamics.linearize(h, self._state[:,n], self._state[:, n+1], self._control[:,n+1], force[:, n+1])
             b = A[:,0] - A[:, force_idx:].dot(force[:, n+1])
             A = A[:, 1:]
             self.dynamics_cstr.append(cstr.LinearImplicitDynamics(A, b))
@@ -57,7 +157,7 @@ class LinearizedContactTrajectory():
         distance = cstr.NormalDistanceConstraint(self.plant)
         self.distance_cstr = []
         B = np.zeros((self.plant.num_contacts(), self.plant.num_contacts()))
-        for x in self.state.transpose():
+        for x in self._state.transpose():
             A, c = distance.linearize(x)
             self.distance_cstr.append(self.lcp(A, B, c))
 
@@ -66,7 +166,7 @@ class LinearizedContactTrajectory():
         dissipation = cstr.MaximumDissipationConstraint(self.plant)
         self.dissipation_cstr = []
         B = np.zeros((self.plant.num_friction(), self.plant.num_friction()))
-        for x, s in zip(self.state.transpose(), self.slacks.transpose()):
+        for x, s in zip(self._state.transpose(), self._slack.transpose()):
             A, c = dissipation.linearize(x, s)
             c -= A[:, x.shape[0]:].dot(s)       #Correction term for LCP 
             self.dissipation_cstr.append(self.lcp(A, B, c))
@@ -76,7 +176,7 @@ class LinearizedContactTrajectory():
         friccone = cstr.FrictionConeConstraint(self.plant)
         self.friccone_cstr = []
         B = np.zeros((self.plant.num_contacts(), self.plant.num_contacts()))
-        for x, f in zip(self.state.transpose(), self.forces.transpose()):
+        for x, f in zip(self._state.transpose(), self._force.transpose()):
             A, c = friccone.linearize(x, f)
             c -= A[:, x.shape[0]:].dot(f)   #Correction term for LCP
             self.friccone_cstr.append(self.lcp(A, B, c))
@@ -87,14 +187,10 @@ class LinearizedContactTrajectory():
         self.joint_limit_cstr = []
         B = np.zeros((jointlimits.num_joint_limits, jointlimits.num_joint_limits))
         nQ = self.plant.multibody.num_positions()
-        for x in self.state.transpose():
+        for x in self._state.transpose():
             A, c = jointlimits.linearize(x[:nQ])
             self.joint_limit_cstr.append(self.lcp(A, B, c))
     
-    def getTimeIndex(self, t):
-        """Return the index of the last timepoint less than the current time"""
-        return np.argmax(self.time > t) - 1
-
     def getDynamicsConstraint(self, index):
         """Returns the linear dynamics constraint at the specified index"""
         index = min(index, len(self.dynamics_cstr))
@@ -119,57 +215,6 @@ class LinearizedContactTrajectory():
         """Returns the joint limit constraint at the specified index"""
         index = min(index, len(self.joint_limit_cstr))
         return self.joint_limit_cstr[index]
-
-    def getState(self, index):
-        """
-        Return the state at the given index
-        """
-        index = min(index, self.state.shape[1])
-        return self.state[:, index]
-
-    def getControl(self, index):
-        """
-        Return the control at the given index
-        """
-        index = min(index, self.control.shape[1])
-        return self.control[:, index]
-
-    def getForce(self, index):
-        """
-        Return the force at the given index
-        """
-        index = min(index, self.forces.shape[1])
-        return self.forces[:, index]
-
-    def getSlack(self, index):
-        """
-        Return the velocity slacks at the given index
-        """
-        index = min(index, self.slack.shape[1])
-        return self.slacks[:, index]
-
-    @property
-    def state_dim(self):
-        return self.state.shape[0]
-    
-    @property
-    def control_dim(self):
-        return self.control.shape[0]
-
-    @property
-    def force_dim(self):
-        return self.forces.shape[0]
-
-    @property
-    def slack_dim(self):
-        return self.slacks.shape[0]
-
-    @property
-    def jlimit_dim(self):
-        if self.jointlimits is not None:
-            self.jointlimits.shape[0]
-        else:
-            return 0
 
 class LinearContactMPC():
     def __init__(self, linear_traj, horizon):
