@@ -104,7 +104,7 @@ class MultibodyConstraint(abc.ABC):
         """
         dvals = np.concatenate(args)
         # Promote to AutoDiffType
-        ad_vals = ad.initializeAutoDiffGivenGradientMatrix(dvals, np.eye(dvals.size))
+        ad_vals = ad.InitializeAutoDiff(dvals)
         fcn_ad = self(ad_vals)
         return ad.ExtractGradient(fcn_ad), ad.ExtractValue(fcn_ad)
 
