@@ -227,8 +227,8 @@ class BackwardEulerDynamicsConstraint(MultibodyConstraint):
     def parse(self, dvals):
         """Split decision variables into states, controls, forces, etc"""
         # Get the state dimension
-        nx = self.plant.multibody.num_positions() + self.plant.num_velocities()
-        nu = self.plant.multiobdy.num_actuators()
+        nx = self.plant.multibody.num_positions() + self.plant.multibody.num_velocities()
+        nu = self.plant.multibody.num_actuators()
         return np.split(dvals, np.cumsum([1, nx, nx, nu]))
 
 class NormalDistanceConstraint(MultibodyConstraint):
@@ -383,6 +383,10 @@ class LinearImplicitDynamics():
         assert A.shape[0] == b.shape[0], "A and b must have the same number of rows"
         self.A = A
         self.b = b
+
+    def __eq__(self, obj):
+        """Equality operator for LinearImplicitDynamics"""
+        return type(self) is type(obj) and np.array_equal(self.A, obj.A) and np.array_equal(self.b, obj.b)
 
     def addToProgram(self, prog, *args):
         dvars = np.concatenate(args)

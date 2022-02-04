@@ -7,7 +7,8 @@ February 2, 2022
 import numpy as np
 import os, unittest
 
-from pycito.controller import mpc
+from pycito.controller import mpc, mlcp
+from pycito.trajopt import constraints as cstr
 from pycito.systems.A1.a1 import A1VirtualBase
 #TODO: Check that the "getTime" for maximum time is actually correct
 #TODO: Unittesting for LinearContactTrajectory, MPC
@@ -141,22 +142,83 @@ class LinearContactTrajectoryTest(unittest.TestCase):
         plant = A1VirtualBase()
         plant.Finalize()
         filename = os.path.join("pycito",'tests','data','a1_step.pkl')
-        cls.lintraj = mpc.LinearizedContactTrajectory.load(plant, filename)
+        cls.lcptype = mlcp.CostRelaxedMixedLinearComplementarity
+        cls.lintraj = mpc.LinearizedContactTrajectory.load(plant, filename, cls.lcptype)
     
     def test_get_dynamics(self):
-        pass
+        """
+        Check that there are the expected number of dynamics linearization constraint objects
+        Check that we can get a linearized dynamics constraint object
+        Check that getting the constraints obeys index clipping
+        """
+        # Check the expected number of linearized dynamics constraints
+        N = self.lintraj.num_timesteps
+        self.assertEqual(len(self.lintraj.dynamics_cstr), N-1, msg=f"Unexpected number of linearized dynamics constraints")
+        # Check the linearized dynamics object
+        self.assertTrue(isinstance(self.lintraj.getDynamicsConstraint(int(N/2)), cstr.LinearImplicitDynamics), msg='getDynamicsConstraint does not return the correct type')
+        # Check for index clipping
+        self.assertEqual(self.lintraj.getDynamicsConstraint(N+1), self.lintraj.dynamics_cstr[-1], msg="getDynamicsConstraint does not return final constraint for indices greater than maximum")
+        self.assertEqual(self.lintraj.getDynamicsConstraint(-1), self.lintraj.dynamics_cstr[0], msg="getDynamicsConstraint does not return initial constraint for indices less than 0")
 
     def test_get_distance(self):
-        pass
+        """
+        Check that there are the expected number of linearized distance constraint objects
+        Check that we can get a linearized distance constraint object
+        Check that getting the constraints obeys index clipping
+        """
+        # Check the expected number of linearized distance constraints
+        N = self.lintraj.num_timesteps
+        self.assertEqual(len(self.lintraj.distance_cstr), N, msg=f"Unexpected number of linearized distance constraints")
+        # Check the linearized dynamics object
+        self.assertTrue(isinstance(self.lintraj.getDistanceConstraint(int(N/2)), self.lcptype), msg='getDistanceConstraint does not return the correct type')
+        # Check for index clipping
+        self.assertEqual(self.lintraj.getDistanceConstraint(N+1), self.lintraj.distance_cstr[-1], msg="getDistanceConstraint does not return final constraint for indices greater than maximum")
+        self.assertEqual(self.lintraj.getDistanceConstraint(-1), self.lintraj.distance_cstr[0], msg="getDistanceConstraint does not return initial constraint for indices less than 0")
 
     def test_get_dissipation(self):
-        pass
+        """
+        Check that there are the expected number of linearized dissipation constraint objects
+        Check that we can get a linearized dissipation constraint object
+        Check that getting the constraints obeys index clipping
+        """
+        # Check the expected number of linearized dynamics constraints
+        N = self.lintraj.num_timesteps
+        self.assertEqual(len(self.lintraj.dissipation_cstr), N, msg=f"Unexpected number of linearized dissipation constraints")
+        # Check the linearized dynamics object
+        self.assertTrue(isinstance(self.lintraj.getDissipationConstraint(int(N/2)), self.lcptype), msg='getDissipationConstraint does not return the correct type')
+        # Check for index clipping
+        self.assertEqual(self.lintraj.getDissipationConstraint(N+1), self.lintraj.dissipation_cstr[-1], msg="getDissipationConstraint does not return final constraint for indices greater than maximum")
+        self.assertEqual(self.lintraj.getDissipationConstraint(-1), self.lintraj.dissipation_cstr[0], msg="getDissipationConstraint does not return initial constraint for indices less than 0")
 
     def test_get_friction_cone(self):
-        pass
+        """
+        Check that there are the expected number of linearized friction cone constraint objects
+        Check that we can get a linearized friction cone constraint object
+        Check that getting the constraints obeys index clipping
+        """
+        # Check the expected number of linearized friction cone constraints
+        N = self.lintraj.num_timesteps
+        self.assertEqual(len(self.lintraj.friccone_cstr), N, msg=f"Unexpected number of linearized friction cone constraints")
+        # Check the linearized dynamics object
+        self.assertTrue(isinstance(self.lintraj.getFrictionConeConstraint(int(N/2)), self.lcptype), msg='getFrictionConeConstraint does not return the correct type')
+        # Check for index clipping
+        self.assertEqual(self.lintraj.getFrictionConeConstraint(N+1), self.lintraj.friccone_cstr[-1], msg="getFrictionConeConstraint does not return final constraint for indices greater than maximum")
+        self.assertEqual(self.lintraj.getFrictionConeConstraint(-1), self.lintraj.friccone_cstr[0], msg="getFrictionConeConstraint does not return initial constraint for indices less than 0")
 
     def test_get_jointlimits(self):
-        pass
+        """
+        Check that there are the expected number of dynamics linearization constraint objects
+        Check that we can get a linearized dynamics constraint object
+        Check that getting the constraints obeys index clipping
+        """
+        # Check the expected number of linearized dynamics constraints
+        N = self.lintraj.num_timesteps
+        self.assertEqual(len(self.lintraj.joint_limit_cstr), N, msg=f"Unexpected number of linearized joint limit constraints")
+        # Check the linearized dynamics object
+        self.assertTrue(isinstance(self.lintraj.getJointLimitConstraint(int(N/2)), self.lcptype), msg='getJointLimitConstraint does not return the correct type')
+        # Check for index clipping
+        self.assertEqual(self.lintraj.getJointLimitConstraint(N+1), self.lintraj.joint_limit_cstr[-1], msg="getJointLimitConstraint does not return final constraint for indices greater than maximum")
+        self.assertEqual(self.lintraj.getJointLimitConstraint(-1), self.lintraj.joint_limit_cstr[0], msg="getJointLimitConstraint does not return initial constraint for indices less than 0")
 
 class LinearContactMPCTest(unittest.TestCase):
     @classmethod

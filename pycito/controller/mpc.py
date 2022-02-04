@@ -146,7 +146,7 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
         else:
             force = self._force
         for n in range(self.num_timesteps-1):
-            h = self._time[n+1] - self._time[n]
+            h = np.array([self._time[n+1] - self._time[n]])
             A, _ = dynamics.linearize(h, self._state[:,n], self._state[:, n+1], self._control[:,n+1], force[:, n+1])
             b = A[:,0] - A[:, force_idx:].dot(force[:, n+1])
             A = A[:, 1:]
@@ -168,7 +168,7 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
         B = np.zeros((self.plant.num_friction(), self.plant.num_friction()))
         for x, s in zip(self._state.transpose(), self._slack.transpose()):
             A, c = dissipation.linearize(x, s)
-            c -= A[:, x.shape[0]:].dot(s)       #Correction term for LCP 
+            c[:, 0] -= A[:, x.shape[0]:].dot(s)       #Correction term for LCP 
             self.dissipation_cstr.append(self.lcp(A, B, c))
 
     def _linearize_friction_cone(self):
@@ -178,14 +178,14 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
         B = np.zeros((self.plant.num_contacts(), self.plant.num_contacts()))
         for x, f in zip(self._state.transpose(), self._force.transpose()):
             A, c = friccone.linearize(x, f)
-            c -= A[:, x.shape[0]:].dot(f)   #Correction term for LCP
+            c[:, 0] -= A[:, x.shape[0]:].dot(f)   #Correction term for LCP
             self.friccone_cstr.append(self.lcp(A, B, c))
 
     def _linearize_joint_limits(self):
         """Store the linearizations of the joint limits constraint function"""
         jointlimits = cstr.JointLimitConstraint(self.plant)
         self.joint_limit_cstr = []
-        B = np.zeros((jointlimits.num_joint_limits, jointlimits.num_joint_limits))
+        B = np.zeros((2*jointlimits.num_joint_limits, 2*jointlimits.num_joint_limits))
         nQ = self.plant.multibody.num_positions()
         for x in self._state.transpose():
             A, c = jointlimits.linearize(x[:nQ])
@@ -193,27 +193,27 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
     
     def getDynamicsConstraint(self, index):
         """Returns the linear dynamics constraint at the specified index"""
-        index = min(index, len(self.dynamics_cstr))
+        index = min(max(0, index), len(self.dynamics_cstr)-1)
         return self.dynamics_cstr[index]
 
     def getDistanceConstraint(self, index):
         """Returns the normal distance constraint at the specified index"""
-        index = min(index, len(self.distance_cstr))
+        index = min(max(0, index), len(self.distance_cstr)-1)
         return self.distance_cstr[index]
 
     def getDissipationConstraint(self, index):
         """Returns the maximum dissipation constraint at the specified index"""
-        index = min(index, len(self.dissipation_cstr))
+        index = min(max(0, index), len(self.dissipation_cstr)-1)
         return self.dissipation_cstr[index]
 
     def getFrictionConeConstraint(self, index):
         """Returns the friction cone constraint at the specified index"""
-        index = min(index, len(self.friccone_cstr))
+        index = min(max(0, index), len(self.friccone_cstr)-1)
         return self.friccone_cstr[index]
 
     def getJointLimitConstraint(self, index):
         """Returns the joint limit constraint at the specified index"""
-        index = min(index, len(self.joint_limit_cstr))
+        index = min(max(0, index), len(self.joint_limit_cstr)-1)
         return self.joint_limit_cstr[index]
 
 class LinearContactMPC():

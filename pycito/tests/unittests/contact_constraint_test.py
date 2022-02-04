@@ -4,7 +4,7 @@ Unittests for contact constraints in trajopt.constraints
 Luke Drnach
 January 31, 2022
 """
-
+#TODO: Write unittest for MultibodyDynamicsConstraint
 import unittest
 import numpy as np
 

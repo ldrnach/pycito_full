@@ -584,7 +584,7 @@ class TimeSteppingMultibodyPlant():
     def has_joint_limits(self):
         qhigh= self.multibody.GetPositionUpperLimits()
         qlow = self.multibody.GetPositionLowerLimits()
-        return np.any(np.isfinite([np.concatenate(qhigh, qlow)]))
+        return np.any(np.isfinite(np.concatenate([qhigh, qlow])))
 
 def solve_lcp(P, q):
     prog = MathematicalProgram()

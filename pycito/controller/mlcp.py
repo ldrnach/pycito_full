@@ -6,7 +6,7 @@ January 26, 2022
 """
 import numpy as np
 import warnings 
-
+#TODO: Implement PseudoLinearComplementarityConstraint
 class MixedLinearComplementarityConstraint():
     """
     Implements the Mixed Linear Complementarity Constraint of the form:
@@ -34,6 +34,9 @@ class MixedLinearComplementarityConstraint():
         self._prog = None
         self._var_slack = None
 
+    def __eq__(self, obj):
+        """Two objects are equal if they are of the same type and have the same (A, B, c) parameter values"""
+        return type(self) is type(obj) and np.array_equal(self.A, obj.A) and np.array_equal(self.B, obj.B) and np.array_equal(self.c, obj.c) 
 
     def str(self):
         return f"{type(self).__name__} with {self.num_free} free variables and {self.dim} complementarity variables"
@@ -141,7 +144,7 @@ class CostRelaxedMixedLinearComplementarity(MixedLinearComplementarityConstraint
         super(CostRelaxedMixedLinearComplementarity, self).__init__(A, B, c)
         self._cost_weight = 1
         self._costs = [] 
-        
+                
     def _add_orthogonality_constraint(self, prog, zvar, svar):
         """
         Add the orthogonality constraint s*z = 0 as a penalty in the cost.
