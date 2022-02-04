@@ -11,7 +11,7 @@ from pycito.controller import mpc, mlcp
 from pycito.trajopt import constraints as cstr
 from pycito.systems.A1.a1 import A1VirtualBase
 #TODO: Check that the "getTime" for maximum time is actually correct
-#TODO: Unittesting for LinearContactTrajectory, MPC
+#TODO: Unittesting for MPC
 class ReferenceTrajectoryTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -219,14 +219,68 @@ class LinearContactTrajectoryTest(unittest.TestCase):
         # Check for index clipping
         self.assertEqual(self.lintraj.getJointLimitConstraint(N+1), self.lintraj.joint_limit_cstr[-1], msg="getJointLimitConstraint does not return final constraint for indices greater than maximum")
         self.assertEqual(self.lintraj.getJointLimitConstraint(-1), self.lintraj.joint_limit_cstr[0], msg="getJointLimitConstraint does not return initial constraint for indices less than 0")
-
 class LinearContactMPCTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        pass
+        # Initialize the mpc class
+        plant = A1VirtualBase()
+        plant.Finalize()
+        filename = os.path.join('pycito','tests','data','a1_step.pkl')
+        lintraj = mpc.LinearizedContactTrajectory.load(plant, filename)
+        cls.horizon = 1
+        cls.mpc = mpc.LinearContactMPC(lintraj, horizon=cls.horizon)
+        # Create an example mpc program
+        cls.start_idx = int(lintraj.num_timesteps/2)
+        t = lintraj._time[cls.start_idx]
+        x = lintraj.getState(cls.start_idx)
+        cls.mpc.create_mpc_program(t, x)
 
-    def setUp(self):
-        pass
+    def test_num_costs(self):
+        """Check that MPC adds the correct number of cost terms"""
+        cost_per_step = 5 + 4   # 5 Quadratic costs + 4 complementarity costs
+        ncosts = len(self.mpc.prog.GetAllCosts())
+        self.assertEqual(ncosts, self.horizon * cost_per_step, msg="Unexpected number of total cost terms")
+
+    def test_num_constraints(self):
+        """Check that MPC adds the expected number of constraint terms"""
+        cstr_per_step = 1 + 2 + 2 + 2 + 2       # Dynamics (1), Distance (2), Dissipation (2), Friction (2), JointLimits (2)
+        ncstr = len(self.mpc.prog.GetAllConstraints())
+        self.assertEqual(ncstr, self.horizon*cstr_per_step + 1, msg="Unexpected number of total constraint terms")
+
+    def test_num_decision_variables(self):
+        """Check that MPC adds the expected number of decision variables"""
+        nX, nU, nF, nS, nJ = self.mpc.state_dim, self.mpc.control_dim, self.mpc.force_dim, self.mpc.slack_dim, self.mpc.jlimit_dim
+        nC = nF + nS + nJ # Number of complementarity variables
+        nvars = (nX + nU + nF + nS + nJ + nC)*self.horizon + nX
+        self.assertEqual(self.mpc.prog.num_vars(), nvars, msg='Unexpected number of decision variables')
+
+    def test_solve(self):
+        """
+        Check that we can solve the MPC program successfully
+        """
+        result = self.mpc.solve()
+        self.assertTrue(result.is_success(), msg=f"failed to solve MPC successfully using default solver {result.get_solver_id().name()}")
+        self.check_solution(result)
+
+    def check_solution(self, result):
+        """
+        Check the solution from MPC
+        """
+        states = result.GetSolution(self.mpc.dx)
+        controls = result.GetSolution(self.mpc.du)
+        forces = result.GetSolution(self.mpc.dl)
+        velslack = result.GetSolution(self.mpc.ds)
+        jointlimit = result.GetSolution(self.mpc.djl)
+        # Assert that the correct values for states and controls are zero
+        np.testing.assert_allclose(states, np.zeros((self.mpc.state_dim, self.horizon+1)), atol=1e-6, err_msg=f"MPC returned significantly nonzero state error")
+        np.testing.assert_allclose(controls. np.zeros((self.mpc.control_dim, self.horizon)), atol=1e-6, err_msg=f"MPC returned significantly nonzero control error")
+        # Assert that the correct values for forces and slacks are the trajectory values
+        expected_force = np.concatenate([self.lintraj.GetForce(n) for n in range(self.start_idx, self.start_idx + self.horizon)], axis=1)
+        expected_slack = np.concatenate([self.lintraj.GetSlack(n) for n in range(self.start_idx, self.start_idx + self.horizon)], axis=1)
+        expected_jlim  = np.concatenate([self.lintraj.GetJointLimit(n) for n in range(self.start_idx, self.start_idx + self.horizon)], axis=1)
+        np.testing.assert_allclose(forces, expected_force, atol=1e-6, err_msg="Forces are significantly different from trajectory values")
+        np.testing.assert_allclose(velslack, expected_slack, atol=1e-6, err_msg="slacks are significantly different from trajectory values")
+        np.testing.assert_allclose(jointlimit, expected_jlim, atol=1e-6, err_msg='Joint limits are significantly different from trajectory values')
 
 if __name__ == '__main__':
     unittest.main()

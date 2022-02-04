@@ -104,9 +104,9 @@ class MultibodyConstraint(abc.ABC):
         """
         dvals = np.concatenate(args)
         # Promote to AutoDiffType
-        ad_vals = ad.InitializeAutoDiff(dvals)
+        ad_vals = np.squeeze(ad.InitializeAutoDiff(dvals))
         fcn_ad = self(ad_vals)
-        return ad.ExtractGradient(fcn_ad), ad.ExtractValue(fcn_ad)
+        return ad.ExtractGradient(fcn_ad), np.squeeze(ad.ExtractValue(fcn_ad))
 
     @property
     def description(self):
@@ -391,7 +391,7 @@ class LinearImplicitDynamics():
     def addToProgram(self, prog, *args):
         dvars = np.concatenate(args)
         assert self.A.shape[1] == dvars.shape[0], f"Expected {self.A.shape[1]} variables, but {dvars.shape[0]} were given"
-        prog.AddLinearEqualityConstraint(Aeq = self.A, beq = -self.b, vars=dvars, name='linear_dynamics')
+        prog.AddLinearEqualityConstraint(Aeq = self.A, beq = -self.b, vars=dvars).evaluator().set_description('linear_dynamics')
         return prog
 
 if __name__ == '__main__':

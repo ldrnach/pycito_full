@@ -32,8 +32,8 @@ class _MLCPTestBaseMixin():
         self.c = np.array([-1, 0])
         # Create the program and associated variables
         self.prog = MathematicalProgram()
-        self.x = self.prog.NewContinuousVariables(rows=2, cols=1, name='x')
-        self.z = self.prog.NewContinuousVariables(rows=2, cols=1, name='z')
+        self.x = self.prog.NewContinuousVariables(rows=2,  name='x')
+        self.z = self.prog.NewContinuousVariables(rows=2,  name='z')
         # Add the complementarity constraints
         self.cstr = None
         self.setup_complementarity_constraints()

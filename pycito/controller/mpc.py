@@ -148,7 +148,7 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
         for n in range(self.num_timesteps-1):
             h = np.array([self._time[n+1] - self._time[n]])
             A, _ = dynamics.linearize(h, self._state[:,n], self._state[:, n+1], self._control[:,n+1], force[:, n+1])
-            b = A[:,0] - A[:, force_idx:].dot(force[:, n+1])
+            b =  - A[:, force_idx:].dot(force[:, n+1])
             A = A[:, 1:]
             self.dynamics_cstr.append(cstr.LinearImplicitDynamics(A, b))
 
@@ -168,7 +168,7 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
         B = np.zeros((self.plant.num_friction(), self.plant.num_friction()))
         for x, s in zip(self._state.transpose(), self._slack.transpose()):
             A, c = dissipation.linearize(x, s)
-            c[:, 0] -= A[:, x.shape[0]:].dot(s)       #Correction term for LCP 
+            c -= A[:, x.shape[0]:].dot(s)       #Correction term for LCP 
             self.dissipation_cstr.append(self.lcp(A, B, c))
 
     def _linearize_friction_cone(self):
@@ -178,7 +178,7 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
         B = np.zeros((self.plant.num_contacts(), self.plant.num_contacts()))
         for x, f in zip(self._state.transpose(), self._force.transpose()):
             A, c = friccone.linearize(x, f)
-            c[:, 0] -= A[:, x.shape[0]:].dot(f)   #Correction term for LCP
+            c -= A[:, x.shape[0]:].dot(f)   #Correction term for LCP
             self.friccone_cstr.append(self.lcp(A, B, c))
 
     def _linearize_joint_limits(self):
@@ -249,32 +249,32 @@ class LinearContactMPC():
         self.create_mpc_program(t, x0)
         result = self.solve()
         du = result.GetSolution(self._du[:, 0])
-        index = self.lintraj.GetTimeIndex(t)
-        u = self.lintraj.GetControl(index)
+        index = self.lintraj.getTimeIndex(t)
+        u = self.lintraj.getControl(index)
         return u + du
 
     def create_mpc_program(self, t, x0):
         """
         Create a MathematicalProgram to solve the MPC problem
         """
-        index = self.lintraj.GetTimeIndex(t)
+        index = self.lintraj.getTimeIndex(t)
         self._initialize_mpc(index, x0)
         for n in range(index, index+self.horizon):
             self._add_decision_variables(n)
             self._add_costs(n)
             self._add_constraints(n)
 
-    def _ininitalize_mpc(self, index, x0):
+    def _initialize_mpc(self, index, x0):
         """
         Initialize the MPC for the current state
         """
         self.prog = MathematicalProgram()
         # Create the initial state and constrain it
-        self._dx = [self.prog.NewContinuousVariables(rows = self.state_dim, cols=1, name='state')]
-        state0 = self.lintraj.GetState(index)
+        self._dx = [self.prog.NewContinuousVariables(rows = self.state_dim, name='state')]
+        state0 = self.lintraj.getState(index)
         dx0 = state0 - x0
         self.prog.AddLinearEqualityConstraint(Aeq = np.eye(self.state_dim), beq=dx0, vars=self._dx[0])
-        self.prog.SetInitialGuess(self._dx[0], x0)
+        self.prog.SetInitialGuess(self._dx[0], dx0)
         # Clear the remaining variables
         self._du = []
         self._dl = []
@@ -286,20 +286,20 @@ class LinearContactMPC():
         Add and initialize decision variables to the program for the current time index
         """
         # Add new variables to the program
-        self._dx.append(self.prog.NewContinuousVariables(rows = self.state_dim, cols=1, name='state'))
-        self._du.append(self.prog.NewContinuousVariables(rows = self.control_dim, cols=1, name='control'))
-        self._dl.append(self.prog.NewContinuousVariables(rows = self.force_dim, cols=1, name='force'))
-        self._ds.append(self.prog.NewContinuousVariables(rows = self.slack_dim, cols=1, name='slack'))
+        self._dx.append(self.prog.NewContinuousVariables(rows = self.state_dim, name='state'))
+        self._du.append(self.prog.NewContinuousVariables(rows = self.control_dim, name='control'))
+        self._dl.append(self.prog.NewContinuousVariables(rows = self.force_dim, name='force'))
+        self._ds.append(self.prog.NewContinuousVariables(rows = self.slack_dim, name='slack'))
         # Add and initialize joint limits
         if self.jlimit_dim > 0:
-            self._djl.append(self.prog.NewContinuousVariables(rows = self.jlimit_dim, cols=1, name='joint_limits'))
-            self.prog.SetInitialGuess(self._djl[-1], self.lintraj.GetJointLimits(index+1))
+            self._djl.append(self.prog.NewContinuousVariables(rows = self.jlimit_dim, name='joint_limits'))
+            self.prog.SetInitialGuess(self._djl[-1], self.lintraj.getJointLimit(index+1))
         # Initalize the decision variables
-        self.prog.SetInitialGuess(self._dl[-1], self.lintraj.GetForces(index+1))
-        self.prog.SetInitialGuess(self._ds[-1], self.lintraj.GetSlacks(index+1))
+        self.prog.SetInitialGuess(self._dl[-1], self.lintraj.getForce(index+1))
+        self.prog.SetInitialGuess(self._ds[-1], self.lintraj.getSlack(index+1))
         # Initialize the states and controls (random, nonzero values)
-        self.prog.SetInitialGuess(self._dx[-1], np.default_rng().standard_normal(self.state_dim))
-        self.prog.SetInitialGuess(self._du[-1], np.default_rng().standard_normal(self.control_dim))
+        self.prog.SetInitialGuess(self._dx[-1], np.random.default_rng().standard_normal(self.state_dim))
+        self.prog.SetInitialGuess(self._du[-1], np.random.default_rng().standard_normal(self.control_dim))
 
     def _add_constraints(self, index):
         """
@@ -312,7 +312,7 @@ class LinearContactMPC():
         # Add the dynamics and joint limit constraints
         if self.jlimit_dim > 0:
             dl_all = np.concatenate([self._dl[-1], self._djl[-1]], axis=0)
-            self.lintraj.getDynamicsConsraint(index).addToProgram(self.prog, self._dx[-2], self._dx[-1], self._du[-1], dl_all)
+            self.lintraj.getDynamicsConstraint(index).addToProgram(self.prog, self._dx[-2], self._dx[-1], self._du[-1], dl_all)
             self.lintraj.getJointLimitConstraint(index+1).addToProgram(self.prog, self._dx[-1][:nQ], self._djl[-1])
         else:
             self.lintraj.getDynamicsConstraint(index).addToProgram(self.prog, self._dx[-2], self._dx[-1], self._du[-1], self._dl[-1])
@@ -328,13 +328,13 @@ class LinearContactMPC():
     def _add_costs(self, index):
         """Add cost terms on the most recent variables"""
         # We add quadratic error costs on all variables, regularizing states and controls to 0 and complementarity variables to their trajectory values
-        self.prog.AddQuadraticErrorCost(self._state_weight, np.zeros((self.state_dim, )), vars=self._dx[-1], description = 'state_cost')
-        self.prog.AddQuadraticErrorCost(self._control_weight, np.zeros((self.control_dim, )), vars=self._du[-1], description = 'control_cost')
-        self.prog.AddQuadraticErrorCost(self._force_weight, self.lintraj.GetForces(index+1), vars=self._dl[-1], description = 'force_cost')
-        self.prog.AddQuadraticErrorCost(self._slack_weight, self.lintraj.GetSlacks(index+1), vars=self._ds[-1], description = 'slack_cost')
+        self.prog.AddQuadraticErrorCost(self._state_weight, np.zeros((self.state_dim, 1)), vars=self._dx[-1]).evaluator().set_description('state_cost')
+        self.prog.AddQuadraticErrorCost(self._control_weight, np.zeros((self.control_dim, 1)), vars=self._du[-1]).evaluator().set_description('control_cost')
+        self.prog.AddQuadraticErrorCost(self._force_weight, self.lintraj.getForce(index+1), vars=self._dl[-1]).evaluator().set_description('force_cost')
+        self.prog.AddQuadraticErrorCost(self._slack_weight, self.lintraj.getSlack(index+1), vars=self._ds[-1]).evaluator().set_description('slack_cost')
         # Add a cost for joint limits
         if self.jlimit_dim > 0:
-            self.prog.AddQuadraticErrorCost(self._jlimit_weight, self.lintraj.GetJointLimits(index+1), vars=self._djl[-1], description = 'joint_limit_cost')
+            self.prog.AddQuadraticErrorCost(self._jlimit_weight, self.lintraj.getJointLimit(index+1), vars=self._djl[-1]).evaluator().set_description('joint_limit_cost')
 
     def solve(self):
         """Solves the created MPC problem"""
@@ -415,6 +415,47 @@ class LinearContactMPC():
     def complementaritycost(self, val):
         assert isinstance(val, (int, float)), f"complementaritycost must be a float or an int"
         self._complementarity_weight = val
+
+    @property
+    def dx(self):
+        """State error getter"""
+        if self._dx is not []:
+            return np.column_stack(self._dx)
+        else:
+            return None
+
+    @property
+    def du(self):
+        """Control error getter"""
+        if self._du is not []:
+            return np.column_stack(self._du)
+        else:
+            return None
+
+    @property
+    def dl(self):
+        """Force error getter"""
+        if self._dl is not []:
+            return np.column_stack(self._dl)
+        else:
+            return None
+
+    @property
+    def ds(self):
+        """Slack error getter"""
+        if self._ds is not []:
+            return np.column_stack(self._ds)
+        else:
+            return None
+
+    @property
+    def djl(self):
+        """Joint limit error getter"""
+        if self._djl is not [] and self.jlimit_dim > 0:
+            return np.column_stack(self._djl)
+        else:
+            return None
+
 
 if __name__ == "__main__":
     print("Hello from MPC!")

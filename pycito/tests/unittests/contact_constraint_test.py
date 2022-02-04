@@ -68,7 +68,7 @@ class NormalDistanceTest(unittest.TestCase):
     def test_linearization(self):
         """Test the linearization of the constraint"""
         A, b = self.cstr_fcn.linearize(self.x1)
-        np.testing.assert_allclose(np.squeeze(b), self.expected_dist, atol=1e-7, err_msg=f"Linearization fails to accurately evaluate the constraint")
+        np.testing.assert_allclose(b, self.expected_dist, atol=1e-7, err_msg=f"Linearization fails to accurately evaluate the constraint")
         np.testing.assert_allclose(A, self.A_expected, atol=1e-7, err_msg=f"Linearization fails to accurately evaluate the gradient of the constraint")
 
 class DissipationTest(unittest.TestCase):
@@ -140,7 +140,7 @@ class DissipationTest(unittest.TestCase):
     def test_linearization(self):
         """Test that the linearization is accurate"""
         A, b = self.cstr_fcn.linearize(self.x1, self.s1)
-        np.testing.assert_allclose(np.squeeze(b), self.expected_diss, atol=1e-7, err_msg=f"Linearization fails to evaluate the constraint accurately")
+        np.testing.assert_allclose(b, self.expected_diss, atol=1e-7, err_msg=f"Linearization fails to evaluate the constraint accurately")
         np.testing.assert_allclose(A, self.A_expected, atol=1e-7, err_msg=f"Linearization fails to evaluate the gradient accurately")
 
 class FrictionConeTest(unittest.TestCase):
@@ -199,7 +199,7 @@ class FrictionConeTest(unittest.TestCase):
     def test_linearization(self):
         """Test the linearization of the constraint"""
         A, b = self.cstr_fcn.linearize(self.x1, self.fn, self.ft)
-        np.testing.assert_allclose(np.squeeze(b), self.friccone_expected, atol=1e-7, err_msg=f"Linearization fails to evaluate the constraint accurately")
+        np.testing.assert_allclose(b, self.friccone_expected, atol=1e-7, err_msg=f"Linearization fails to evaluate the constraint accurately")
         np.testing.assert_allclose(A, self.A_expected, atol=1e-7, err_msg=f"Linearization failed to evaluate gradient accurately")
 
 if __name__ == "__main__":

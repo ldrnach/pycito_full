@@ -53,7 +53,7 @@ class MixedLinearComplementarityConstraint():
         assert self.A.shape[1] == xvar.shape[0], f"xvar must be a ({self.num_free}, ) array"
         assert self.B.shape[1] == zvar.shape[0], f"zvar must be a ({self.dim},) array"
         # Create and store the slack variables
-        svar = prog.NewContinuousVariables(rows = self.dim, cols=1, name=f'{self.name}_slack')
+        svar = prog.NewContinuousVariables(rows = self.dim, name=f'{self.name}_slack')
         if self._var_slack is None:
             self._var_slack = svar
         else:
@@ -70,6 +70,8 @@ class MixedLinearComplementarityConstraint():
         """
         Imposes the constraint
             A*x + B*z + c = s
+        Note, the constraint is imposed as
+            s - Ax - Bz = c
         """
         cstr = prog.AddLinearEqualityConstraint(
             Aeq = np.concatenate([np.eye(self.dim), -self.A, -self.B], axis=1),
