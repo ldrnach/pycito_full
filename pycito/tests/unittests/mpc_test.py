@@ -10,6 +10,7 @@ import os, unittest
 from pycito.controller import mpc, mlcp
 from pycito.trajopt import constraints as cstr
 from pycito.systems.A1.a1 import A1VirtualBase
+from pycito.systems.block.block import Block
 #TODO: Check that the "getTime" for maximum time is actually correct
 #TODO: Unittesting for MPC
 class ReferenceTrajectoryTest(unittest.TestCase):
@@ -281,6 +282,117 @@ class LinearContactMPCTest(unittest.TestCase):
         np.testing.assert_allclose(forces, expected_force, atol=1e-6, err_msg="Forces are significantly different from trajectory values")
         np.testing.assert_allclose(velslack, expected_slack, atol=1e-6, err_msg="slacks are significantly different from trajectory values")
         np.testing.assert_allclose(jointlimit, expected_jlim, atol=1e-6, err_msg='Joint limits are significantly different from trajectory values')
+
+class LinearTrajectoryVerificationTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        #TODO: Check that the dynamics are satisfied exactly
+        cls.x = np.array([[ 0.0, 0.1],
+                          [ 0.5, 0.5],
+                          [ 0.0, 1.0],
+                          [ 0.0, 0.0]
+                        ])
+        cls.time = np.array([0, 0.1])
+        cls.h = np.array([0.1])
+        cls.u = np.array([[0.0, 14.905]])      
+        cls.l = np.array([[9.81, 9.81],
+                          [0.0, 0.0],
+                          [0.0, 0.0],
+                          [0.0, 4.905], 
+                          [0.0, 0.0],
+                          [0.0, 1.0]
+                         ]) 
+        cls.plant = Block()
+        cls.plant.Finalize()
+        cls.lintraj = mpc.LinearizedContactTrajectory(cls.plant, cls.time, cls.x, cls.u, cls.l)
+
+    def test_example_dynamics(self):
+        """Assert that the example is correct as written"""
+        # Check the dynamics
+        dyn = cstr.BackwardEulerDynamicsConstraint(self.plant)
+        out = dyn(np.concatenate([self.h, self.x[:, 0], self.x[:, 1], self.u[:, 1], self.l[:-1, 1]], axis=0))
+        np.testing.assert_allclose(out, np.zeros((4,)), atol=1e-8, err_msg='Example dynamics not satisfied')
+        # Check the normal distances
+        dist = cstr.NormalDistanceConstraint(self.plant)
+        np.testing.assert_allclose(dist(self.x[:, 0]), np.zeros((1,)), atol=1e-8, err_msg="Example normal distance not satisfied at index 0")
+        np.testing.assert_allclose(dist(self.x[:, 1]), np.zeros((1,)), atol=1e-8, err_msg="Example normal distance not satisfied at index 0")
+        # Check the dissipations
+        diss = cstr.MaximumDissipationConstraint(self.plant)
+        out0 = diss(np.concatenate([self.x[:, 0], self.l[-1:, 0]], axis=0))
+        np.testing.assert_allclose(out0, np.zeros((4,)), atol=1e-8, err_msg="Dissipation constraint not satisfied at index 0")
+        out1 = diss(np.concatenate([self.x[:, 1], self.l[-1:, 1]], axis=0))
+        np.testing.assert_allclose(out1, np.array([2., 1., 0., 1.]), atol=1e-8, err_msg="Dissipation constraint not satisfied at index 1")
+        # Check the friction cones
+        fric = cstr.FrictionConeConstraint(self.plant)
+        out0 = fric(np.concatenate([self.x[:, 0], self.l[:5, 0]], axis=0))
+        np.testing.assert_allclose(out0, np.array([4.905]), atol=1e-8, err_msg="Friction cone constraint not satisfied at index 0")
+        out1 = fric(np.concatenate([self.x[:, 1], self.l[:5, 1]], axis=0))
+        np.testing.assert_allclose(out1, np.zeros((1, )), atol=1e-8, err_msg="Friction cone constriant not satisfied at index 1")
+
+    def test_linear_dynamics(self):
+        """Verify that the linearized dynamics parameters are accurate"""
+        # Get the contact Jacobian
+        context = self.plant.multibody.CreateDefaultContext()
+        self.plant.multibody.SetPositionsAndVelocities(context, self.x[:, 1])
+        Jn, Jt = self.plant.GetContactJacobians(context)
+        J = np.column_stack((Jn.T, Jt.T))
+        # Construct the linear dynamics matrix - it's constant, because the block system is linear
+        Ax_0 = -np.eye(4)
+        Ax_1 =  np.eye(4)
+        Ax_1[:2, 2:] = -np.eye(2) * self.h
+        Au = np.zeros((4,1))
+        Au[2, 0] = -self.h  
+        Al = np.vstack([np.zeros_like(J), -self.h*J])     
+        A_expected = np.column_stack([Ax_0, Ax_1, Au, Al])
+        b_expected = -Al.dot(self.l[:-1, 1])
+        # Check the dynamics parameters
+        np.testing.assert_allclose(self.lintraj.dynamics_cstr[0].A, A_expected, atol=1e-8, err_msg="Linear dynamics A matrix is inaccurate")
+        np.testing.assert_allclose(self.lintraj.dynamics_cstr[0].b, b_expected, atol=1e-8, err_msg="Linear dynamics c vector is inaccurate")
+
+    def test_linear_distance(self):
+        """Verify that the normal distance parameters are accurate"""
+        A_expected = np.array([[0, 1, 0, 0]])
+        c_expected_0 = np.array([self.x[1, 0] - 0.5])
+        c_expected_1 = np.array([self.x[1, 1] - 0.5])
+        # Check the linearized distance parameters
+        np.testing.assert_allclose(self.lintraj.distance_cstr[0].A, A_expected, atol=1e-8, err_msg="Linearized distance constraint A matrix is inaccurate at index 0")
+        np.testing.assert_allclose(self.lintraj.distance_cstr[1].A, A_expected, atol=1e-8, err_msg="Linearized distance constraint A matrix is inaccurate at index 1")
+        np.testing.assert_allclose(self.lintraj.distance_cstr[0].c, c_expected_0, atol=1e-8, err_msg="Linearized distance constraint c vector is inaccurate at index 0")
+        np.testing.assert_allclose(self.lintraj.distance_cstr[1].c, c_expected_1, atol=1e-8, err_msg="Linearized distance constraint c vector is inaccurate at index 1")
+
+    def test_linear_dissipation(self):
+        """Verify that the linearized dissipation parameters are accurate"""
+        # Collect the expected values
+        context = self.plant.multibody.CreateDefaultContext()
+        self.plant.multibody.SetPositionsAndVelocities(context, self.x[:,0])
+        _, Jt = self.plant.GetContactJacobians(context)
+        e = self.plant.duplicator_matrix()
+        A_expected_0 = np.column_stack([np.zeros((4,2)), Jt, e.T])
+        c_expected_0 = Jt.dot(self.x[2:, 0])
+        # Second index
+        self.plant.multibody.SetPositionsAndVelocities(context, self.x[:, 1])
+        _, Jt = self.plant.GetContactJacobians(context)
+        A_expected_1 = np.column_stack([np.zeros((4,2)), Jt, e.T])
+        c_expected_1 = Jt.dot(self.x[2:, 1])
+        # Check the linearized dissipation parameters
+        np.testing.assert_allclose(self.lintraj.dissipation_cstr[0].A, A_expected_0, atol=1e-8, err_msg="Linearized dissipation constraint A matrix is inaccurate at index 0")
+        np.testing.assert_allclose(self.lintraj.dissipation_cstr[1].A, A_expected_1, atol=1e-8, err_msg="Linearized dissipation constraint A matrix is inaccurate at index 1")
+        np.testing.assert_allclose(self.lintraj.dissipation_cstr[0].c, c_expected_0, atol=1e-8, err_msg="Linearized dissipation constraint c vector is inaccurate at index 0")
+        np.testing.assert_allclose(self.lintraj.dissipation_cstr[1].c, c_expected_1, atol=1e-8, err_msg="Linearized dissipation constraint c vector is inaccurate at index 1")
+    
+    def test_linear_friction(self):
+        """Verify that the linear friction cone parameters are accurate"""
+        # Collect the expected values
+        mu = np.atleast_2d(self.plant.terrain.friction)
+        e = self.plant.duplicator_matrix()
+        A_expected = np.column_stack([np.zeros((1,4)), mu, -e])
+        c_expected = np.zeros((1,))
+        # Check the linearized friction cone parameters
+        np.testing.assert_allclose(self.lintraj.friccone_cstr[0].A, A_expected, atol=1e-8, err_msg="Linearized friction cone constraint A matrix is inaccurate at index 0")
+        np.testing.assert_allclose(self.lintraj.friccone_cstr[1].A, A_expected, atol=1e-8, err_msg="Linearized friction cone constraint A matrix is inaccurate at index 1")
+        np.testing.assert_allclose(self.lintraj.friccone_cstr[0].c, c_expected, atol=1e-8, err_msg="Linearized friction cone constraint c vector is inaccurate at index 0")
+        np.testing.assert_allclose(self.lintraj.friccone_cstr[1].c, c_expected, atol=1e-8, err_msg="Linearized friction cone constraint c vector is inaccurate at index 1")
+
 
 if __name__ == '__main__':
     unittest.main()

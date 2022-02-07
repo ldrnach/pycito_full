@@ -106,7 +106,7 @@ class MultibodyConstraint(abc.ABC):
         # Promote to AutoDiffType
         ad_vals = np.squeeze(ad.InitializeAutoDiff(dvals))
         fcn_ad = self(ad_vals)
-        return ad.ExtractGradient(fcn_ad), np.squeeze(ad.ExtractValue(fcn_ad))
+        return ad.ExtractGradient(fcn_ad), np.reshape(ad.ExtractValue(fcn_ad), (-1,))
 
     @property
     def description(self):
