@@ -8,8 +8,6 @@ November 9, 2021
 
 import unittest
 import numpy as np
-from numpy.lib import polynomial
-from numpy.lib.polynomial import poly
 from pycito.trajopt import constraints as cstr
 from pydrake.all import MathematicalProgram, Solve
 
@@ -105,6 +103,9 @@ class CollocationTest(unittest.TestCase):
         np.testing.assert_allclose(soln_dx, derivs, rtol=0, atol=1e-6, err_msg='Solved derivatives are incorrect')
         # Check the initial condition
         np.testing.assert_allclose(soln_x0, val0.flatten(), rtol=0, atol=1e-6, err_msg='Solved initial condition is incorrect')
+
+
+
 
 if __name__ == '__main__':
     unittest.main()

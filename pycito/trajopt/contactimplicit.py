@@ -888,7 +888,7 @@ class ContactImplicitOrthogonalCollocation(ContactImplicitDirectTranscription):
         all_h = self.h.flatten()
         self.prog.AddBoundingBoxConstraint(self.minimum_timestep*np.ones(all_h.shape), self.maximum_timestep*np.ones(all_h.shape), all_h).evaluator().set_description('TimestepConstraint')
         # Dynamics
-        self.dynamics_cstr = cstrs.MultibodyDynamicsConstraint(self.plant_ad, self.plant_f)
+        self.dynamics_cstr = cstrs.MultibodyDynamicsConstraint(self.plant_f)
         if self.Jl is not None:
             forces = np.concatenate([self._normal_forces, self._tangent_forces, self.jl], axis=0)
         else:

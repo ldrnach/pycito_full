@@ -43,6 +43,8 @@ class TimeSteppingMultibodyPlant():
         self.collision_index = []
         #Store the urdf files
         self.files = [file]
+        # Create autodiff pointer
+        self._autodiff_ptr = None
 
     def __deepcopy__(self):
         copy = TimeSteppingMultibodyPlant(file=self.files[0], terrain=self.terrain.__deepcopy__(), dlevel=1)
@@ -209,7 +211,20 @@ class TimeSteppingMultibodyPlant():
         copy_ad.model_index = self.model_index
         # Store the collision frames to finalize the model
         copy_ad.__store_collision_geometries()
+        # Store the pointer to the autodiff copy
+        self._autodiff_ptr = copy_ad
         return copy_ad
+
+    def getAutoDiffXd(self):
+        """
+        Returns a pointer to the autodiff copy of the current plant
+        
+        Unlike toAutoDiffXd, which creates a new autodiff plant on each call, getAutoDiffXd returns a pointer to an existing autodiff version, if one exists. If there is no autodiff plant available, getAutoDiffXd creates one
+        """
+        if self._autodiff_ptr is None:
+            return self.toAutoDiffXd()
+        else:
+            return self._autodiff_ptr
 
     def set_discretization_level(self, dlevel=0):
         """Set the friction discretization level. The default is 0"""
@@ -564,6 +579,12 @@ class TimeSteppingMultibodyPlant():
             self._dlevel = val
         else:
             raise ValueError("dlevel must be a positive integer")
+
+    @property
+    def has_joint_limits(self):
+        qhigh= self.multibody.GetPositionUpperLimits()
+        qlow = self.multibody.GetPositionLowerLimits()
+        return np.any(np.isfinite(np.concatenate([qhigh, qlow])))
 
 def solve_lcp(P, q):
     prog = MathematicalProgram()

@@ -19,7 +19,7 @@ class FallingRod(TimeSteppingMultibodyPlant):
         # Initialize the time-stepping multibody plant
         super(FallingRod, self).__init__(file=FindResource(urdf_file), terrain=terrain)
         # Weld the center body frame to the world frame
-        body_inds = self.multibody.GetBodyIndices(self.model_index)
+        body_inds = self.multibody.GetBodyIndices(self.model_index[0])
         base_frame = self.multibody.get_body(body_inds[0]).body_frame()
         self.multibody.WeldFrames(self.multibody.world_frame(), base_frame, RigidTransform())
 
@@ -76,7 +76,7 @@ class FallingRod(TimeSteppingMultibodyPlant):
         # Make the visualization
         vis.visualize_trajectory(trajectory)
 
-if __name__ == "__main__":
+def falling_rod_main():
     # Create a falling rod example
     terrain = FlatTerrain(height=0., friction=0.6)
     rod = FallingRod(terrain=terrain)
