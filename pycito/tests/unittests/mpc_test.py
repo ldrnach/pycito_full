@@ -226,6 +226,7 @@ class LinearContactMPCTest(unittest.TestCase):
     def setUpClass(cls):
         # Initialize the mpc class
         plant = A1VirtualBase()
+        plant.terrain.friction = 1.0
         plant.Finalize()
         filename = os.path.join('pycito','tests','data','a1_step.pkl')
         lintraj = mpc.LinearizedContactTrajectory.load(plant, filename)
@@ -257,10 +258,79 @@ class LinearContactMPCTest(unittest.TestCase):
         nvars = (nX + nU + nF + nS + nJ + nC)*self.horizon + nX
         self.assertEqual(self.mpc.prog.num_vars(), nvars, msg='Unexpected number of decision variables')
 
+    def get_constraint_by_name(self, name):
+        """Helper function to get all constraints by name"""
+        matches = []
+        for cstr in self.mpc.prog.GetAllConstraints():
+            if cstr.evaluator().get_description() == name:
+                matches.append(cstr)
+        return matches
+
+    def check_constraints(self, cstrs):
+        """Helper function to check a constraint at the initial guess"""
+        tol = 1e-8
+        for k, cstr in enumerate(cstrs):
+            dvars = cstr.variables()
+            dvals = self.mpc.prog.GetInitialGuess(dvars)
+            # The value of the constraint
+            val = cstr.evaluator().Eval(dvals)
+            # Assert that the lower bound is not violated
+            lb = cstr.evaluator().lower_bound()
+            self.assertTrue(np.all(np.abs(lb - val) <= tol), msg=f"{cstr.evaluator().get_description()} violates it's lower bounds at index {k}")
+            # Assert that the upper bound is not violated
+            ub = cstr.evaluator().upper_bound()
+            self.assertTrue(np.all(np.abs(ub - val) <= tol), msg=f"{cstr.evaluator().get_description()} violates it's upper bounds at index {k}")
+
+    def test_costs(self):
+        """Helper function to test the cost function values at the initial guess"""
+        tol = 1e-8
+        for k, cost in enumerate(self.mpc.prog.GetAllCosts()):
+            dvars = cost.variables()
+            dvals = self.mpc.prog.GetInitialGuess(dvars)
+            # The value of the cost
+            val = cost.evaluator().Eval(dvals)
+            self.assertTrue(np.abs(val) < tol, msg=f"{cost.evaluator().get_description()} is significantly nonzero at the initial guess at index {k}")
+
+
+    def test_dynamics_constraint(self):
+        """Check that the dynamics constraint is satisfied at the initial guess"""
+        cstrs = self.get_constraint_by_name('linear_dynamics')
+        self.check_constraints(cstrs)
+
+    def test_distance_constraint(self):
+        """Check that the distance constraint is satisfied at the initial guess"""
+        cstrs = self.get_constraint_by_name('distance_equality')
+        self.check_constraints(cstrs)
+
+    def test_dissipation_constraint(self):
+        """Check that the linearized dissipation constraint is satisfied at the initial guess"""
+        cstrs = self.get_constraint_by_name('dissipation_equality')
+        self.check_constraints(cstrs)
+
+    def test_friction_constraint(self):
+        """Check that the linearized friction cone constraint is satisfied at the initial guess"""
+        cstrs = self.get_constraint_by_name('frictioncone_equality')
+        self.check_constraints(cstrs)
+
+    def test_jointlimit_constraint(self):
+        """Check that the linearized joint limit constraint is satisfied at the initial guess"""
+        cstrs = self.get_constraint_by_name('jointlimit_equality')
+
     def test_solve(self):
         """
         Check that we can solve the MPC program successfully
         """
+        # self.mpc.useOsqpSolver()
+        # self.mpc.setSolverOptions({
+        #     'eps_abs': 1e-6,
+        #     'eps_rel': 1e-6,
+        #     'polish': True
+        # })
+        self.mpc.useSnoptSolver()
+        self.mpc.setSolverOptions({
+            'Major feasibility tolerance': 1e-6,
+            'Major optimality tolerance': 1e-6
+        })
         result = self.mpc.solve()
         self.assertTrue(result.is_success(), msg=f"failed to solve MPC successfully using default solver {result.get_solver_id().name()}")
         self.check_solution(result)
@@ -269,19 +339,18 @@ class LinearContactMPCTest(unittest.TestCase):
         """
         Check the solution from MPC
         """
-        #TODO: Get this method working
         states = result.GetSolution(self.mpc.dx)
         controls = result.GetSolution(self.mpc.du)
         forces = result.GetSolution(self.mpc.dl)
         velslack = result.GetSolution(self.mpc.ds)
         jointlimit = result.GetSolution(self.mpc.djl)
         # Assert that the correct values for states and controls are zero
-        np.testing.assert_allclose(states, np.zeros((self.mpc.state_dim, self.horizon+1)), atol=1e-6, err_msg=f"MPC returned significantly nonzero state error")
-        np.testing.assert_allclose(controls. np.zeros((self.mpc.control_dim, self.horizon)), atol=1e-6, err_msg=f"MPC returned significantly nonzero control error")
+        np.testing.assert_allclose(states, np.zeros_like(states), atol=1e-6, err_msg=f"MPC returned significantly nonzero state error")
+        np.testing.assert_allclose(controls, np.zeros_like(controls), atol=1e-6, err_msg=f"MPC returned significantly nonzero control error")
         # Assert that the correct values for forces and slacks are the trajectory values
-        expected_force = np.concatenate([self.mpc.lintraj.getForce(n) for n in range(self.start_idx, self.start_idx + self.horizon)], axis=1)
-        expected_slack = np.concatenate([self.mpc.lintraj.getSlack(n) for n in range(self.start_idx, self.start_idx + self.horizon)], axis=1)
-        expected_jlim  = np.concatenate([self.mpc.lintraj.getJointLimit(n) for n in range(self.start_idx, self.start_idx + self.horizon)], axis=1)
+        expected_force = self.mpc.lintraj.getForce(self.start_idx+1) 
+        expected_slack = self.mpc.lintraj.getSlack(self.start_idx+1) 
+        expected_jlim  = self.mpc.lintraj.getJointLimit(self.start_idx+1) 
         np.testing.assert_allclose(forces, expected_force, atol=1e-6, err_msg="Forces are significantly different from trajectory values")
         np.testing.assert_allclose(velslack, expected_slack, atol=1e-6, err_msg="slacks are significantly different from trajectory values")
         np.testing.assert_allclose(jointlimit, expected_jlim, atol=1e-6, err_msg='Joint limits are significantly different from trajectory values')

@@ -4,12 +4,11 @@ Class for Linear Contact-Implicit MPC
 January 26, 2022
 Luke Drnach
 """
-#TODO: Allow user to specify MPC solver, settings
 #TODO: Double check implementation of joint limit linearization in the dynamics
 
 import numpy as np
 
-from pydrake.all import MathematicalProgram, Solve
+from pydrake.all import MathematicalProgram, Solve, SnoptSolver, OsqpSolver
 
 import pycito.utilities as utils
 import pycito.trajopt.constraints as cstr
@@ -247,6 +246,8 @@ class LinearContactMPC():
         self._complementarity_weight = 1
         # Use zero or random guess
         self._use_zero_guess = False
+        # Set the solver
+        self._solver = OsqpSolver()
 
     def do_mpc(self, t, x0):
         """
@@ -357,8 +358,17 @@ class LinearContactMPC():
 
     def solve(self):
         """Solves the created MPC problem"""
-        #TODO: Allow user to set options for solving the problem
-        return Solve(self.prog)
+        return self._solver.Solve(self.prog)
+
+    def useOsqpSolver(self):
+        self._solver = OsqpSolver()
+
+    def useSnoptSolver(self):
+        self._solver = SnoptSolver()
+
+    def setSolverOptions(self, options_dict={}):
+        for key in options_dict:
+            self.prog.SetSolverOption(self._solver.solver_id(), key, options_dict[key])
 
     @property
     def state_dim(self):
