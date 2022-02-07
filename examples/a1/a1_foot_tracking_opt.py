@@ -219,10 +219,8 @@ def add_base_tracking(trajopt, qref, weight):
     trajopt.prog.AddQuadraticErrorCost(Q, base_vals, base_vars).evaluator().set_description('BaseTrackingCost')
     return trajopt
 
-def optimize_foot_tracking_gait(a1, foot_ref, base_ref, duration, warmstart, savedir, options=None):
-    """Generically solve the trajopt with foot and base tracking costs"""
-    if not os.path.isdir(savedir):
-        os.makedirs(savedir)
+def setup_foot_tracking_gait(a1, foot_ref, base_ref, duration, warmstart, options=None):
+    """Generically setup the foot tracking optimization"""
     N = warmstart['state'].shape[1]
     nQ = a1.multibody.num_positions()
     # Setup the trajectory optimization
@@ -247,6 +245,13 @@ def optimize_foot_tracking_gait(a1, foot_ref, base_ref, duration, warmstart, sav
     # Update the solver options
     if options:
         trajopt.setSolverOptions(options)
+    return trajopt
+
+def optimize_foot_tracking_gait(a1, foot_ref, base_ref, duration, warmstart, savedir, options=None):
+    if not os.path.isdir(savedir):
+        os.makedirs(savedir)
+    # Setup and solve the problem
+    trajopt = setup_foot_tracking_gait(a1, foot_ref, base_ref, duration, warmstart, options)
     # Solve the problem using different complementarity cost weights
     weights = [1, 1e1, 1e2, 1e3]
     opttools.progressive_solve(trajopt, weights, savedir)
@@ -314,7 +319,6 @@ def concatenate_foot_trajectories(feet):
         foot_ref.append(np.concatenate([foot[k] for foot in feet], axis=1))
     return foot_ref
 
-
 def main_fullgait_optimization():
     # Get the foot reference trajectory
     savedir = os.path.join('examples','a1','foot_tracking_gait','fullgait')
@@ -334,6 +338,43 @@ def main_fullgait_optimization():
     # Generate the optimization
     optimize_foot_tracking_gait(a1, foot_ref, base_ref, duration, warmstart, savedir)
 
-    
+### TOOLS FOR OPTIMIZING A SECOND STRIDE USING ONLY THE ENDPOINTS OF THE FIRST STRIDE
+
+def main_contiguous_second_stride_optimization():
+    """
+    Optimize for the second stride where all variables are continuous with the first stride
+    """
+    firststep = utils.load(utils.FindResource(os.path.join('examples','a1','foot_tracking_gait','first_step','weight_1e+03','trajoptresults.pkl')))
+    savedir = os.path.join('examples','a1','foot_tracking_gait','second_step_continuous')
+    a1 = opttools.make_a1()
+    feet, _, qtraj =  make_a1_step_trajectories(a1)
+    feet = feet[2]
+    qtraj = qtraj[2]
+    duration = 0.5
+    # Create the warmstart
+    warmstart = {'state': None,
+            'control': None,
+            'force': None,
+            'jointlimit': None,
+            'slacks': None}
+    warmstart['control'], fN = solve_forces(a1, qtraj)
+    warmstart['force'] = np.zeros((2*a1.num_contacts() + a1.num_friction(), fN.shape[1]))
+    warmstart['force'][:fN.shape[0], :] = fN
+    warmstart['state'] = np.concatenate([qtraj, np.zeros((a1.multibody.num_velocities(), qtraj.shape[1]))], axis=0)
+    # Setup the optimization
+    trajopt = setup_foot_tracking_gait(a1, feet, qtraj[:6, :], duration, warmstart)
+    # Add continuity constraints on forces and controls
+    trajopt.prog.AddLinearEqualityConstraint(Aeq = np.eye(trajopt.l.shape[0]), beq=firststep['force'][:, -1], vars=trajopt.l[:, 0]).evaluator().set_description('Force Continuity')
+    trajopt.prog.AddLinearEqualityConstraint(Aeq = np.eye(trajopt.u.shape[0]), beq=firststep['control'][:, -1], vars=trajopt.u[:, 0]).evaluator().set_description('Control Continuity')
+    trajopt.prog.AddLinearEqualityConstraint(Aeq = np.eye(trajopt.jl.shape[0]), beq=firststep['jointlimit'][:, -1], vars=trajopt.jl[:, 0]).evaluator().set_description('JLimit Continuity')
+    # Add periodicity constraints on forces and controls
+    trajopt.prog.AddLinearEqualityConstraint(Aeq = np.eye(trajopt.l.shape[0]), beq=firststep['force'][:, 0], vars=trajopt.l[:,-1]).evaluator().set_description('Force Periodicity')
+    trajopt.prog.AddLinearEqualityConstraint(Aeq = np.eye(trajopt.u.shape[0]), beq=firststep['control'][:, 0], vars=trajopt.u[:, -1]).evaluator().set_description('Control Periodicity')
+    trajopt.prog.AddLinearEqualityConstraint(Aeq = np.eye(trajopt.jl.shape[0]), beq=firststep['jointlimit'][:, 0], vars=trajopt.jl[:, -1]).evaluator().set_description('JLimit Periodicity')
+    # Solve the problem
+    weights = [1, 1e1, 1e2, 1e3]
+    opttools.progressive_solve(trajopt, weights, savedir)
+
+
 if __name__ == '__main__':
-    main_fullgait_optimization()
+    main_contiguous_second_stride_optimization()
