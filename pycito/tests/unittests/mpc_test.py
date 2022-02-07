@@ -222,6 +222,7 @@ class LinearContactTrajectoryTest(unittest.TestCase):
         self.assertEqual(self.lintraj.getJointLimitConstraint(-1), self.lintraj.joint_limit_cstr[0], msg="getJointLimitConstraint does not return initial constraint for indices less than 0")
 class LinearContactMPCTest(unittest.TestCase):
     @classmethod
+    #TODO: Check joint limit implementation
     def setUpClass(cls):
         # Initialize the mpc class
         plant = A1VirtualBase()
@@ -267,6 +268,7 @@ class LinearContactMPCTest(unittest.TestCase):
         """
         Check the solution from MPC
         """
+        #TODO: Get this method working
         states = result.GetSolution(self.mpc.dx)
         controls = result.GetSolution(self.mpc.du)
         forces = result.GetSolution(self.mpc.dl)
@@ -286,7 +288,7 @@ class LinearContactMPCTest(unittest.TestCase):
 class LinearTrajectoryVerificationTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        #TODO: Check that the dynamics are satisfied exactly
+        """Setup the example for the linear trajectory"""
         cls.x = np.array([[ 0.0, 0.1],
                           [ 0.5, 0.5],
                           [ 0.0, 1.0],
@@ -393,6 +395,101 @@ class LinearTrajectoryVerificationTest(unittest.TestCase):
         np.testing.assert_allclose(self.lintraj.friccone_cstr[0].c, c_expected, atol=1e-8, err_msg="Linearized friction cone constraint c vector is inaccurate at index 0")
         np.testing.assert_allclose(self.lintraj.friccone_cstr[1].c, c_expected, atol=1e-8, err_msg="Linearized friction cone constraint c vector is inaccurate at index 1")
 
+class LinearMPCVerificationTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.x = np.array([[ 0.0, 0.1],
+                          [ 0.5, 0.5],
+                          [ 0.0, 1.0],
+                          [ 0.0, 0.0]
+                        ])
+        cls.time = np.array([0, 0.1])
+        cls.h = np.array([0.1])
+        cls.u = np.array([[0.0, 14.905]])      
+        cls.l = np.array([[9.81, 9.81],
+                          [0.0, 0.0],
+                          [0.0, 0.0],
+                          [0.0, 4.905], 
+                          [0.0, 0.0],
+                          [0.0, 1.0]
+                         ]) 
+        cls.plant = Block()
+        cls.plant.Finalize()
+        cls.lintraj = mpc.LinearizedContactTrajectory(cls.plant, cls.time, cls.x, cls.u, cls.l)
+        cls.mpc = mpc.LinearContactMPC(cls.lintraj, horizon=1)
+        # Create the mpc program
+        cls.mpc.use_zero_guess()
+        cls.mpc.create_mpc_program(cls.time[:1], cls.x[:, 0])
+        # Update the initial guess for the state and controls
+        cls.mpc.prog.SetInitialGuess(cls.mpc._dx[-1], np.zeros((4,)))
+        cls.mpc.prog.SetInitialGuess(cls.mpc._du[-1], np.zeros((1,)))
+
+    def get_constraint_by_name(self, name):
+        """Helper function to get all constraints by name"""
+        matches = []
+        for cstr in self.mpc.prog.GetAllConstraints():
+            if cstr.evaluator().get_description() == name:
+                matches.append(cstr)
+        return matches
+
+    def check_constraint_at_initial_guess(self, cstrs):
+        """Helper function to check a constraint at the initial guess"""
+        for k, cstr in enumerate(cstrs):
+            dvars = cstr.variables()
+            dvals = self.mpc.prog.GetInitialGuess(dvars)
+            # The value of the constraint
+            val = cstr.evaluator().Eval(dvals)
+            # Assert that the lower bound is not violated
+            lb = cstr.evaluator().lower_bound()
+            self.assertTrue(np.all(val >= lb), msg=f"{cstr.evaluator().get_description()} violates it's lower bounds at index {k}")
+            # Assert that the upper bound is not violated
+            ub = cstr.evaluator().upper_bound()
+            self.assertTrue(np.all(val <= lb), msg=f"{cstr.evaluator().get_description()} violates it's upper bounds at index {k}")
+
+    def check_solution(self, result):
+        """
+        Check the solution from MPC
+        """
+        states = result.GetSolution(self.mpc.dx)
+        controls = result.GetSolution(self.mpc.du)
+        forces = result.GetSolution(self.mpc.dl)
+        velslack = result.GetSolution(self.mpc.ds)
+        # Assert that the correct values for states and controls are zero
+        np.testing.assert_allclose(states, np.zeros((self.mpc.state_dim, self.mpc.horizon+1)), atol=1e-6, err_msg=f"MPC returned significantly nonzero state error")
+        np.testing.assert_allclose(controls, np.zeros((self.mpc.control_dim,)), atol=1e-6, err_msg=f"MPC returned significantly nonzero control error")
+        # Assert that the correct values for forces and slacks are the trajectory values
+        expected_force = self.lintraj.getForce(1) 
+        expected_slack = self.lintraj.getSlack(1) 
+        np.testing.assert_allclose(forces, expected_force, atol=1e-6, err_msg="Forces are significantly different from trajectory values")
+        np.testing.assert_allclose(velslack, expected_slack, atol=1e-6, err_msg="slacks are significantly different from trajectory values")
+
+    def test_dynamics_constraint(self):
+        """Check that the dynamics constraint is satisfied at the initial guess"""
+        cstrs = self.get_constraint_by_name('linear_dynamics')
+        self.check_constraint_at_initial_guess(cstrs)
+
+    def test_distance_constraint(self):
+        """Check that the distance constraint is satisfied at the initial guess"""
+        cstrs = self.get_constraint_by_name('distance_equality')
+        self.check_constraint_at_initial_guess(cstrs)
+
+    def test_dissipation_constraint(self):
+        """Check that the linearized dissipation constraint is satisfied at the initial guess"""
+        cstrs = self.get_constraint_by_name('dissipation_equality')
+        self.check_constraint_at_initial_guess(cstrs)
+
+    def test_friction_constraint(self):
+        """Check that the linearized friction cone constraint is satisfied at the initial guess"""
+        cstrs = self.get_constraint_by_name('frictioncone_equality')
+        self.check_constraint_at_initial_guess(cstrs)
+
+    def test_solve(self):
+        """
+        Check that we can solve the MPC program successfully
+        """
+        result = self.mpc.solve()
+        self.assertTrue(result.is_success(), msg=f"failed to solve MPC successfully using default solver {result.get_solver_id().name()}")
+        self.check_solution(result)
 
 if __name__ == '__main__':
     unittest.main()

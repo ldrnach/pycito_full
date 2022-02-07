@@ -160,6 +160,7 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
         for x in self._state.transpose():
             A, c = distance.linearize(x)
             self.distance_cstr.append(self.lcp(A, B, c))
+            self.distance_cstr[-1].set_description('distance')
 
     def _linearize_maximum_dissipation(self):
         """Store the linearizations for the maximum dissipation function"""
@@ -170,6 +171,7 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
             A, c = dissipation.linearize(x, s)
             c -= A[:, x.shape[0]:].dot(s)       #Correction term for LCP 
             self.dissipation_cstr.append(self.lcp(A, B, c))
+            self.dissipation_cstr[-1].set_description('dissipation')
 
     def _linearize_friction_cone(self):
         """Store the linearizations for the friction cone constraint function"""
@@ -180,6 +182,7 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
             A, c = friccone.linearize(x, f)
             c -= A[:, x.shape[0]:].dot(f)   #Correction term for LCP
             self.friccone_cstr.append(self.lcp(A, B, c))
+            self.friccone_cstr[-1].set_description('frictioncone')
 
     def _linearize_joint_limits(self):
         """Store the linearizations of the joint limits constraint function"""
@@ -190,6 +193,7 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
         for x in self._state.transpose():
             A, c = jointlimits.linearize(x[:nQ])
             self.joint_limit_cstr.append(self.lcp(A, B, c))
+            self.joint_limit_cstr[-1].set_description('jointlimit')
     
     def getDynamicsConstraint(self, index):
         """Returns the linear dynamics constraint at the specified index"""
@@ -241,6 +245,8 @@ class LinearContactMPC():
             self._jlimit_weight = None
         # Default complementarity cost weight
         self._complementarity_weight = 1
+        # Use zero or random guess
+        self._use_zero_guess = False
 
     def do_mpc(self, t, x0):
         """
@@ -298,8 +304,12 @@ class LinearContactMPC():
         self.prog.SetInitialGuess(self._dl[-1], self.lintraj.getForce(index+1))
         self.prog.SetInitialGuess(self._ds[-1], self.lintraj.getSlack(index+1))
         # Initialize the states and controls (random, nonzero values)
-        self.prog.SetInitialGuess(self._dx[-1], np.random.default_rng().standard_normal(self.state_dim))
-        self.prog.SetInitialGuess(self._du[-1], np.random.default_rng().standard_normal(self.control_dim))
+        if self._use_zero_guess:
+            self.prog.SetInitialGuess(self._dx[-1], np.zeros((self.state_dim,)))
+            self.prog.SetInitialGuess(self._du[-1], np.zeros((self.control_dim, )))
+        else:
+            self.prog.SetInitialGuess(self._dx[-1], np.random.default_rng().standard_normal(self.state_dim))
+            self.prog.SetInitialGuess(self._du[-1], np.random.default_rng().standard_normal(self.control_dim))
 
     def _add_constraints(self, index):
         """
@@ -314,16 +324,25 @@ class LinearContactMPC():
             dl_all = np.concatenate([self._dl[-1], self._djl[-1]], axis=0)
             self.lintraj.getDynamicsConstraint(index).addToProgram(self.prog, self._dx[-2], self._dx[-1], self._du[-1], dl_all)
             self.lintraj.getJointLimitConstraint(index+1).addToProgram(self.prog, self._dx[-1][:nQ], self._djl[-1])
+            self.lintraj.getJointLimitConstraint(index+1).initializeSlackVariables(self.prog, self.prog.GetInitialGuess(self._dx[-1][:nQ]), self.prog.GetInitialGuess(self._djl[-1]))
         else:
             self.lintraj.getDynamicsConstraint(index).addToProgram(self.prog, self._dx[-2], self._dx[-1], self._du[-1], self._dl[-1])
         # Update the complementarity cost weights
         self.lintraj.getDistanceConstraint(index+1).cost_weight = self._complementarity_weight
         self.lintraj.getDissipationConstraint(index+1).cost_weight = self._complementarity_weight
         self.lintraj.getFrictionConeConstraint(index+1).cost_weight = self._complementarity_weight
+        # Get the decision variables
+        dist_vars = self._dx[-1]
+        diss_vars = np.concatenate([self._dx[-1], self._ds[-1]], axis=0)
+        fric_vars = np.concatenate([self._dx[-1], self._dl[-1][:nC+nF]], axis=0)
         # Add the contact constraints
-        self.lintraj.getDistanceConstraint(index+1).addToProgram(self.prog, self._dx[-1], self._dl[-1][:nC])
-        self.lintraj.getDissipationConstraint(index+1).addToProgram(self.prog, np.concatenate([self._dx[-1], self._ds[-1]], axis=0), self._dl[-1][nC:nC+nF])
-        self.lintraj.getFrictionConeConstraint(index+1).addToProgram(self.prog, np.concatenate([self._dx[-1], self._dl[-1][:nC+nF]], axis=0), self._ds[-1])
+        self.lintraj.getDistanceConstraint(index+1).addToProgram(self.prog, dist_vars, self._dl[-1][:nC])
+        self.lintraj.getDissipationConstraint(index+1).addToProgram(self.prog, diss_vars, self._dl[-1][nC:nC+nF])
+        self.lintraj.getFrictionConeConstraint(index+1).addToProgram(self.prog, fric_vars, self._ds[-1])
+        # Initialize the slack variables for the complementarity constraints
+        self.lintraj.getDistanceConstraint(index+1).initializeSlackVariables(self.prog, self.prog.GetInitialGuess(dist_vars), self.prog.GetInitialGuess(self._dl[-1][:nC]))
+        self.lintraj.getDissipationConstraint(index+1).initializeSlackVariables(self.prog, self.prog.GetInitialGuess(diss_vars), self.prog.GetInitialGuess(self._dl[-1][nC:nC+nF]))
+        self.lintraj.getFrictionConeConstraint(index+1).initializeSlackVariables(self.prog, self.prog.GetInitialGuess(fric_vars), self.prog.GetInitialGuess(self._ds[-1]))
 
     def _add_costs(self, index):
         """Add cost terms on the most recent variables"""
@@ -456,6 +475,11 @@ class LinearContactMPC():
         else:
             return None
 
+    def use_zero_guess(self):
+        self._use_zero_guess = True
+
+    def use_random_guess(self):
+        self._use_zero_guess = False
 
 if __name__ == "__main__":
     print("Hello from MPC!")

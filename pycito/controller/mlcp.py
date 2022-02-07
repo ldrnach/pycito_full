@@ -57,7 +57,7 @@ class MixedLinearComplementarityConstraint():
         if self._var_slack is None:
             self._var_slack = svar
         else:
-            self._var_slack = np.row_stack([self._var_slack, svar])
+            self._var_slack = np.concatenate([self._var_slack, svar], axis=1)
         # Enforce the constraints
         self._prog = prog
         prog = self._add_equality_constraint(prog, xvar, zvar, svar)
@@ -65,6 +65,17 @@ class MixedLinearComplementarityConstraint():
         prog = self._add_orthogonality_constraint(prog, zvar, svar)
         # Return the program
         return prog
+
+    def initializeSlackVariables(self, prog, xvals, zvals):
+        """
+        Initialize the value of the slack variables in the program
+        """
+        # Check the dimensions
+        assert xvals.shape[0] == self.A.shape[1], f"xvals must be a ({self.num_free}, ) array"
+        assert zvals.shape[0] == self.B.shape[1], f"zvals must be a ({self.dim}, ) array"
+        # Calculate the slack decision variables
+        svals = self.A.dot(xvals) + self.B.dot(zvals) + self.c   
+        prog.SetInitialGuess(self._var_slack, svals)     
 
     def _add_equality_constraint(self, prog, xvar, zvar, svar):
         """
