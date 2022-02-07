@@ -12,7 +12,7 @@ from pycito.trajopt import constraints as cstr
 from pycito.systems.A1.a1 import A1VirtualBase
 from pycito.systems.block.block import Block
 #TODO: Check that the "getTime" for maximum time is actually correct
-#TODO: Unittesting for MPC
+#TODO: Check that constraints are satisfied for A1 MPC. Check that the costs are all zero
 class ReferenceTrajectoryTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -235,6 +235,7 @@ class LinearContactMPCTest(unittest.TestCase):
         cls.start_idx = int(lintraj.num_timesteps/2)
         t = lintraj._time[cls.start_idx]
         x = lintraj.getState(cls.start_idx)
+        cls.mpc.use_zero_guess()
         cls.mpc.create_mpc_program(t, x)
 
     def test_num_costs(self):
@@ -278,9 +279,9 @@ class LinearContactMPCTest(unittest.TestCase):
         np.testing.assert_allclose(states, np.zeros((self.mpc.state_dim, self.horizon+1)), atol=1e-6, err_msg=f"MPC returned significantly nonzero state error")
         np.testing.assert_allclose(controls. np.zeros((self.mpc.control_dim, self.horizon)), atol=1e-6, err_msg=f"MPC returned significantly nonzero control error")
         # Assert that the correct values for forces and slacks are the trajectory values
-        expected_force = np.concatenate([self.lintraj.GetForce(n) for n in range(self.start_idx, self.start_idx + self.horizon)], axis=1)
-        expected_slack = np.concatenate([self.lintraj.GetSlack(n) for n in range(self.start_idx, self.start_idx + self.horizon)], axis=1)
-        expected_jlim  = np.concatenate([self.lintraj.GetJointLimit(n) for n in range(self.start_idx, self.start_idx + self.horizon)], axis=1)
+        expected_force = np.concatenate([self.mpc.lintraj.getForce(n) for n in range(self.start_idx, self.start_idx + self.horizon)], axis=1)
+        expected_slack = np.concatenate([self.mpc.lintraj.getSlack(n) for n in range(self.start_idx, self.start_idx + self.horizon)], axis=1)
+        expected_jlim  = np.concatenate([self.mpc.lintraj.getJointLimit(n) for n in range(self.start_idx, self.start_idx + self.horizon)], axis=1)
         np.testing.assert_allclose(forces, expected_force, atol=1e-6, err_msg="Forces are significantly different from trajectory values")
         np.testing.assert_allclose(velslack, expected_slack, atol=1e-6, err_msg="slacks are significantly different from trajectory values")
         np.testing.assert_allclose(jointlimit, expected_jlim, atol=1e-6, err_msg='Joint limits are significantly different from trajectory values')
