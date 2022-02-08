@@ -327,7 +327,7 @@ def main_fullgait_optimization():
     # Concatenate the foot trajectories together
     foot_ref = concatenate_foot_trajectories(feet)
     # Create the base trajectory
-    base_ref = qtraj.pop()[:6, :]
+    base_ref = qtraj.pop()[:6, :]   #THIS IS ALSO WRONG
     for q in qtraj:
         base_ref = np.concatenate([base_ref, q[:6, 1:]], axis=1)
     # Get the warmstart data
