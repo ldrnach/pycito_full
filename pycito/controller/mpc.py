@@ -248,6 +248,7 @@ class LinearContactMPC():
         self._use_zero_guess = False
         # Set the solver
         self._solver = OsqpSolver()
+        self.solveroptions = {}
 
     def do_mpc(self, t, x0):
         """
@@ -255,10 +256,14 @@ class LinearContactMPC():
         """
         self.create_mpc_program(t, x0)
         result = self.solve()
-        du = result.GetSolution(self._du[:, 0])
         index = self.lintraj.getTimeIndex(t)
         u = self.lintraj.getControl(index)
-        return u + du
+        if result.is_success():
+            du = result.GetSolution(self._du[:, 0])
+            return u + du
+        else:
+            print(f'MPC failed at time {t}. Returning open loop control')
+            return u
 
     def create_mpc_program(self, t, x0):
         """
@@ -358,6 +363,10 @@ class LinearContactMPC():
 
     def solve(self):
         """Solves the created MPC problem"""
+        #Update the solver options
+        for key, value in self.solveroptions:
+            self.prog.SetSolverOption(self._solver.solver_id(), key, value)
+        # Solve the MPC problem
         return self._solver.Solve(self.prog)
 
     def useOsqpSolver(self):
@@ -368,7 +377,8 @@ class LinearContactMPC():
 
     def setSolverOptions(self, options_dict={}):
         for key in options_dict:
-            self.prog.SetSolverOption(self._solver.solver_id(), key, options_dict[key])
+            self.solveroptions[key] = options_dict[key]
+            
 
     @property
     def state_dim(self):
