@@ -50,9 +50,9 @@ def main():
     # Run the simulations
     initial_state = reftraj.getState(0)
     print(f"Running open loop simulation")
-    topen, xopen, uopen, fopen = opensim.simulate(initial_state, duration=1.5)
+    topen, xopen, uopen, fopen = opensim.simulate(initial_state, duration=1.0)
     print(f"Running closed loop simulation")
-    tcl, xcl, ucl, fcl = closedsim.simulate(initial_state, duration=1.5)
+    tcl, xcl, ucl, fcl = closedsim.simulate(initial_state, duration=1.0)
     # Plot the results
     plot_sim_results(block, topen, xopen, uopen, fopen, savedir=os.path.join(savedir, 'open_loop'))
     plot_sim_results(block, tcl, xcl, ucl, fcl, savedir=os.path.join(savedir, 'closed_loop'))

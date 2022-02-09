@@ -22,7 +22,7 @@ def concatenate_data(dataset):
 
 def main(numsteps=1):
     dir = os.path.join('examples','a1','foot_tracking_gait')
-    subdirs = ['first_step','second_step_continuous']
+    subdirs = ['first_step','second_step']
     filepart = os.path.join('weight_1e+03', 'trajoptresults.pkl')
     data = [utils.load(utils.FindResource(os.path.join(dir, subdir, filepart))) for subdir in subdirs]
     data = data * numsteps
@@ -34,7 +34,7 @@ def main(numsteps=1):
     # Plot the data
     a1 = A1VirtualBase()
     a1.Finalize()
-    savedir = os.path.join(dir, f'{2*numsteps}step_plots')
+    savedir = os.path.join(dir, f'{2*numsteps}step_plots_discontinuous')
     if not os.path.isdir(savedir):
         os.makedirs(savedir)
     a1.plot_trajectories(trajdata['state'], trajdata['control'], trajdata['force'], trajdata['jointlimit'], show=False, savename=os.path.join(savedir, 'vis.png'))
@@ -43,4 +43,4 @@ def main(numsteps=1):
 
 
 if __name__ == "__main__":
-    main(numsteps=2)
+    main(numsteps=1)
