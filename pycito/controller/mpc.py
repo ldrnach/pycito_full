@@ -254,15 +254,18 @@ class LinearContactMPC():
         """
         Solve the MPC problem and return the updated control signal
         """
+        print(f"Creating MPC at time {t:0.3f}")
         self.create_mpc_program(t, x0)
+        print(f"Solving MPC at time {t:0.3f}")
         result = self.solve()
         index = self.lintraj.getTimeIndex(t)
         u = self.lintraj.getControl(index)
         if result.is_success():
+            print(f"MPC succeeded at time {t:0.3f}")
             du = result.GetSolution(self._du[0])
             return u + du
         else:
-            print(f'MPC failed at time {t}. Returning open loop control')
+            print(f'MPC failed at time {t:0.3f}. Returning open loop control')
             return u
 
     def create_mpc_program(self, t, x0):
@@ -284,7 +287,7 @@ class LinearContactMPC():
         # Create the initial state and constrain it
         self._dx = [self.prog.NewContinuousVariables(rows = self.state_dim, name='state')]
         state0 = self.lintraj.getState(index)
-        dx0 = state0 - x0
+        dx0 = x0 - state0
         self.prog.AddLinearEqualityConstraint(Aeq = np.eye(self.state_dim), beq=dx0, vars=self._dx[0])
         self.prog.SetInitialGuess(self._dx[0], dx0)
         # Clear the remaining variables

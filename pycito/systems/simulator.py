@@ -70,12 +70,8 @@ class OpenLoopSimulator(Simulator):
 
     def get_control(self, t, x):
         """Get the open loop control value"""
-        if t < self.utraj.start_time():
-            return self.utraj.value(self.utraj.start_time())
-        elif t > self.utraj.end_time():
-            return self.utraj.value(self.utraj.end_time())
-        else:
-            return self.utraj.value(t)
+        t = min(max(self.utraj.start_time(), t), self.utraj.end_time())
+        return np.reshape(self.utraj.value(t), (-1,))
 
 class ClosedLoopSimulator(Simulator):
     def __init__(self, plant, controller):
