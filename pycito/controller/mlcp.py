@@ -53,16 +53,12 @@ class MixedLinearComplementarityConstraint():
         assert self.A.shape[1] == xvar.shape[0], f"xvar must be a ({self.num_free}, ) array"
         assert self.B.shape[1] == zvar.shape[0], f"zvar must be a ({self.dim},) array"
         # Create and store the slack variables
-        svar = prog.NewContinuousVariables(rows = self.dim, name=f'{self.name}_slack')
-        if self._var_slack is None:
-            self._var_slack = svar
-        else:
-            self._var_slack = np.concatenate([self._var_slack, svar], axis=1)
+        self._var_slack = prog.NewContinuousVariables(rows = self.dim, name=f'{self.name}_slack')
         # Enforce the constraints
         self._prog = prog
-        prog = self._add_equality_constraint(prog, xvar, zvar, svar)
-        prog = self._add_nonnegativity_constraint(prog, zvar, svar)
-        prog = self._add_orthogonality_constraint(prog, zvar, svar)
+        prog = self._add_equality_constraint(prog, xvar, zvar, self._var_slack)
+        prog = self._add_nonnegativity_constraint(prog, zvar, self._var_slack)
+        prog = self._add_orthogonality_constraint(prog, zvar, self._var_slack)
         # Return the program
         return prog
 
