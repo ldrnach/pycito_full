@@ -259,7 +259,7 @@ class LinearContactMPC():
         index = self.lintraj.getTimeIndex(t)
         u = self.lintraj.getControl(index)
         if result.is_success():
-            du = result.GetSolution(self._du[:, 0])
+            du = result.GetSolution(self._du[0])
             return u + du
         else:
             print(f'MPC failed at time {t}. Returning open loop control')
@@ -364,7 +364,7 @@ class LinearContactMPC():
     def solve(self):
         """Solves the created MPC problem"""
         #Update the solver options
-        for key, value in self.solveroptions:
+        for key, value in self.solveroptions.items():
             self.prog.SetSolverOption(self._solver.solver_id(), key, value)
         # Solve the MPC problem
         return self._solver.Solve(self.prog)
@@ -376,7 +376,7 @@ class LinearContactMPC():
         self._solver = SnoptSolver()
 
     def setSolverOptions(self, options_dict={}):
-        for key in options_dict:
+        for key in options_dict.keys():
             self.solveroptions[key] = options_dict[key]
             
 
