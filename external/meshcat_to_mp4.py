@@ -99,7 +99,7 @@ def main(args):
     batch_convert_files(infile, outfile)
 
 if __name__ == "__main__":
-    infile = "/home/ldrnach3/Downloads/a1_twostep_vis"
-    outfile = "/home/ldrnach3/Projects/drake/pyCITO/examples/a1/foot_tracking_gait/twostep_plots"
+    infile = "/home/ldrnach3/Downloads/examples"
+    outfile = "/home/ldrnach3/Projects/drake/pyCITO/examples"
     batch_convert_files(infile, outfile)
     #main(sys.argv[1:])
