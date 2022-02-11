@@ -143,7 +143,7 @@ class LinearContactTrajectoryTest(unittest.TestCase):
         plant = A1VirtualBase()
         plant.Finalize()
         filename = os.path.join("pycito",'tests','data','a1_step.pkl')
-        cls.lcptype = mlcp.CostRelaxedMixedLinearComplementarity
+        cls.lcptype = mlcp.CostRelaxedPseudoLinearComplementarityConstraint
         cls.lintraj = mpc.LinearizedContactTrajectory.load(plant, filename, cls.lcptype)
     
     def test_get_dynamics(self):

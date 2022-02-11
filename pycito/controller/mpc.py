@@ -112,7 +112,7 @@ class ReferenceTrajectory():
         return self._jlimit is not None
 
 class LinearizedContactTrajectory(ReferenceTrajectory):
-    def __init__(self, plant, time, state, control, force, jointlimit=None, lcp=mlcp.CostRelaxedMixedLinearComplementarity):
+    def __init__(self, plant, time, state, control, force, jointlimit=None, lcp=mlcp.CostRelaxedPseudoLinearComplementarityConstraint):
         super(LinearizedContactTrajectory, self).__init__(plant, time, state, control, force, jointlimit)
         self.lcp = lcp
         # Store the trajectory values
@@ -127,7 +127,7 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
         self._linearize_friction_cone()
 
     @classmethod
-    def load(cls, plant, filename, lcp=mlcp.CostRelaxedMixedLinearComplementarity):
+    def load(cls, plant, filename, lcp=mlcp.CostRelaxedPseudoLinearComplementarityConstraint):
         """Class Method for generating a LinearizedContactTrajectory from a file containing a trajectory"""
         data = utils.load(filename)
         if data['jointlimit'] is not None:
@@ -155,43 +155,39 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
         """Store the linearizations for the normal distance constraint"""
         distance = cstr.NormalDistanceConstraint(self.plant)
         self.distance_cstr = []
-        B = np.zeros((self.plant.num_contacts(), self.plant.num_contacts()))
         for x in self._state.transpose():
             A, c = distance.linearize(x)
-            self.distance_cstr.append(self.lcp(A, B, c))
+            self.distance_cstr.append(self.lcp(A, c))
             self.distance_cstr[-1].set_description('distance')
 
     def _linearize_maximum_dissipation(self):
         """Store the linearizations for the maximum dissipation function"""
         dissipation = cstr.MaximumDissipationConstraint(self.plant)
         self.dissipation_cstr = []
-        B = np.zeros((self.plant.num_friction(), self.plant.num_friction()))
         for x, s in zip(self._state.transpose(), self._slack.transpose()):
             A, c = dissipation.linearize(x, s)
             c -= A[:, x.shape[0]:].dot(s)       #Correction term for LCP 
-            self.dissipation_cstr.append(self.lcp(A, B, c))
+            self.dissipation_cstr.append(self.lcp(A, c))
             self.dissipation_cstr[-1].set_description('dissipation')
 
     def _linearize_friction_cone(self):
         """Store the linearizations for the friction cone constraint function"""
         friccone = cstr.FrictionConeConstraint(self.plant)
         self.friccone_cstr = []
-        B = np.zeros((self.plant.num_contacts(), self.plant.num_contacts()))
         for x, f in zip(self._state.transpose(), self._force.transpose()):
             A, c = friccone.linearize(x, f)
             c -= A[:, x.shape[0]:].dot(f)   #Correction term for LCP
-            self.friccone_cstr.append(self.lcp(A, B, c))
+            self.friccone_cstr.append(self.lcp(A, c))
             self.friccone_cstr[-1].set_description('frictioncone')
 
     def _linearize_joint_limits(self):
         """Store the linearizations of the joint limits constraint function"""
         jointlimits = cstr.JointLimitConstraint(self.plant)
         self.joint_limit_cstr = []
-        B = np.zeros((2*jointlimits.num_joint_limits, 2*jointlimits.num_joint_limits))
         nQ = self.plant.multibody.num_positions()
         for x in self._state.transpose():
             A, c = jointlimits.linearize(x[:nQ])
-            self.joint_limit_cstr.append(self.lcp(A, B, c))
+            self.joint_limit_cstr.append(self.lcp(A, c))
             self.joint_limit_cstr[-1].set_description('jointlimit')
     
     def getDynamicsConstraint(self, index):
@@ -333,7 +329,7 @@ class LinearContactMPC():
             dl_all = np.concatenate([self._dl[-1], self._djl[-1]], axis=0)
             self.lintraj.getDynamicsConstraint(index).addToProgram(self.prog, self._dx[-2], self._dx[-1], self._du[-1], dl_all)
             self.lintraj.getJointLimitConstraint(index+1).addToProgram(self.prog, self._dx[-1][:nQ], self._djl[-1])
-            self.lintraj.getJointLimitConstraint(index+1).initializeSlackVariables(self.prog, self.prog.GetInitialGuess(self._dx[-1][:nQ]), self.prog.GetInitialGuess(self._djl[-1]))
+            self.lintraj.getJointLimitConstraint(index+1).initializeSlackVariables()
         else:
             self.lintraj.getDynamicsConstraint(index).addToProgram(self.prog, self._dx[-2], self._dx[-1], self._du[-1], self._dl[-1])
         # Update the complementarity cost weights
@@ -349,9 +345,9 @@ class LinearContactMPC():
         self.lintraj.getDissipationConstraint(index+1).addToProgram(self.prog, diss_vars, self._dl[-1][nC:nC+nF])
         self.lintraj.getFrictionConeConstraint(index+1).addToProgram(self.prog, fric_vars, self._ds[-1])
         # Initialize the slack variables for the complementarity constraints
-        self.lintraj.getDistanceConstraint(index+1).initializeSlackVariables(self.prog, self.prog.GetInitialGuess(dist_vars), self.prog.GetInitialGuess(self._dl[-1][:nC]))
-        self.lintraj.getDissipationConstraint(index+1).initializeSlackVariables(self.prog, self.prog.GetInitialGuess(diss_vars), self.prog.GetInitialGuess(self._dl[-1][nC:nC+nF]))
-        self.lintraj.getFrictionConeConstraint(index+1).initializeSlackVariables(self.prog, self.prog.GetInitialGuess(fric_vars), self.prog.GetInitialGuess(self._ds[-1]))
+        self.lintraj.getDistanceConstraint(index+1).initializeSlackVariables()
+        self.lintraj.getDissipationConstraint(index+1).initializeSlackVariables()
+        self.lintraj.getFrictionConeConstraint(index+1).initializeSlackVariables()
 
     def _add_costs(self, index):
         """Add cost terms on the most recent variables"""
