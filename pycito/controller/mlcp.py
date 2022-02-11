@@ -45,6 +45,21 @@ class PseudoLinearComplementarityConstraint():
         if str:
             self.name = str
 
+    def _add_equality_constraint(self, prog, xvar, svar):
+        """
+        Imposes the constraint
+            A*x + c = s
+        Note, the constraint is imposed as
+            s - Ax = c
+        """
+        cstr = prog.AddLinearEqualityConstraint(
+            Aeq = np.concatenate([np.eye(self.dim), -self.A], axis=1),
+            beq = self.c,
+            vars = np.concatenate([svar, xvar], axis=0)
+        )
+        cstr.evaluator().set_description(f"{self.name}_equality")
+        return prog
+
     def _add_nonnegativity_constraint(self, prog, zvar, svar):
         """
         Imposes the constraints
@@ -98,7 +113,7 @@ class PseudoLinearComplementarityConstraint():
         # Return the program
         return prog
 
-    def initializeSlackVariable(self, xvals = None):
+    def initializeSlackVariables(self, xvals = None):
         """
         Set the initial guess for the slack variables
         
@@ -220,6 +235,9 @@ class MixedLinearComplementarityConstraint(PseudoLinearComplementarityConstraint
         prog = self._add_equality_constraint(prog, xvar, zvar, self._slack)
         prog = self._add_nonnegativity_constraint(prog, zvar, self._slack)
         prog = self._add_orthogonality_constraint(prog, zvar, self._slack)
+        # Store the variables
+        self._xvars = xvar
+        self._zvars = zvar
         # Return the program
         return prog
 
