@@ -13,6 +13,10 @@ import pycito.controller.mpc as mpc
 import pycito.controller.speedtesttools as speedtesttools
 import pycito.utilities as utils
 
+SAVEDIR = os.path.join('examples', 'a1','mpc_speedtests')
+FILENAME = 'speedtestresults.pkl'
+FIGURENAME = 'SpeedTest.png'
+
 def create_a1():
     plant = A1VirtualBase()
     plant.Finalize()
@@ -32,7 +36,7 @@ def generate_initial_conditions(x0, N = 30):
 def run_speedtests():
     plant = create_a1()
     # Load the reference trajectory
-    file = os.path.join('examples','a1','foot_tracking_gait','')
+    file = os.path.join('examples','a1','foot_tracking_gait','first_step','weight_1e+03','trajoptresults.pkl')
     reftraj = mpc.LinearizedContactTrajectory.load(plant, file)
     # Generate initial conditions
     N = 30
@@ -40,7 +44,7 @@ def run_speedtests():
     x_initial = generate_initial_conditions(x0, N)
     # Save the initial conditions
     # Create the target directory
-    targetbase = os.path.join('examples','a1','mpc_speedtests')
+    targetbase = SAVEDIR
     utils.save(os.path.join(targetbase, 'initialconditions.pkl'), x_initial)
     # Run the OSQP speedtests
     test = speedtesttools.MPCSpeedTest(reftraj)
@@ -49,16 +53,34 @@ def run_speedtests():
     target = os.path.join(targetbase, 'osqp')
     if not os.path.exists(target):
         os.makedirs(target)
-    testResult.save(os.path.join(target, 'speedtestresults.pkl'))
-    testResult.plot(show=False, savename=os.path.join(target, 'SpeedTest.png'))
+    testResult.save(os.path.join(target, FILENAME))
+    testResult.plot(show=False, savename=os.path.join(target, FIGURENAME))
     # Run the SNOPT speedtests
     test.useSnoptSolver()
     testResult = test.run_speedtests(x_initial)
     target = os.path.join(targetbase, 'snopt')
     if not os.path.exists(target):
         os.makedirs(target)
-    testResult.save(os.path.join(target, 'speedtestresults.pkl'))
-    testResult.plot(show=False, savename=os.path.join(target, 'SpeedTest.png'))
+    testResult.save(os.path.join(target, FILENAME))
+    testResult.plot(show=False, savename=os.path.join(target, FIGURENAME))
+
+def replot_speedtest_results():
+    """Helper function for perfecting speedtest result plots without re-running speedtests"""
+    basedir = SAVEDIR
+    sources = ['osqp', 'snopt']
+    for source in sources:
+        figure = os.path.join(basedir, source, FIGURENAME)
+        results = speedtesttools.SpeedTestResult.load(os.path.join(basedir, source, FILENAME))
+        results.plot(show=False, savename=figure)
+        print(f"Saved new figures to {figure}")
+
+def compare_speedtests():
+    """Helper function for plotting the solver speedtest results"""
+    sources = ['osqp','snopt']
+    results = [speedtesttools.SpeedTestResult.load(os.path.join(SAVEDIR, source, FILENAME)) for source in sources]
+    savename = os.path.join(SAVEDIR,'speedtestcomparison.png')
+    speedtesttools.SpeedTestResult.compare_results(results, sources, show=False, savename=savename)
+    print(f"Saved comparison figures to {SAVEDIR}")
 
 if __name__ == '__main__':
-    run_speedtests()
+    compare_speedtests()

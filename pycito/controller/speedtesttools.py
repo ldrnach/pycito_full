@@ -49,17 +49,18 @@ class SpeedTestResult():
             raise ValueError(f"{filename} does not contain a SpeedTestResult")
 
     @staticmethod
-    def _plot_statistics(axs, data, filter):
+    def _plot_statistics(axs, data, filter, label=None, normalize=False):
         xpoints = np.arange(1, data.shape[1]+1)
         # Calculate the mean and standard deviation of the data
         datacopy = data.copy()
+        if normalize:
+            # normalize by the number of sample points (for costs and constraints)
+            datacopy = datacopy / xpoints
         datacopy[~filter] = np.nan
         average = np.nanmean(datacopy, axis=0)
-        deviation = np.nanstd(datacopy, axis=0)
-        # Now plot the mean and standard deviation
-
+        deviation = np.nanstd(datacopy, axis=0)   
         axs.fill_between(xpoints, average-deviation, average+deviation, alpha=0.5)
-        axs.plot(xpoints, average)
+        axs.plot(xpoints, average, linewidth=1.5, label=label)
         return axs
 
     def save(self, filename):
@@ -77,37 +78,73 @@ class SpeedTestResult():
         self.cstr_vals[sample_number, horizon-1] = cstr
 
     def plot(self, show=False, savename=None):
-        self.plot_times(show=show, savename=utils.append_filename(savename, 'times'))
-        self.plot_results(show=show, savename=utils.append_filename(savename,'solverresults'))
-        
+        fig1, axs1 = self.plot_times(show=show, savename=utils.append_filename(savename, 'times'))
+        fig2, axs2 = self.plot_results(show=show, savename=utils.append_filename(savename,'solverresults'))
+        return [fig1, fig2], [axs1, axs2]
+
     @deco.showable_fig
     @deco.saveable_fig
-    def plot_times(self):
+    def plot_times(self, axs=None, label=None):
         """Plot the creation and solve times of the speedtest"""
-        fig, axs = plt.subplots(2,1)
-        self._plot_statistics(axs[0], self.startup_times, self.successful_solves)
-        self._plot_statistics(axs[1], self.solve_times, self.successful_solves)
+        if axs is None:
+            fig, axs = plt.subplots(2,1)
+        else:
+            plt.sca(axs[0])
+            fig = plt.gcf()
+        self._plot_statistics(axs[0], self.startup_times, self.successful_solves, label)
+        self._plot_statistics(axs[1], self.solve_times, self.successful_solves, label)
         axs[0].set_ylabel('MPC Creation time (s)')
         axs[1].set_ylabel('MPC Solve time (s)')
         axs[1].set_xlabel('MPC Horizon (samples)')
+        axs[0].set_yscale('log')
+        axs[1].set_yscale('log')
+        axs[0].grid()
+        axs[1].grid()
         return fig, axs
 
     @deco.showable_fig
     @deco.saveable_fig
-    def plot_results(self):
-        fig, axs = plt.subplots(3, 1)
+    def plot_results(self, axs=None, label=None):
+        if axs is None:
+            fig, axs = plt.subplots(3, 1)
+        else:
+            plt.sca(axs[0])
+            fig = plt.gcf()
         # Plot the total number of successful solves
         xrange = np.arange(1, self.successful_solves.shape[1]+1)
         successes = np.sum(self.successful_solves, axis=0)
-        axs[0].plot(xrange, successes, linewidth=1.5)
+        axs[0].plot(xrange, successes, linewidth=1.5, label=label)
         # Plot the costs and constraints
-        self._plot_statistics(axs[1], self.cost_vals, self.successful_solves)
-        self._plot_statistics(axs[2], self.cstr_vals, self.successful_solves)
-        axs[0].set_ylabel('Number successful solves')
-        axs[1].set_ylabel('Total cost')
-        axs[2].set_ylabel('Total constraint violation')
+        self._plot_statistics(axs[1], self.cost_vals, self.successful_solves, label=label, normalize=True)
+        self._plot_statistics(axs[2], self.cstr_vals, self.successful_solves, label=label, normalize=True)
+        axs[0].set_ylabel('# successful \n solves')
+        axs[1].set_ylabel('Normalized \n cost')
+        axs[2].set_ylabel('Normalized \n constraints')
         axs[2].set_xlabel('MPC Horizon (samples)')
+        plt.tight_layout()
         return fig, axs
+
+    @staticmethod
+    def compare_results(testresults, labels, show=False, savename=None):
+        # Plot the original data
+        result = testresults.pop(0)
+        label = labels.pop(0)
+        time_fig, time_axs = result.plot_times(label=label, show=False, savename=None)
+        solve_fig, solve_axs = result.plot_results(label=label, show=False, savename=None)
+        for result, label in zip(testresults, labels):
+            #Plot the data
+            result.plot_times(axs=time_axs, label=label, show=False, savename=None)
+            result.plot_results(axs=solve_axs, label=label, show=False, savename=None)
+        # Show legends on the first subplots
+        time_axs[0].legend()
+        solve_axs[0].legend()
+        # Save the data
+        if savename is not None:
+            time_fig.savefig(utils.append_filename(savename, 'times'), dpi=time_fig.dpi)
+            solve_fig.savefig(utils.append_filename(savename, 'solverresults'), dpi=solve_fig.dpi)
+        if show:
+            plt.show()
+
 
 
 class MPCSpeedTest():
