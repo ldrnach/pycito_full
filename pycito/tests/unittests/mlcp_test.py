@@ -1,7 +1,7 @@
 """
 Unittests for the mixed linear complementarity constraints in controller.mlcp.py
 
-Setup and solves the following problem:
+For mixed linear constraints, setup and solves the following problem:
     min (x - d)^2
         Ax + Bz + c >= 0
         z >= 0
@@ -12,6 +12,17 @@ For the A, B, c, d specified in the program, the optimal solution is:
     x = [2, -1]
     z = [0,  1]
 
+for pseudo-linear constraints, setup and sole the following problem:
+    min (x - d)^2 + (z - b)^2
+        Ax + c >=0
+        z >= 0
+        z * (Ax + c) = 0
+    where A, b, c, d are constants
+
+For A, b, c, d specified, the optimal solution is:
+    x = [0, 1]
+    z = [0, 2]
+
 Luke Drnach
 January 27, 2022
 """
@@ -21,15 +32,14 @@ import numpy as np
 from pycito.controller import mlcp
 from pydrake.all import MathematicalProgram, Solve
 
-class _MLCPTestBaseMixin():
+class _LCPTestBase():
     """
-    Test the implementation of mixed linear complementarity problems
+    Contains all common tests for LCP problems
     """
     def setUp(self):
-        # Complementarity constraint constannts
-        self.A = np.array([[1, 2], [-1, 0]])
-        self.B = np.array([[2,1],[0,2]])
-        self.c = np.array([-1, 0])
+        """
+        subclasses should add a concrete example. This method just does a bare-bones setup
+        """
         # Create the program and associated variables
         self.prog = MathematicalProgram()
         self.x = self.prog.NewContinuousVariables(rows=2,  name='x')
@@ -38,11 +48,7 @@ class _MLCPTestBaseMixin():
         self.cstr = None
         self.setup_complementarity_constraints()
         self.cstr.addToProgram(self.prog, self.x, self.z)
-        # Add a cost to regularize the problem
-        Q = np.eye(2)
-        b = np.array([2, -1])
-        self.prog.AddQuadraticErrorCost(Q, b, vars=self.x)
-        # Expected test outputs
+        # list the expected outputs
         self.expected_num_variables = 6
         self.expected_num_constraints = 3
         self.expected_num_costs = 1
@@ -50,9 +56,6 @@ class _MLCPTestBaseMixin():
         # Store optimal solution
         self.x_expected = np.array([2, -1])
         self.z_expected = np.array([0, 1])
-        # Set initial guess
-        self.prog.SetInitialGuess(self.x, self.x_expected)
-        self.prog.SetInitialGuess(self.z, self.z_expected)
 
     def setup_complementarity_constraints(self):
         raise NotImplementedError()
@@ -84,21 +87,53 @@ class _MLCPTestBaseMixin():
 
     def test_get_slacks(self):
         """Check that the program sets the expected number of slack variables"""
-        self.assertEqual(self.cstr.var_slack.size, self.expected_num_slacks, msg="Unexpected number of slack variables")
+        self.assertEqual(self.cstr.slack.size, self.expected_num_slacks, msg="Unexpected number of slack variables")
 
     def test_solve_problem(self):
         """Test that we can solve the problem, at least given the optimal solution"""
         result = self.solve_problem()
+        self.assertTrue(result.is_success(), msg=f"Failed to successfully solve with solver {result.get_solver_id().name()}")
         self.check_result(result)
 
-class MixedLinearComplementarityTest(_MLCPTestBaseMixin, unittest.TestCase):
+
+class _MLCPExampleMixin(_LCPTestBase):
+    """
+    Test the implementation of mixed linear complementarity problems
+    """
+    def setUp(self):
+        # Complementarity constraint constannts
+        self.A = np.array([[1, 2], [-1, 0]])
+        self.B = np.array([[2,1],[0,2]])
+        self.c = np.array([-1, 0])
+        # Setup the main program
+        super(_MLCPExampleMixin, self).setUp()
+        # Add a cost to regularize the problem
+        Q = np.eye(2)
+        b = np.array([2, -1])
+        self.prog.AddQuadraticErrorCost(Q, b, vars=self.x)
+        # Store optimal solution
+        self.x_expected = np.array([2, -1])
+        self.z_expected = np.array([0, 1])
+        # Set initial guess
+        self.prog.SetInitialGuess(self.x, self.x_expected)
+        self.prog.SetInitialGuess(self.z, self.z_expected)
+
+    def test_initialize_slacks(self):
+        """Test that we can correctly initialize the slack variables"""
+        self.cstr.initializeSlackVariables()
+        svals = self.prog.GetInitialGuess(self.cstr.slack)
+        s_expected = self.A.dot(self.x_expected) + self.B.dot(self.z_expected) + self.c
+        np.testing.assert_allclose(svals, s_expected, atol=1e-6, err_msg = "slack variables initialized incorrectly")
+
+
+class MixedLinearComplementarityTest(_MLCPExampleMixin, unittest.TestCase):
     def setUp(self):
         super(MixedLinearComplementarityTest, self).setUp()
 
     def setup_complementarity_constraints(self):
         self.cstr = mlcp.MixedLinearComplementarityConstraint(self.A, self.B, self.c)
 
-class CostRelaxedMLCPTest(_MLCPTestBaseMixin, unittest.TestCase):
+class CostRelaxedMLCPTest(_MLCPExampleMixin, unittest.TestCase):
     def setUp(self):
         super(CostRelaxedMLCPTest, self).setUp()
         self.expected_num_constraints -= 1
@@ -106,6 +141,51 @@ class CostRelaxedMLCPTest(_MLCPTestBaseMixin, unittest.TestCase):
 
     def setup_complementarity_constraints(self):
         self.cstr = mlcp.CostRelaxedMixedLinearComplementarity(self.A, self.B, self.c)
+
+
+class _PseudoLinearExampleMixin(_LCPTestBase):
+    """
+        Tests the implementation of various pseudo-linear complementarity constraints
+    """
+    def setUp(self):
+        # Create the PLCP example case
+        self.A = np.array([[1, 2], [-1, 0]])
+        self.c = np.array([-1, 0])
+        super(_PseudoLinearExampleMixin, self).setUp()
+        # Store the optimal solutions
+        self.x_expected = np.array([0, 1])
+        self.z_expected = np.array([0, 2])
+        # Add a cost to regularize the problem
+        self.prog.AddQuadraticErrorCost(np.eye(2), self.x_expected, self.x)
+        self.prog.AddQuadraticErrorCost(np.eye(2), self.z_expected, self.z)
+        # Initialize 
+        self.prog.SetInitialGuess(self.x, self.x_expected)
+        self.prog.SetInitialGuess(self.z, self.z_expected)
+        # Update the expected number of costs
+        self.expected_num_costs = 2
+
+    def test_initialize_slack(self):
+        """Test that we can initialize the slack variables"""
+        self.cstr.initializeSlackVariables()
+        svals = self.prog.GetInitialGuess(self.cstr.slack)
+        s_expected = self.A.dot(self.x_expected) + self.c
+        np.testing.assert_allclose(svals, s_expected, atol=1e-6, err_msg="Slack variables incorrectly initialized")
+
+class PseudoLinearComplementarityTest(_PseudoLinearExampleMixin, unittest.TestCase):
+    def setUp(self):
+        super(PseudoLinearComplementarityTest, self).setUp()
+
+    def setup_complementarity_constraints(self):
+        self.cstr = mlcp.PseudoLinearComplementarityConstraint(self.A, self.c)
+
+class CostRelaxedPseudoLinearComplementarityTest(_PseudoLinearExampleMixin,unittest.TestCase):
+    def setUp(self):
+        super(CostRelaxedPseudoLinearComplementarityTest, self).setUp()
+        self.expected_num_constraints -= 1
+        self.expected_num_costs += 1
+
+    def setup_complementarity_constraints(self):
+        self.cstr = mlcp.CostRelaxedPseudoLinearComplementarityConstraint(self.A, self.c)
 
 if __name__ == '__main__':
     unittest.main()

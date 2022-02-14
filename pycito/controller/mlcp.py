@@ -6,37 +6,37 @@ January 26, 2022
 """
 import numpy as np
 import warnings 
-#TODO: Implement PseudoLinearComplementarityConstraint
-class MixedLinearComplementarityConstraint():
+
+class PseudoLinearComplementarityConstraint():
     """
-    Implements the Mixed Linear Complementarity Constraint of the form:
-        A*x + B*z + c >= 0
-        z >= 0
-        z * (A*x + B*z + c) = 0 
+    Implements the mixed linear complementarity constraint of the form:
+        A*x + c >= 0
+        z > = 0
+        z * (A*x + c) = 0
+    where A is a fixed matrix, c is a fixed vector, x is the free variables, and z are the complementarity variables
     
-    Mixed Linear Complementarity Constraint internally adds the slack variable
-        s = A*x + B*z + c
-    and enforces the linear complementarity constraint:
+    PseudoLinearComplementarityConstraint internally adds the slack variable
+        s = Ax + c
+    and enforces the constraints
         s >= 0
         z >= 0
         s*z = 0
-    """    
-    def __init__(self, A, B, c):
-        # Check the dimensions of the inputs
-        assert B.shape[0] == B.shape[1], "B must be a square matrix"
-        assert B.shape[1] == c.shape[0], f"c must be a vector with {B.shape[1]} elements"
-        assert A.shape[0] == B.shape[1], f"A must have {B.shape[1]} rows"
-        # Store the resulting values
+    """
+    def __init__(self, A, c):
+        # Check dimensions
+        assert A.shape[0] == c.shape[0], f"A and c should have the same number of rows"
         self.A = A
-        self.B = B
         self.c = c
-        self.name = 'MLCP'
+
+        self.name = 'PseudoLCP'
         self._prog = None
-        self._var_slack = None
+        self._slack = None
+        self._xvars = None
+        self._zvars = None
 
     def __eq__(self, obj):
-        """Two objects are equal if they are of the same type and have the same (A, B, c) parameter values"""
-        return type(self) is type(obj) and np.array_equal(self.A, obj.A) and np.array_equal(self.B, obj.B) and np.array_equal(self.c, obj.c) 
+        """Test for equality of two psuedo-linear complementarity constraints"""
+        return type(self) is type(obj) and np.array_equal(self.A, obj.A) and np.array_equal(self.c, obj.c) 
 
     def str(self):
         return f"{type(self).__name__} with {self.num_free} free variables and {self.dim} complementarity variables"
@@ -45,45 +45,17 @@ class MixedLinearComplementarityConstraint():
         if str:
             self.name = str
 
-    def addToProgram(self, prog, xvar, zvar):
-        """
-        Add the constraint to a mathematical program 
-        """
-        # Check the dimensions
-        assert self.A.shape[1] == xvar.shape[0], f"xvar must be a ({self.num_free}, ) array"
-        assert self.B.shape[1] == zvar.shape[0], f"zvar must be a ({self.dim},) array"
-        # Create and store the slack variables
-        self._var_slack = prog.NewContinuousVariables(rows = self.dim, name=f'{self.name}_slack')
-        # Enforce the constraints
-        self._prog = prog
-        prog = self._add_equality_constraint(prog, xvar, zvar, self._var_slack)
-        prog = self._add_nonnegativity_constraint(prog, zvar, self._var_slack)
-        prog = self._add_orthogonality_constraint(prog, zvar, self._var_slack)
-        # Return the program
-        return prog
-
-    def initializeSlackVariables(self, prog, xvals, zvals):
-        """
-        Initialize the value of the slack variables in the program
-        """
-        # Check the dimensions
-        assert xvals.shape[0] == self.A.shape[1], f"xvals must be a ({self.num_free}, ) array"
-        assert zvals.shape[0] == self.B.shape[1], f"zvals must be a ({self.dim}, ) array"
-        # Calculate the slack decision variables
-        svals = self.A.dot(xvals) + self.B.dot(zvals) + self.c   
-        prog.SetInitialGuess(self._var_slack, svals)     
-
-    def _add_equality_constraint(self, prog, xvar, zvar, svar):
+    def _add_equality_constraint(self, prog, xvar, svar):
         """
         Imposes the constraint
-            A*x + B*z + c = s
+            A*x + c = s
         Note, the constraint is imposed as
-            s - Ax - Bz = c
+            s - Ax = c
         """
         cstr = prog.AddLinearEqualityConstraint(
-            Aeq = np.concatenate([np.eye(self.dim), -self.A, -self.B], axis=1),
+            Aeq = np.concatenate([np.eye(self.dim), -self.A], axis=1),
             beq = self.c,
-            vars = np.concatenate([svar, xvar, zvar], axis=0)
+            vars = np.concatenate([svar, xvar], axis=0)
         )
         cstr.evaluator().set_description(f"{self.name}_equality")
         return prog
@@ -112,7 +84,7 @@ class MixedLinearComplementarityConstraint():
             vars = np.concatenate([zvar, svar], axis=0),
             description=f"{self.name}_orthogonality")
         return prog
-    
+
     def _eval_orthogonality(self, dval):
         """
         evaluates the constraint
@@ -121,9 +93,49 @@ class MixedLinearComplementarityConstraint():
         zval, sval = np.split(dval, 2)
         return sval * zval
 
+    def addToProgram(self, prog, xvar, zvar):
+        """
+        Add the constraint to a mathematical program 
+        """
+        # Check the dimensions
+        assert xvar.shape[0] == self.num_free, f"xvar must be a ({self.num_free}, ) array"
+        assert zvar.shape[0] == self.dim, f"zvar must be a ({self.dim},) array"
+        # Create and store the slack variables
+        self._slack = prog.NewContinuousVariables(rows = self.dim, name=f'{self.name}_slack')
+        # Enforce the constraints
+        self._prog = prog
+        prog = self._add_equality_constraint(prog, xvar, self._slack)
+        prog = self._add_nonnegativity_constraint(prog, zvar, self._slack)
+        prog = self._add_orthogonality_constraint(prog, zvar, self._slack)
+        # Store pointers to the decision variables
+        self._xvars = xvar
+        self._zvars = zvar
+        # Return the program
+        return prog
+
+    def initializeSlackVariables(self, xvals = None):
+        """
+        Set the initial guess for the slack variables
+        
+        Sets the initial guess to satisfy the constraint for the values of x provided.
+        If x is not provided, initializeSlackVariables uses the initial guess for x from the program
+        """
+        # Get the initial values for x and z
+        if self._prog is None:
+            return None
+        if xvals is None:
+            xvals = self._prog.GetInitialGuess(self._xvars)
+        # Set the initial value for s
+        sval = self.A.dot(xvals) + self.c
+        self._prog.SetInitialGuess(self.slack, sval)
+
+    @property
+    def slack(self):
+        return self._slack
+
     @property
     def dim(self):
-        return self.B.shape[1]
+        return self.A.shape[0]
 
     @property
     def num_free(self):
@@ -137,9 +149,134 @@ class MixedLinearComplementarityConstraint():
     def cost_weight(self, val):
         warnings.warn(f"{type(self).__name__} does not have an associated cost. The value is ignored.")
 
+class CostRelaxedPseudoLinearComplementarityConstraint(PseudoLinearComplementarityConstraint):
+    """
+        Recasts the pseudo linear complementarity constraint using an exact penalty method. The constraint is implemented as:
+        min a * (s * z)
+            s = A*x + c
+            s >= 0
+            z >= 0
+    """
+    def __init__(self, A, c):
+        super(CostRelaxedPseudoLinearComplementarityConstraint, self).__init__(A, c)
+        self._cost_weight = 1
+        self._cost = None
+
+    def _add_orthogonality_constraint(self, prog, zvar, svar):
+        """
+        Add the orthogonality constraint s*z = 0 as a penalty in the cost.
+        """
+        self._cost = prog.AddQuadraticCost(
+                self.cost_matrix, 
+                np.zeros((2*self.dim,)),
+                np.concatenate([zvar, svar], axis=0) 
+        )
+        self._cost.evaluator().set_description(f"{self.name}_ProductCost")
+        return prog
+
     @property
-    def var_slack(self):
-        return self._var_slack
+    def cost_matrix(self):
+        w = self._cost_weight * np.ones((self.dim,))
+        Q = np.diag(w, k=self.dim)
+        return Q + Q.T
+
+    @property
+    def cost_weight(self):
+        return self._cost_weight
+
+    @cost_weight.setter
+    def cost_weight(self, val):
+        if (type(val) == int or type(val) == float) and val >= 0.:
+            #Store the cost weight value
+            self._cost_weight = val
+            if self._cost is not None:
+                # Update slack cost
+                self._cost.evaluator().UpdateCoefficients(new_Q = self.cost_matrix, new_b = np.zeros((2*self.dim)))
+        else:
+            raise ValueError("cost_weight must be a nonnegative numeric value")
+
+class MixedLinearComplementarityConstraint(PseudoLinearComplementarityConstraint):
+    """
+    Implements the Mixed Linear Complementarity Constraint of the form:
+        A*x + B*z + c >= 0
+        z >= 0
+        z * (A*x + B*z + c) = 0 
+    
+    Mixed Linear Complementarity Constraint internally adds the slack variable
+        s = A*x + B*z + c
+    and enforces the linear complementarity constraint:
+        s >= 0
+        z >= 0
+        s*z = 0
+    """    
+    def __init__(self, A, B, c):
+        super(MixedLinearComplementarityConstraint, self).__init__(A, c)
+        assert B.shape[0] == B.shape[1], "B must be a square matrix"
+        #Store the extra values
+        self.B = B
+        self.name = 'MLCP'
+
+
+    def __eq__(self, obj):
+        """Two objects are equal if they are of the same type and have the same (A, B, c) parameter values"""
+        return type(self) is type(obj) and np.array_equal(self.A, obj.A) and np.array_equal(self.B, obj.B) and np.array_equal(self.c, obj.c) 
+
+    def addToProgram(self, prog, xvar, zvar):
+        """
+        Add the constraint to a mathematical program 
+        """
+        # Check the dimensions
+        assert xvar.shape[0] == self.num_free, f"xvar must be a ({self.num_free}, ) array"
+        assert zvar.shape[0] == self.dim, f"zvar must be a ({self.dim},) array"
+        # Create and store the slack variables
+        self._slack = prog.NewContinuousVariables(rows = self.dim, name=f'{self.name}_slack')
+        # Enforce the constraints
+        self._prog = prog
+        prog = self._add_equality_constraint(prog, xvar, zvar, self._slack)
+        prog = self._add_nonnegativity_constraint(prog, zvar, self._slack)
+        prog = self._add_orthogonality_constraint(prog, zvar, self._slack)
+        # Store the variables
+        self._xvars = xvar
+        self._zvars = zvar
+        # Return the program
+        return prog
+
+    def initializeSlackVariables(self, xvals=None, zvals=None):
+        """
+        Initialize the value of the slack variables in the program
+        """
+        # Get the initial values for x and z
+        if self._prog is None:
+            return None
+        if xvals is None:
+            xvals = self._prog.GetInitialGuess(self._xvars)
+        if zvals is None:
+            zvals = self._prog.GetInitialGuess(self._zvars)
+        # Check the dimensions
+        assert xvals.shape[0] == self.A.shape[1], f"xvals must be a ({self.num_free}, ) array"
+        assert zvals.shape[0] == self.B.shape[1], f"zvals must be a ({self.dim}, ) array"
+        # Calculate the slack decision variables
+        svals = self.A.dot(xvals) + self.B.dot(zvals) + self.c   
+        self._prog.SetInitialGuess(self._slack, svals)     
+
+    def _add_equality_constraint(self, prog, xvar, zvar, svar):
+        """
+        Imposes the constraint
+            A*x + B*z + c = s
+        Note, the constraint is imposed as
+            s - Ax - Bz = c
+        """
+        cstr = prog.AddLinearEqualityConstraint(
+            Aeq = np.concatenate([np.eye(self.dim), -self.A, -self.B], axis=1),
+            beq = self.c,
+            vars = np.concatenate([svar, xvar, zvar], axis=0)
+        )
+        cstr.evaluator().set_description(f"{self.name}_equality")
+        return prog
+
+    @property
+    def slack(self):
+        return self._slack
 
 class CostRelaxedMixedLinearComplementarity(MixedLinearComplementarityConstraint):
     """
@@ -152,19 +289,18 @@ class CostRelaxedMixedLinearComplementarity(MixedLinearComplementarityConstraint
     def __init__(self, A, B, c):
         super(CostRelaxedMixedLinearComplementarity, self).__init__(A, B, c)
         self._cost_weight = 1
-        self._costs = [] 
+        self._cost = None 
                 
     def _add_orthogonality_constraint(self, prog, zvar, svar):
         """
         Add the orthogonality constraint s*z = 0 as a penalty in the cost.
         """
-        cost = prog.AddQuadraticCost(
+        self._cost = prog.AddQuadraticCost(
                 self.cost_matrix, 
                 np.zeros((2*self.dim,)),
                 np.concatenate([zvar, svar], axis=0) 
         )
-        cost.evaluator().set_description(f"{self.name}_ProductCost")
-        self._costs.append(cost)
+        self._cost.evaluator().set_description(f"{self.name}_ProductCost")
         return prog
 
     @property
@@ -183,8 +319,8 @@ class CostRelaxedMixedLinearComplementarity(MixedLinearComplementarityConstraint
             #Store the cost weight value
             self._cost_weight = val
             # Update slack cost
-            for cost in self._costs:
-                cost.evaluator().UpdateCoefficients(new_Q = self.cost_matrix, new_b = np.zeros((2*self.dim)))
+            if self._cost is not None:
+                self._cost.evaluator().UpdateCoefficients(new_Q = self.cost_matrix, new_b = np.zeros((2*self.dim)))
         else:
             raise ValueError("cost_weight must be a nonnegative numeric value")
 
