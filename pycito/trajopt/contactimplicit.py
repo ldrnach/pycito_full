@@ -1377,7 +1377,7 @@ class ContactConstraintViewer():
             self.all_vals[Finder(self.trajopt.jl.flatten())] = result_dict['jointlimit'].flatten()
         # Add in slack variables (if any)
         if 'slacks' in result_dict and result_dict['slacks'] is not None:
-            self.all_vals[Finder(self.trajopt.slacks.flatten())] = result_dict['slacks'].flatten()
+            self.all_vals[Finder(self.trajopt.var_slack.flatten())] = result_dict['slacks'].flatten()
         # Store the dual variables
         if 'duals' in result_dict:
             self.duals = result_dict['duals']

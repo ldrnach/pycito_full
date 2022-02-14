@@ -1,8 +1,10 @@
 
 import os, copy
+from tabnanny import check
 import numpy as np
 
 from pydrake.all import PiecewisePolynomial as pp
+import pycito.trajopt.contactimplicit as ci
 
 import pycito.utilities as utils
 from pycito.systems.A1.a1 import A1VirtualBase
@@ -41,11 +43,25 @@ def join_backward_euler_trajectories(dataset):
     
     return fulldata
 
+def check_constraint_satisfaction(data, savename):
+    A1 = A1VirtualBase()
+    A1.Finalize()
+    dt = np.diff(data['time'])
+    options = ci.OptimizationOptions()
+    options.useLinearComplementarityWithCost()
+    trajopt = ci.ContactImplicitDirectTranscription(A1, 
+                                                    A1.multibody.CreateDefaultContext(), 
+                                                    num_time_samples = dt.size+1,
+                                                    minimum_timestep = np.min(dt),
+                                                    maximum_timestep = np.max(dt),
+                                                    options=options)
+    viewer = ci.ContactConstraintViewer(trajopt, data)
+    viewer.plot_constraints(show_duals = False, savename = savename)
 
 
 def main(numsteps=1):
     dir = os.path.join('examples','a1','foot_tracking_gait')
-    subdirs = ['first_step','second_step']
+    subdirs = ['twostepopt']
     filepart = os.path.join('weight_1e+03', 'trajoptresults.pkl')
     data = [utils.load(utils.FindResource(os.path.join(dir, subdir, filepart))) for subdir in subdirs]
     copy_data = copy.deepcopy(data)
@@ -65,7 +81,8 @@ def main(numsteps=1):
     a1.plot_trajectories(trajdata['state'], trajdata['control'], trajdata['force'], trajdata['jointlimit'], show=False, savename=os.path.join(savedir, 'vis.png'))
     utils.save(os.path.join(savedir, 'combinedresults.pkl'), data)
     a1.visualize(trajdata['state'])
-
+    # Plot the constraints
+    check_constraint_satisfaction(data, os.path.join(savedir, 'constraints.png'))
 
 if __name__ == "__main__":
     main(numsteps=3)
