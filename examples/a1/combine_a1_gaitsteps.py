@@ -32,7 +32,7 @@ def join_backward_euler_trajectories(dataset):
         # Next, reset the base positions - translate the base
         data['state'][:3, :] += fulldata['state'][:3, -1:] - data['state'][:3, :1]
         # Join the state data
-        fulldata['state'] = np.concatenate([fulldata['state'], data['state'][:, 1:]], axis=1)
+        fulldata['state'] = np.concatenate([fulldata['state'][:, :-1], data['state'][:, :]], axis=1)
         # Join the control torques - use the first control from the next segment
         fulldata['control'] = np.concatenate([fulldata['control'][:, :-1], data['control']], axis=1)
         # Join the reaction and joint limit forces appropriately - use the last force set from the previous segment
@@ -56,7 +56,9 @@ def check_constraint_satisfaction(data, savename):
                                                     maximum_timestep = np.max(dt),
                                                     options=options)
     viewer = ci.ContactConstraintViewer(trajopt, data)
-    viewer.plot_constraints(show_duals = False, savename = savename)
+    cstr = viewer.calc_constraint_values()
+    viewer.plot_dynamic_defects(data['time'], cstr['dynamics'], show=True, savename=None)
+    #viewer.plot_constraints(show_duals = False, savename = savename)
 
 
 def main(numsteps=1):
@@ -78,9 +80,9 @@ def main(numsteps=1):
     savedir = os.path.join(dir, f'{2*numsteps}step_plots')
     if not os.path.isdir(savedir):
         os.makedirs(savedir)
-    a1.plot_trajectories(trajdata['state'], trajdata['control'], trajdata['force'], trajdata['jointlimit'], show=False, savename=os.path.join(savedir, 'vis.png'))
-    utils.save(os.path.join(savedir, 'combinedresults.pkl'), data)
-    a1.visualize(trajdata['state'])
+    #a1.plot_trajectories(trajdata['state'], trajdata['control'], trajdata['force'], trajdata['jointlimit'], show=False, savename=os.path.join(savedir, 'vis.png'))
+    #utils.save(os.path.join(savedir, 'combinedresults.pkl'), data)
+    #a1.visualize(trajdata['state'])
     # Plot the constraints
     check_constraint_satisfaction(data, os.path.join(savedir, 'constraints.png'))
 
