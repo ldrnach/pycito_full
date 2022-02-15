@@ -52,7 +52,7 @@ def run_simulation(plant, controller, initial_state, duration, savedir=None):
     sim = Simulator(plant, controller)
     tsim, xsim, usim, fsim = sim.simulate(initial_state, duration)
     # Save the results
-    plot_sim_results(plant, tsim, xsim, usim, fsim, savedir=savedir)
+    plot_sim_results(plant, tsim, xsim, usim, fsim, savedir=savedir, vis=False)
     # Save the data
     simdata = {'time': tsim,
                 'state': xsim,
@@ -61,6 +61,7 @@ def run_simulation(plant, controller, initial_state, duration, savedir=None):
     if savedir is not None:
         utils.save(os.path.join(savedir, FILENAME), simdata)
         print(f"Simulation results saved to {os.path.join(savedir, FILENAME)}")
+    plt.close()
     return simdata
 
 def get_block_mpc_controller():
@@ -82,6 +83,7 @@ def get_block_open_loop_controller():
     block.Finalize()
     # Load the reference trajectory
     reftraj = mpc.ReferenceTrajectory.load(block, SOURCE)
+    return mpc.OpenLoopController.fromReferenceTrajectory(reftraj)
 
 def flatterrain_sim():
     # Get the reference controller
@@ -93,10 +95,10 @@ def flatterrain_sim():
     # Initial state
     x0 = controller.lintraj.getState(0)
     # Run the open-loop simulation
-    print("Running low friction open loop simulation")
+    print("Running flat terrain open loop simulation")
     run_simulation(block, open_loop, x0, duration = 1, savedir=os.path.join(SAVEDIR, 'flatterrain', 'openloop'))
     # Run the mpc simulation
-    print("Running low friction MPC simulation")
+    print("Running flat terrain MPC simulation")
     run_simulation(block, controller, x0, duration = 1, savedir=os.path.join(SAVEDIR, 'flatterrain', 'mpc'))
 
 def lowfriction_sim():
@@ -147,10 +149,10 @@ def steppedterrain_sim():
     # Initial state
     x0 = controller.lintraj.getState(0)
     # Run open loop simulation
-    print('Running high friction open loop simulation')
+    print('Running stepped terrain open loop simulation')
     run_simulation(block, open_loop, x0, duration = 1, savedir = os.path.join(SAVEDIR, 'steppedterrain', 'openloop'))
     # Run mpc simulation
-    print('Running high friction MPC simulation')
+    print('Running stepped terrain MPC simulation')
     run_simulation(block, controller, x0, duration = 1, savedir = os.path.join(SAVEDIR, 'steppedterrain','mpc'))
 
 if __name__ == '__main__':
