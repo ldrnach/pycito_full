@@ -12,8 +12,25 @@ from pycito.systems.block.block import Block
 from pycito.systems.simulator import Simulator
 import pycito.controller.mpc as mpc
 import pycito.utilities as utils
+import pycito.systems.terrain as terrain
 
-#TODO: Check on control signal. The final value is nonzero, which causes the block to slide backwards after 1s. 
+# Globals
+SOURCE = os.path.join('data','slidingblock','block_trajopt.pkl')
+SAVEDIR = os.path.join('examples','sliding_block','simulations')
+FILENAME = 'simdata.pkl'
+
+# Friction models
+def low_friction(x):
+    if x[0] < 2.0 or x[0] > 4.0:
+        return 0.5
+    else:
+        return 0.1
+
+def high_friction(x):
+    if x[0] < 2.0 or x[0] > 4.0:
+        return 0.5
+    else:
+        return 0.9
 
 def plot_sim_results(plant, t, x, u, f, savedir, vis=True):
     """Plot the block trajectories"""
@@ -27,49 +44,118 @@ def plot_sim_results(plant, t, x, u, f, savedir, vis=True):
     if vis:
         plant.visualize(xtraj)
 
+def run_simulation(plant, controller, initial_state, duration, savedir=None):
+    #Check if the target directory exists
+    if savedir is not None and not os.path.exists(savedir):
+        os.makedirs(savedir)
+    # Create and run the simulation
+    sim = Simulator(plant, controller)
+    tsim, xsim, usim, fsim = sim.simulate(initial_state, duration)
+    # Save the results
+    plot_sim_results(plant, tsim, xsim, usim, fsim, savedir=savedir)
+    # Save the data
+    simdata = {'time': tsim,
+                'state': xsim,
+                'control': usim,
+                'force': fsim}
+    if savedir is not None:
+        utils.save(os.path.join(savedir, FILENAME), simdata)
+        print(f"Simulation results saved to {os.path.join(savedir, FILENAME)}")
+    return simdata
 
-def main():
-    # Data source
-    source = os.path.join('data','slidingblock','block_trajopt.pkl')
-    savedir = os.path.join('examples','sliding_block','simulations')
-    # Make the plant model
+def get_block_mpc_controller():
+    # Create the 'reference' model
     block = Block()
     block.Finalize()
-    # Create the controller
-    reftraj = mpc.LinearizedContactTrajectory.load(block, source)
-    controller = mpc.LinearContactMPC(reftraj, horizon=10)
-    # Get the open loop control
-    utraj = pp.ZeroOrderHold(reftraj._time, reftraj._control)
-    # Setup solver options
+    # Load the reference trajectory
+    reftraj = mpc.LinearizedContactTrajectory.load(block, SOURCE)
+    # Make the controller
+    controller = mpc.LinearContactMPC(reftraj, horizon = 10)
     controller.useSnoptSolver()
     controller.setSolverOptions({'Major feasibility tolerance': 1e-6,
                                 'Major optimality tolerance': 1e-6})
-    # Create the simulator
-    opensim = Simulator.OpenLoop(block, utraj)
-    closedsim = Simulator.ClosedLoop(block, controller)
-    # Run the simulations
-    initial_state = reftraj.getState(0)
-    print(f"Running open loop simulation")
-    topen, xopen, uopen, fopen = opensim.simulate(initial_state, duration=1.0)
-    print(f"Running closed loop simulation")
-    tcl, xcl, ucl, fcl = closedsim.simulate(initial_state, duration=1.0)
-    # Plot the results
-    plot_sim_results(block, topen, xopen, uopen, fopen, savedir=os.path.join(savedir, 'open_loop'))
-    plot_sim_results(block, tcl, xcl, ucl, fcl, savedir=os.path.join(savedir, 'closed_loop'))
-    # Save the data
-    opendata = {'time': topen,
-                'state': xopen,
-                'control': uopen,
-                'force': fopen}
-    utils.save(os.path.join(savedir, 'open_loop','simdata.pkl'), opendata)
-    closeddata = {'time': tcl,
-                'state': xcl,
-                'control': ucl,
-                'force': fcl}
-    utils.save(os.path.join(savedir, 'closed_loop','simdata.pkl'), closeddata)
-    
+    return controller
+
+def get_block_open_loop_controller():
+    # Create the 'reference' model
+    block = Block()
+    block.Finalize()
+    # Load the reference trajectory
+    reftraj = mpc.ReferenceTrajectory.load(block, SOURCE)
+
+def flatterrain_sim():
+    # Get the reference controller
+    controller = get_block_mpc_controller()
+    open_loop = get_block_open_loop_controller()
+    # Create the 'true model' for the simulator
+    block = Block()
+    block.Finalize()
+    # Initial state
+    x0 = controller.lintraj.getState(0)
+    # Run the open-loop simulation
+    print("Running low friction open loop simulation")
+    run_simulation(block, open_loop, x0, duration = 1, savedir=os.path.join(SAVEDIR, 'flatterrain', 'openloop'))
+    # Run the mpc simulation
+    print("Running low friction MPC simulation")
+    run_simulation(block, controller, x0, duration = 1, savedir=os.path.join(SAVEDIR, 'flatterrain', 'mpc'))
+
+def lowfriction_sim():
+    """Run open and closed loop simulations on terrain with low friction"""
+    # Get the reference controller
+    controller = get_block_mpc_controller()
+    open_loop = get_block_open_loop_controller()
+    # Create the 'true model' for the simulator
+    lowfriction_terrain = terrain.VariableFrictionFlatTerrain(height=0, fric_func=low_friction)
+    block = Block(terrain = lowfriction_terrain)
+    block.Finalize()
+    # Initial state
+    x0 = controller.lintraj.getState(0)
+    # Run the open-loop simulation
+    print("Running low friction open loop simulation")
+    run_simulation(block, open_loop, x0, duration = 1, savedir=os.path.join(SAVEDIR, 'lowfriction', 'openloop'))
+    # Run the mpc simulation
+    print("Running low friction MPC simulation")
+    run_simulation(block, controller, x0, duration = 1, savedir=os.path.join(SAVEDIR, 'lowfriction', 'mpc'))
+
+def highfriction_sim():
+    """Run open and closed loop simulations on terrian with high friction"""
+    # Create the 'reference model' for the controller
+    controller = get_block_mpc_controller()
+    open_loop = get_block_open_loop_controller()
+    # Create the 'true model' for the simulator
+    highfriction_terrain = terrain.VariableFrictionFlatTerrain(height=0, fric_func=high_friction)
+    block = Block(terrain = highfriction_terrain)
+    block.Finalize()
+    # Initial state
+    x0 = controller.lintraj.getState(0)
+    # Run open loop simulation
+    print('Running high friction open loop simulation')
+    run_simulation(block, open_loop, x0, duration = 1, savedir = os.path.join(SAVEDIR, 'highfriction', 'openloop'))
+    # Run mpc simulation
+    print('Running high friction MPC simulation')
+    run_simulation(block, controller, x0, duration = 1, savedir = os.path.join(SAVEDIR, 'highfriction','mpc'))
+
+def steppedterrain_sim():
+    """Run open and closed loop simulations on terrain with a step in it"""
+    # Create the 'reference model' for the controller
+    controller = get_block_mpc_controller()
+    open_loop = get_block_open_loop_controller()
+    # Create the 'true model' for the simulator
+    stepped_terrain = terrain.StepTerrain(step_height = -0.5, step_location = 2.5)
+    block = Block(terrain = stepped_terrain)
+    block.Finalize()
+    # Initial state
+    x0 = controller.lintraj.getState(0)
+    # Run open loop simulation
+    print('Running high friction open loop simulation')
+    run_simulation(block, open_loop, x0, duration = 1, savedir = os.path.join(SAVEDIR, 'steppedterrain', 'openloop'))
+    # Run mpc simulation
+    print('Running high friction MPC simulation')
+    run_simulation(block, controller, x0, duration = 1, savedir = os.path.join(SAVEDIR, 'steppedterrain','mpc'))
+
 if __name__ == '__main__':
-
-    main()
-
+    flatterrain_sim()
+    lowfriction_sim()
+    highfriction_sim()
+    steppedterrain_sim()
 
