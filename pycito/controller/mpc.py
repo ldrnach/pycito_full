@@ -184,7 +184,7 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
             force = self._force
         for n in range(self.num_timesteps-1):
             h = np.array([self._time[n+1] - self._time[n]])
-            A, _ = dynamics.linearize(h, self._state[:,n], self._state[:, n+1], self._control[:,n+1], force[:, n+1])
+            A, _ = dynamics.linearize(h, self._state[:,n], self._state[:, n+1], self._control[:,n], force[:, n+1])
             b =  - A[:, force_idx:].dot(force[:, n+1])
             A = A[:, 1:]
             self.dynamics_cstr.append(cstr.LinearImplicitDynamics(A, b))
@@ -307,7 +307,13 @@ class LinearContactMPC(_ControllerBase):
             du = result.GetSolution(self._du[0])
             return u + du
         else:
-            print(f'MPC failed at time {t:0.3f}. Returning open loop control')
+            if result.get_solver_id().name() == "SNOPT/fortran":
+                insert = f'with exit code {result.get_solver_details().info}'    
+            elif result.get_solver_id().name() == 'OSQP':
+                insert = f'with exit code {result.get_solver_details().status_val}'
+            else:
+                insert = ''
+            print(f"MPC failed at time {t:0.3f} using {result.get_solver_id().name()} {insert}. Returning open loop control")
             return u
 
     def create_mpc_program(self, t, x0):
