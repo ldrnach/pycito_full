@@ -95,7 +95,6 @@ class _LCPTestBase():
         self.assertTrue(result.is_success(), msg=f"Failed to successfully solve with solver {result.get_solver_id().name()}")
         self.check_result(result)
 
-
 class _MLCPExampleMixin(_LCPTestBase):
     """
     Test the implementation of mixed linear complementarity problems
@@ -121,10 +120,9 @@ class _MLCPExampleMixin(_LCPTestBase):
     def test_initialize_slacks(self):
         """Test that we can correctly initialize the slack variables"""
         self.cstr.initializeSlackVariables()
-        svals = self.prog.GetInitialGuess(self.cstr.slack)
+        svals = self.prog.GetInitialGuess(self.cstr._slack)
         s_expected = self.A.dot(self.x_expected) + self.B.dot(self.z_expected) + self.c
         np.testing.assert_allclose(svals, s_expected, atol=1e-6, err_msg = "slack variables initialized incorrectly")
-
 
 class MixedLinearComplementarityTest(_MLCPExampleMixin, unittest.TestCase):
     def setUp(self):
@@ -141,6 +139,25 @@ class CostRelaxedMLCPTest(_MLCPExampleMixin, unittest.TestCase):
 
     def setup_complementarity_constraints(self):
         self.cstr = mlcp.CostRelaxedMixedLinearComplementarity(self.A, self.B, self.c)
+
+class VariableRelaxedMLCPTest(_MLCPExampleMixin, unittest.TestCase):
+    def setUp(self):
+        super(VariableRelaxedMLCPTest, self).setUp()
+        self.expected_num_constraints += 1
+        self.expected_num_costs += 1
+        self.expected_num_variables += 1
+        self.expected_num_slacks += 1  
+
+    def setup_complementarity_constraints(self):
+        self.cstr = mlcp.VariableRelaxedMixedLinearComplementarityConstraint(self.A, self.B, self.c)
+
+    def test_update_cost(self):
+        """
+            Test that we can change the cost weight and it's reflected in the associated cost
+        """
+        self.cstr.cost_weight = 10
+        cost = self.cstr._cost.evaluator().Eval(np.ones((1,)))
+        np.testing.assert_allclose(cost, 10*np.ones((1,)), atol=1e-6, err_msg="Relaxation cost incorrectly evaluated after updating")
 
 
 class _PseudoLinearExampleMixin(_LCPTestBase):
@@ -167,7 +184,7 @@ class _PseudoLinearExampleMixin(_LCPTestBase):
     def test_initialize_slack(self):
         """Test that we can initialize the slack variables"""
         self.cstr.initializeSlackVariables()
-        svals = self.prog.GetInitialGuess(self.cstr.slack)
+        svals = self.prog.GetInitialGuess(self.cstr._slack)
         s_expected = self.A.dot(self.x_expected) + self.c
         np.testing.assert_allclose(svals, s_expected, atol=1e-6, err_msg="Slack variables incorrectly initialized")
 
@@ -186,6 +203,25 @@ class CostRelaxedPseudoLinearComplementarityTest(_PseudoLinearExampleMixin,unitt
 
     def setup_complementarity_constraints(self):
         self.cstr = mlcp.CostRelaxedPseudoLinearComplementarityConstraint(self.A, self.c)
+
+class VariableRelaxedPseudoLinearComplementarityTest(_PseudoLinearExampleMixin, unittest.TestCase):
+    def setUp(self):
+        super(VariableRelaxedPseudoLinearComplementarityTest, self).setUp()
+        self.expected_num_constraints += 1
+        self.expected_num_costs += 1
+        self.expected_num_variables += 1
+        self.expected_num_slacks += 1
+
+    def setup_complementarity_constraints(self):
+        self.cstr = mlcp.VariableRelaxedPseudoLinearComplementarityConstraint(self.A, self.c)
+
+    def test_update_cost(self):
+        """
+            Test that we can change the cost weight and it's reflected in the associated cost
+        """
+        self.cstr.cost_weight = 10
+        cost = self.cstr._cost.evaluator().Eval(np.ones((1,)))
+        np.testing.assert_allclose(cost, 10*np.ones((1,)), atol=1e-6, err_msg="Relaxation cost incorrectly evaluated after updating")
 
 if __name__ == '__main__':
     unittest.main()

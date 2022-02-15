@@ -127,7 +127,7 @@ class PseudoLinearComplementarityConstraint():
             xvals = self._prog.GetInitialGuess(self._xvars)
         # Set the initial value for s
         sval = self.A.dot(xvals) + self.c
-        self._prog.SetInitialGuess(self.slack, sval)
+        self._prog.SetInitialGuess(self._slack, sval)
 
     @property
     def slack(self):
@@ -194,6 +194,75 @@ class CostRelaxedPseudoLinearComplementarityConstraint(PseudoLinearComplementari
                 self._cost.evaluator().UpdateCoefficients(new_Q = self.cost_matrix, new_b = np.zeros((2*self.dim)))
         else:
             raise ValueError("cost_weight must be a nonnegative numeric value")
+
+class VariableRelaxedPseudoLinearComplementarityConstraint(PseudoLinearComplementarityConstraint):
+    """
+        Recasts the pseudo linear complementarity constraint using an relaxation method. The constraint is implemented as:
+        min a * r
+            s = A*x + c
+            s >= 0
+            z >= 0
+            r - s*z >= 0
+    """
+    def __init__(self, A, c):
+        super(VariableRelaxedPseudoLinearComplementarityConstraint, self).__init__(A, c)
+        self._relax = None
+        self._cost = None
+        self._cost_weight = np.ones((1,1))
+
+    def _add_orthogonality_constraint(self, prog, zvars, svars):
+        """
+        Add the constraint
+            r - s*z >= 0
+        With the cost term:
+            min r
+            r > 0
+        """
+        self._relax = prog.NewContinuousVariables(rows=1, name=f'{self.name}_relax')
+        # Add the orthogonality constraint
+        prog.AddConstraint(self._eval_orthogonality, 
+            lb = np.zeros((self.dim, )),
+            ub = np.full((self.dim, ), np.inf),
+            vars = np.concatenate([zvars, svars, self._relax], axis=0),
+            description=f"{self.name}_orthogonality")
+        # Add the slack cost
+        self._cost = prog.AddLinearCost(a = self._cost_weight, vars=self._relax)
+        self._cost.evaluator().set_description(f'{self.name}_relax')
+        # Add the nonnegativity constraint on the relaxation parameter
+        prog.AddBoundingBoxConstraint(np.zeros((1,)), np.full((1,), np.inf), self._relax).evaluator().set_description(f"{self.name}_relax_nonnegativity")
+        self.initializeRelaxation()
+        return prog
+
+    def initializeRelaxation(self, val=0.):
+        val = np.atleast_1d(val)
+        assert val.size == 1, 'relaxation must be a scalar'
+        self._prog.SetInitialGuess(self._relax, val)
+
+
+    def _eval_orthogonality(self, dvals):
+        zval, sval, rval = np.split(dvals, [self.dim, 2*self.dim])
+        return rval - zval * sval
+
+    @property
+    def slack(self):
+        return np.concatenate([self._slack, self._relax], axis=0)
+
+    @property
+    def cost_weight(self):
+        return self._cost_weight
+
+    @cost_weight.setter
+    def cost_weight(self, val):
+        if isinstance(val, (int, float)):
+            assert val >= 0, f"cost_weight must be nonnegative"
+            self._cost_weight = np.array([val])
+        elif isinstance(val, np.array):
+            assert val.size == 1, f"cost_weight must be a scalar"
+            self._cost_weight = val
+        else:
+            raise ValueError("cost_weight must be a nonnegative scalar")
+        if self._cost is not None:
+            self._cost.evaluator().UpdateCoefficients(self._cost_weight)
 
 class MixedLinearComplementarityConstraint(PseudoLinearComplementarityConstraint):
     """
@@ -277,6 +346,80 @@ class MixedLinearComplementarityConstraint(PseudoLinearComplementarityConstraint
     @property
     def slack(self):
         return self._slack
+
+class VariableRelaxedMixedLinearComplementarityConstraint(MixedLinearComplementarityConstraint):
+    """
+        Recasts the mixed linear complementarity constraint using an relaxation method. The constraint is implemented as:
+        min a * r
+            s = A*x + B*z + c
+            s >= 0
+            z >= 0
+            r - s*z >= 0
+    """
+    def __init__(self, A, B, c):
+        super(VariableRelaxedMixedLinearComplementarityConstraint, self).__init__(A, B, c)
+        self._relax = None
+        self._cost = None
+        self._cost_weight = np.ones((1,1))
+
+    def _add_orthogonality_constraint(self, prog, zvars, svars):
+        """
+        Add the constraint
+            r - s*z >= 0
+        With the cost term:
+            min r
+            r > 0
+        """
+        self._relax = prog.NewContinuousVariables(rows=1, name=f'{self.name}_relax')
+        # Add the orthogonality constraint
+        prog.AddConstraint(self._eval_orthogonality, 
+            lb = np.zeros((self.dim, )),
+            ub = np.full((self.dim, ), np.inf),
+            vars = np.concatenate([zvars, svars, self._relax], axis=0),
+            description=f"{self.name}_orthogonality")
+        # Add the slack cost
+        self._cost = prog.AddLinearCost(a = self._cost_weight, vars=self._relax)
+        self._cost.evaluator().set_description(f'{self.name}_relax')
+        # Add the nonnegativity constraint on the relaxation parameter
+        prog.AddBoundingBoxConstraint(np.zeros((1,)), np.full((1,), np.inf), self._relax).evaluator().set_description(f"{self.name}_relax_nonnegativity")
+        # Initialize the relaxation variable
+        self.initializeRelaxation()
+        return prog
+
+    def _eval_orthogonality(self, dvals):
+        """
+        Evaluate the relaxed orthogonality constraint
+            r - z*s >= 0
+        """
+        zval, sval, rval = np.split(dvals, [self.dim, 2*self.dim])
+        return rval - zval * sval
+
+    def initializeRelaxation(self, val = 0.):
+        """Set the initial guess for the relaxation parameter"""
+        val = np.atleast_1d(val)
+        assert val.size == 1, "relaxation must be a scalar"
+        self._prog.SetInitialGuess(self._relax, val)
+
+    @property
+    def slack(self):
+        return np.concatenate([self._slack, self._relax], axis=0)
+
+    @property
+    def cost_weight(self):
+        return self._cost_weight
+
+    @cost_weight.setter
+    def cost_weight(self, val):
+        if isinstance(val, (int, float)):
+            assert val >= 0, f"cost_weight must be nonnegative"
+            self._cost_weight = np.array([val])
+        elif isinstance(val, np.array):
+            assert val.size == 1, f"cost_weight must be a scalar"
+            self._cost_weight = val
+        else:
+            raise ValueError("cost_weight must be a nonnegative scalar")
+        if self._cost is not None:
+            self._cost.evaluator().UpdateCoefficients(self._cost_weight)
 
 class CostRelaxedMixedLinearComplementarity(MixedLinearComplementarityConstraint):
     """
