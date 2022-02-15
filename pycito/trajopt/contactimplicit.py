@@ -680,15 +680,25 @@ class ContactImplicitDirectTranscription(OptimizationBase):
     def result_to_dict(self, soln):
         """ unpack the trajectories from the program result and store in a dictionary"""
         t = self.get_solution_times(soln)
-        x, u, f, jl, s = self.reconstruct_all_trajectories(soln)
-        if jl is not None:
-            jl = jl.vector_values(t)
-        if s is not None:
-            s = s.vector_values(t)
+        # Reconstruct the force trajectories 
+        fN = self.force_scaling * soln.GetSolution(self._normal_forces)
+        fT = self.force_scaling * soln.GetSolution(self._tangent_forces)
+        gam = soln.GetSolution(self._sliding_vel)
+        f = np.concatenate([fN, fT, gam], axis=0)
+        # Reconstruct the joint limit trajectory
+        if self.Jl is not None:
+            jl = soln.GetSolution(self.jl)
+        else:
+            jl = None
+        # Reconstruct the slack trajectory
+        if self.var_slack is not None:
+            s = soln.GetSolution(self.var_slack)
+        else:
+            s = None
         soln_dict = {"time": t,
-                    "state": x.vector_values(t),
-                    "control": u.vector_values(t), 
-                    "force": f.vector_values(t),
+                    "state": soln.GetSolution(self.x),
+                    "control": self.control_scaling * soln.GetSolution(self.u), 
+                    "force": f,
                     "jointlimit": jl,
                     "slacks": s,
                     "solver": soln.get_solver_id().name(),
