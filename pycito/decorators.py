@@ -54,6 +54,8 @@ def showable_fig(func):
         # Show the figure if desired
         if show:
             plt.show()
+        else:
+            plt.close()
         return out
     return wrapper_showable_fig
 
