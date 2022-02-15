@@ -5,6 +5,7 @@ Luke Drnach
 February 8, 2022
 """
 import os
+import numpy as np
 
 from pydrake.all import PiecewisePolynomial as pp
 
@@ -74,6 +75,12 @@ def get_block_mpc_controller():
     controller.useSnoptSolver()
     controller.setSolverOptions({'Major feasibility tolerance': 1e-6,
                                 'Major optimality tolerance': 1e-6})
+    # Set the cost terms
+    controller.statecost = 1e2 * np.eye(controller.state_dim)
+    controller.controlcost = 1e-2 * np.eye(controller.control_dim)
+    controller.forcecost = 1e-2 * np.eye(controller.force_dim)
+    controller.slackcost = 1e-2 * np.eye(controller.slack_dim)
+    controller.complementaritycost = 1e2
     return controller
 
 def get_block_open_loop_controller():
@@ -81,8 +88,13 @@ def get_block_open_loop_controller():
     block = Block()
     block.Finalize()
     # Load the reference trajectory
-    reftraj = mpc.ReferenceTrajectory.load(block, SOURCE)
-    return mpc.OpenLoopController.fromReferenceTrajectory(reftraj)
+    data = utils.load(utils.FindResource(SOURCE))
+    u = data['control']
+    t = data['time']
+    dt = t[1] - t[0]
+    t = np.append(t, t[-1] + dt)
+    u = np.append(u, np.zeros((1,1)), axis=1)
+    return mpc.OpenLoopController(block, t, u)
 
 def flatterrain_sim():
     # Get the reference controller
@@ -95,10 +107,10 @@ def flatterrain_sim():
     x0 = controller.lintraj.getState(0)
     # Run the open-loop simulation
     print("Running flat terrain open loop simulation")
-    run_simulation(block, open_loop, x0, duration = 1, savedir=os.path.join(SAVEDIR, 'flatterrain', 'openloop'))
+    run_simulation(block, open_loop, x0, duration = 1.5, savedir=os.path.join(SAVEDIR, 'flatterrain', 'openloop'))
     # Run the mpc simulation
     print("Running flat terrain MPC simulation")
-    run_simulation(block, controller, x0, duration = 1, savedir=os.path.join(SAVEDIR, 'flatterrain', 'mpc'))
+    run_simulation(block, controller, x0, duration = 1.5, savedir=os.path.join(SAVEDIR, 'flatterrain', 'mpc'))
 
 def lowfriction_sim():
     """Run open and closed loop simulations on terrain with low friction"""
@@ -113,10 +125,10 @@ def lowfriction_sim():
     x0 = controller.lintraj.getState(0)
     # Run the open-loop simulation
     print("Running low friction open loop simulation")
-    run_simulation(block, open_loop, x0, duration = 1, savedir=os.path.join(SAVEDIR, 'lowfriction', 'openloop'))
+    run_simulation(block, open_loop, x0, duration = 1.5, savedir=os.path.join(SAVEDIR, 'lowfriction', 'openloop'))
     # Run the mpc simulation
     print("Running low friction MPC simulation")
-    run_simulation(block, controller, x0, duration = 1, savedir=os.path.join(SAVEDIR, 'lowfriction', 'mpc'))
+    run_simulation(block, controller, x0, duration = 1.5, savedir=os.path.join(SAVEDIR, 'lowfriction', 'mpc'))
 
 def highfriction_sim():
     """Run open and closed loop simulations on terrian with high friction"""
@@ -131,16 +143,19 @@ def highfriction_sim():
     x0 = controller.lintraj.getState(0)
     # Run open loop simulation
     print('Running high friction open loop simulation')
-    run_simulation(block, open_loop, x0, duration = 1, savedir = os.path.join(SAVEDIR, 'highfriction', 'openloop'))
+    run_simulation(block, open_loop, x0, duration = 1.5, savedir = os.path.join(SAVEDIR, 'highfriction', 'openloop'))
     # Run mpc simulation
     print('Running high friction MPC simulation')
-    run_simulation(block, controller, x0, duration = 1, savedir = os.path.join(SAVEDIR, 'highfriction','mpc'))
+    run_simulation(block, controller, x0, duration = 1.5, savedir = os.path.join(SAVEDIR, 'highfriction','mpc'))
 
 def steppedterrain_sim():
     """Run open and closed loop simulations on terrain with a step in it"""
     # Create the 'reference model' for the controller
     controller = get_block_mpc_controller()
     open_loop = get_block_open_loop_controller()
+    # Adjust the cost terms for the steppedterrain
+    controller.controlcost = 1e0 * np.eye(controller.control_dim)
+    controller.statecost = 1e1 * np.eye(controller.state_dim)
     # Create the 'true model' for the simulator
     stepped_terrain = terrain.StepTerrain(step_height = -0.5, step_location = 2.5)
     block = Block(terrain = stepped_terrain)
@@ -149,14 +164,14 @@ def steppedterrain_sim():
     x0 = controller.lintraj.getState(0)
     # Run open loop simulation
     print('Running stepped terrain open loop simulation')
-    run_simulation(block, open_loop, x0, duration = 1, savedir = os.path.join(SAVEDIR, 'steppedterrain', 'openloop'))
+    run_simulation(block, open_loop, x0, duration = 1.5, savedir = os.path.join(SAVEDIR, 'steppedterrain', 'openloop'))
     # Run mpc simulation
     print('Running stepped terrain MPC simulation')
-    run_simulation(block, controller, x0, duration = 1, savedir = os.path.join(SAVEDIR, 'steppedterrain','mpc'))
+    run_simulation(block, controller, x0, duration = 1.5, savedir = os.path.join(SAVEDIR, 'steppedterrain','mpc'))
 
 if __name__ == '__main__':
-    flatterrain_sim()
-    lowfriction_sim()
-    highfriction_sim()
+    #flatterrain_sim()
+    #lowfriction_sim()
+    #highfriction_sim()
     steppedterrain_sim()
 
