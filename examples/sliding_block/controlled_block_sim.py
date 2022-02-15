@@ -61,7 +61,6 @@ def run_simulation(plant, controller, initial_state, duration, savedir=None):
     if savedir is not None:
         utils.save(os.path.join(savedir, FILENAME), simdata)
         print(f"Simulation results saved to {os.path.join(savedir, FILENAME)}")
-    plt.close()
     return simdata
 
 def get_block_mpc_controller():
