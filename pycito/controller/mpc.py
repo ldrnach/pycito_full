@@ -7,12 +7,50 @@ Luke Drnach
 #TODO: Double check implementation of joint limit linearization in the dynamics
 
 import numpy as np
+import abc
 
-from pydrake.all import MathematicalProgram, Solve, SnoptSolver, OsqpSolver
+from pydrake.all import MathematicalProgram, SnoptSolver, OsqpSolver
+from pydrake.all import PiecewisePolynomial as pp
 
 import pycito.utilities as utils
 import pycito.trajopt.constraints as cstr
 import pycito.controller.mlcp as mlcp
+
+class _ControllerBase(abc.ABC):
+    def __init__(self, plant):
+        self._plant = plant
+
+    @abc.abstractmethod
+    def get_control(self, t, x):
+        raise NotImplementedError
+
+class NullController(_ControllerBase):
+    """
+    NullController: returns zeros for all state and time pairs
+    """
+    def __init__(self, plant):
+        super(NullController, self).__init__(plant)
+
+    def get_control(self, t, x):
+        return np.zeros((self._plant.multibody.num_actuators(), ))
+
+class OpenLoopController(_ControllerBase):
+    """
+    OpenLoopController: returns the value of the planned open loop controls
+    """
+    def __init__(self, plant, time, control):
+        super(OpenLoopController, self).__init__(plant)
+        self._utraj = pp.ZeroOrderHold(time, control)
+
+    @classmethod
+    def fromReferenceTrajectory(cls, reftraj):
+        return cls(reftraj.plant, reftraj._time, reftraj._control)
+
+    def get_control(self, t, x):
+        """Open loop control value"""
+        t = min(max(self._utraj.start_time(), t), self._utraj.end_time())
+        return np.reshape(self._utraj.value(t), (-1,))
+
 
 class ReferenceTrajectory():
     """
@@ -215,12 +253,13 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
         index = min(max(0, index), len(self.joint_limit_cstr)-1)
         return self.joint_limit_cstr[index]
 
-class LinearContactMPC():
+class LinearContactMPC(_ControllerBase):
     def __init__(self, linear_traj, horizon):
         """
         Plant: a TimesteppingMultibodyPlant instance
         Traj: a LinearizedContactTrajectory
         """
+        super(LinearContactMPC, self).__init__(linear_traj.plant)
         self.lintraj = linear_traj
         self.horizon = horizon
         # Internal variables
@@ -245,6 +284,13 @@ class LinearContactMPC():
         # Set the solver
         self._solver = OsqpSolver()
         self.solveroptions = {}
+
+    def get_control(self, t, x0):
+        """"
+        Return the MPC feedback controller
+        Thin wrapper for do_mpc
+        """
+        return self.do_mpc(t, x0)
 
     def do_mpc(self, t, x0):
         """

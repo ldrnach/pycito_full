@@ -4,26 +4,19 @@ Contact Simulation
 Luke Drnach
 February 8, 2022
 """
-#TODO: THRUSDAY: Unit test all simulators
 
 import numpy as np
+import pycito.controller.mpc as mpc
 
 class Simulator():
-    def __init__(self, plant):
+    def __init__(self, plant, controller):
         self.plant = plant
+        self.controller = controller
         self._timestep = 0.01
 
     @staticmethod
     def Uncontrolled(plant):
-        return Simulator(plant)
-
-    @staticmethod
-    def OpenLoop(plant, utraj):
-        return OpenLoopSimulator(plant, utraj)
-
-    @staticmethod
-    def ClosedLoop(plant, controller):
-        return ClosedLoopSimulator(plant, controller)
+        return Simulator(plant, mpc.NullController(plant))
 
     def simulate(self, initial_state, duration):
         """Run the simulation"""
@@ -42,15 +35,11 @@ class Simulator():
         force  = np.zeros((self.plant.num_contacts() + self.plant.num_friction(), N))
         # Run the simulation
         for n in range(1, N):
-            control[:, n] = self.get_control(time[n-1], state[:, n-1])
+            control[:, n] = self.controller.get_control(time[n-1], state[:, n-1])
             force[:, n] = self.plant.contact_impulse(self._timestep, state[:, n-1], control[:, n])
             state[:, n] = self.plant.integrate(self._timestep, state[:, n-1], control[:, n], force[:, n])            
         # Return the simulation values
         return time, state, control, force
-
-    def get_control(self, t, x):
-        """Uncontrolled simulator returns the null control"""
-        return np.zeros((self.plant.multibody.num_actuators(), ))
 
     @property
     def timestep(self):
@@ -62,28 +51,6 @@ class Simulator():
             self._timestep = val
         else:
             raise ValueError(f"timestep must be a nonnegative number")
-
-class OpenLoopSimulator(Simulator):
-    def __init__(self, plant, utraj):
-        super(OpenLoopSimulator, self).__init__(plant)
-        self.utraj = utraj
-
-    def get_control(self, t, x):
-        """Get the open loop control value"""
-        t = min(max(self.utraj.start_time(), t), self.utraj.end_time())
-        return np.reshape(self.utraj.value(t), (-1,))
-
-class ClosedLoopSimulator(Simulator):
-    def __init__(self, plant, controller):
-        super(ClosedLoopSimulator, self).__init__(plant)
-        self.controller = controller
-
-    def get_control(self, t, x):
-        """Get the closed loop (MPC) control value"""
-        return self.controller.do_mpc(t, x)
-    
-class ContactEstimationSimulator(Simulator):
-    pass
 
 if __name__ == '__main__':
     print("Hello from simulator!")
