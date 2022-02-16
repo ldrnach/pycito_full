@@ -57,7 +57,7 @@ def check_constraint_satisfaction(data, savename):
                                                     options=options)
     viewer = ci.ContactConstraintViewer(trajopt, data)
     cstr = viewer.calc_constraint_values()
-    viewer.plot_dynamic_defects(data['time'], cstr['dynamics'], show=True, savename=None)
+    viewer.plot_dynamic_defects(data['time'], cstr['dynamics'], show=False, savename=savename)
     #viewer.plot_constraints(show_duals = False, savename = savename)
 
 
@@ -80,11 +80,11 @@ def main(numsteps=1):
     savedir = os.path.join(dir, f'{2*numsteps}step_plots')
     if not os.path.isdir(savedir):
         os.makedirs(savedir)
-    #a1.plot_trajectories(trajdata['state'], trajdata['control'], trajdata['force'], trajdata['jointlimit'], show=False, savename=os.path.join(savedir, 'vis.png'))
-    #utils.save(os.path.join(savedir, 'combinedresults.pkl'), data)
-    #a1.visualize(trajdata['state'])
+    a1.plot_trajectories(trajdata['state'], trajdata['control'], trajdata['force'], trajdata['jointlimit'], show=False, savename=os.path.join(savedir, 'vis.png'))
+    utils.save(os.path.join(savedir, 'combinedresults.pkl'), data)
+    a1.visualize(trajdata['state'])
     # Plot the constraints
     check_constraint_satisfaction(data, os.path.join(savedir, 'constraints.png'))
 
 if __name__ == "__main__":
-    main(numsteps=3)
+    main(numsteps=5)
