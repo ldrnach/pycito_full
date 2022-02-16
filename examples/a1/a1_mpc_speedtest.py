@@ -84,3 +84,4 @@ def compare_speedtests():
 
 if __name__ == '__main__':
     compare_speedtests()
+    replot_speedtest_results()

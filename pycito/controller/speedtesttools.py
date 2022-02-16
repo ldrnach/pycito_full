@@ -59,6 +59,7 @@ class SpeedTestResult():
         datacopy[~filter] = np.nan
         average = np.nanmean(datacopy, axis=0)
         deviation = np.nanstd(datacopy, axis=0)   
+        deviation = deviation / np.sqrt(np.sum(filter, axis=0))
         axs.fill_between(xpoints, average-deviation, average+deviation, alpha=0.5)
         axs.plot(xpoints, average, linewidth=1.5, label=label)
         return axs
@@ -144,6 +145,8 @@ class SpeedTestResult():
             solve_fig.savefig(utils.append_filename(savename, 'solverresults'), dpi=solve_fig.dpi)
         if show:
             plt.show()
+        else:
+            plt.close()
 
 
 
