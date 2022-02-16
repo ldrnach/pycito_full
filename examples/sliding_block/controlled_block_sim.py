@@ -130,6 +130,30 @@ def lowfriction_sim():
     print("Running low friction MPC simulation")
     run_simulation(block, controller, x0, duration = 1.5, savedir=os.path.join(SAVEDIR, 'lowfriction', 'mpc'))
 
+def lowfriction_special():
+    """Run open and closed loop simulations on terrain with low friction"""
+    # Get the reference controller
+    controller = get_block_mpc_controller()
+    # Reset the cost weights in the controller
+    controller.complementaritycost = 1
+    controller.statecost = np.eye(controller.state_dim)
+    controller.controlcost = np.eye(controller.control_dim)
+    controller.forcecost = np.eye(controller.force_dim)
+    controller.slackcost = np.eye(controller.slack_dim)
+    open_loop = get_block_open_loop_controller()
+    # Create the 'true model' for the simulator
+    lowfriction_terrain = terrain.VariableFrictionFlatTerrain(height=0, fric_func=low_friction)
+    block = Block(terrain = lowfriction_terrain)
+    block.Finalize()
+    # Initial state
+    x0 = controller.lintraj.getState(0)
+    # Run the open-loop simulation
+    print("Running low friction open loop simulation")
+    run_simulation(block, open_loop, x0, duration = 1.5, savedir=os.path.join(SAVEDIR, 'lowfriction_special', 'openloop'))
+    # Run the mpc simulation
+    print("Running low friction MPC simulation")
+    run_simulation(block, controller, x0, duration = 1.5, savedir=os.path.join(SAVEDIR, 'lowfriction_special', 'mpc'))
+
 def highfriction_sim():
     """Run open and closed loop simulations on terrian with high friction"""
     # Create the 'reference model' for the controller
@@ -171,7 +195,8 @@ def steppedterrain_sim():
 
 if __name__ == '__main__':
     #flatterrain_sim()
-    #lowfriction_sim()
+    lowfriction_sim()
     #highfriction_sim()
-    steppedterrain_sim()
+    #steppedterrain_sim()
+    lowfriction_special()
 
