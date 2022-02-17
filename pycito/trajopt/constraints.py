@@ -394,5 +394,73 @@ class LinearImplicitDynamics():
         prog.AddLinearEqualityConstraint(Aeq = self.A, beq = -self.b, vars=dvars).evaluator().set_description('linear_dynamics')
         return prog
 
+class RelaxedLinearConstraint():
+    """
+    Implements a relaxation of a linear constraint. Instead of:
+        Ax = b
+    RelaxedLinearConstraint implements
+        -s <= Ax - b <= s
+    """
+    def __init__(self, A, b):
+        assert A.shape[0] == b.shape[0], "A and b must have the same number of rows"
+        self.A = A
+        self.b = b
+        self.name = 'RelaxedLinearConstraint'
+        self._cost_weight = np.ones((1,))
+        self._cost = None
+        self._relax = None
+
+    def __eq__(self, obj):
+        """equality operator for relaxed linear constraints"""
+        return type(self) is type(obj) and np.array_equal(self.A, obj.A) and np.array(self.b, obj.b)
+
+    def set_description(self, text=None):
+        if text:
+            self.name = str(text)
+
+    def addToProgram(self, prog, *args):
+        """
+        Add the relaxed constraint to the program. 
+
+        addToProgram internally adds the relaxation variable s, and then adds the following costs and constraints:
+            min c*s
+            -inf <= Ax - s <= b
+            b <= Ax + s <= inf
+            s >= 0
+        """
+        dvars = np.concatenate(args)
+        # Add the extra variable
+        self._relax = prog.NewContinuousVariables(rows=1, name=f"{self.name}_relax")
+        A_minus = np.column_stack([self.A, np.ones_like(self.b)])
+        A_plus = np.column_stack([self.A, -np.ones_like(self.b)])
+        dvars = np.concatenate([dvars, self._relax], axis=0)
+        # Add the linear constraints
+        prog.AddLinearConstraint(A = A_minus, lb = np.full(self.b.shape, -np.inf), ub = self.b, vars = dvars).evaluator().set_description(f"{self.name}")
+        prog.AddLinearConstraint(A = A_plus, lb = self.b, ub = np.full(self.b.shape, np.inf), vars = dvars).evaluator().set_description(f"{self.name}")
+        # Add the bounding box constraints
+        prog.AddBoundingBoxConstraint(np.zeros((1,)), np.full((1,), np.inf), self._relax).evaluator().set_description(f"{self.name}_bounding")
+        # Add the Linear cost
+        c = np.atleast_1d(self.cost_weight) 
+        self._cost = prog.AddLinearCost(c, self._relax)
+        self._cost.evaluator().set_description(f"{self.name}_cost")
+
+    @property
+    def relax(self):
+        return self._relax
+
+    @property
+    def cost_weight(self):
+        return self._cost_weight
+    
+    @cost_weight.setter
+    def cost_weight(self, val):
+        if isinstance(val, (int, float)) and val >= 0.:
+            self._cost_weight = np.atleast_1d(val)
+            if self._cost is not None:
+                self._cost.evaluator().UpdateCoefficients(self._cost_weight)
+        else:
+            raise ValueError("cost_weight must be a nonnegative int or float")
+
+
 if __name__ == '__main__':
     print('Hello from constraints.py!')
