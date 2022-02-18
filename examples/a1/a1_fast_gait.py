@@ -40,7 +40,6 @@ def setup_foot_tracking_gait(a1, foot_ref, base_ref, duration, warmstart, option
         trajopt.setSolverOptions(options)
     return trajopt
 
-
 def a1_fast_steps(a1):
     generator = GaitGenerator(a1)
     #Starting configuration
