@@ -12,6 +12,7 @@ import numpy as np
 from pydrake.all import MathematicalProgram
 
 import pycito.trajopt.constraints as cstr
+import pycito.trajopt.complementarity as cp
 
 class ObservationTrajectory():
     """
@@ -242,6 +243,69 @@ class ContactModelEstimator():
         else:
             return None
 
+class SemiparametricFrictionConeConstraint():
+    def __init__(self, friccoeff, kernel, duplicator, ncptype=cp.NonlinearVariableSlackComplementarity):
+        assert friccoeff.shape[0] == kernel.shape[0], 'Friction coefficient and kernel matrix must have the same number of rows'
+        assert duplicator.shape[0] == friccoeff.shape[0], 'The duplication matrix must have as many rows as there are friction coefficients'
+        self.friccoeff = friccoeff
+        self.kernel = kernel            # The kernel matrix
+        self.duplicator = duplicator    # Friction force duplication/coupling matrix
+        self.ncptype = ncptype              # Nonlinear complementarity constraint implementation
+        self._ncp_cstr = None
+
+    def addToProgram(self, prog, *args):
+        dvars = np.concatenate(args)
+        xvars, zvars = np.split(dvars, [self.num_weights + self.num_normals + self.num_friction])
+        self._ncp_cstr = self.ncptype(self.eval_frictioncone, xdim = xvars.shape[0], zdim = zvars.shape[0])
+        self._ncp_cstr.set_description('SemiparametricFrictionCone')
+        # Add the nonlinear complementarity constraint to the program
+        self._ncp_cstr.addToProgram(prog, xvars, zvars)
+        # Add the nonnegativity constraint to the program - linear constraint
+        weights = xvars[:self.num_weights]
+        prog.AddLinearConstraint(A = self.kernel, lb = -self.friccoeff, ub = np.full(self.friccoeff.shape, np.inf), vars=weights).evaluator().set_description('friction_coeff_nonnegativity')
+
+    def eval_frictioncone(self, dvals):
+        # Separate out the components of the constraint
+        weights, normal_force, friction_force = np.split(dvals, np.cumsum([self.num_weights, self.num_normals]))
+        # Calculate the "updated" friction cone
+        mu = np.diag(self.eval_friction_coeff(weights))
+        # Friction cone error 
+        return mu.dot(normal_force) - self.duplicator.dot(friction_force)
+
+    def eval_friction_coeff(self, weights):
+        """Return the semiparametric friction coefficient"""
+        return self.friccoeff + self.kernel.dot(weights)
+
+    @property
+    def num_normals(self):
+        return self.friccoeff.size
+
+    @property
+    def num_weights(self):
+        return self.kernel.shape[1]
+
+    @property
+    def num_friction(self):
+        return self.duplicator.shape[1]
+
+    @property
+    def relax(self):
+        if self._ncp_cstr is not None:
+            return self._ncp_cstr.var_slack
+        else:
+            return None
+
+    @property
+    def cost_weight(self):
+        if self._ncp_cstr is not None:
+            return self._ncp_cstr.cost_weight
+        else:
+            return None
+
+    @cost_weight.setter
+    def cost_weight(self, val):
+        if self._ncp_cstr is not None:
+            self._ncp_cstr.cost_weight = val
 
 if __name__ == '__main__':
     print("Hello from contactestimator!")
