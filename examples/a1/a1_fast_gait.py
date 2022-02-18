@@ -152,7 +152,7 @@ def a1_full_step_fast_optimization():
     foot, step2 = feet[0], feet[1]
     for k, step in enumerate(step2):
         foot[k] = np.concatenate([foot[k], step[:, 1:]], axis=1)
-    q = np.concatenate([qtraj[0], qtraj[:, 1:]], axis=1)
+    q = np.concatenate([qtraj[0], qtraj[1][:, 1:]], axis=1)
     # Get the previous trajectories as a warmstart
     sourcedir = os.path.join('examples','a1','foot_tracking_fast')
     subdirs = ['firststep','secondstep']

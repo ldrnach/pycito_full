@@ -10,6 +10,7 @@ from pycito.systems.A1.a1 import A1VirtualBase
 from pycito.trajopt import contactimplicit as ci
 import os, time
 import pycito.utilities as utils
+import matplotlib.pyplot as plt
 
 def make_a1():
     a1 = A1VirtualBase()
@@ -191,3 +192,4 @@ def progressive_solve(trajopt, weights, savedir):
         trajopt.printer.save_and_clear(savename=os.path.join(savedir_this, 'CostsAndConstraints.png'))
         # Pause and allow python to clear figures and the like
         time.sleep(1.0)
+        plt.close()
