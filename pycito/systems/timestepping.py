@@ -512,12 +512,14 @@ class TimeSteppingMultibodyPlant():
         ff = D.dot(fT)
         return np.concatenate((fN, ff), axis=0)
 
-    def static_controller(self, qref, verbose=False):
+    def static_controller(self, qref, dtol=1e-4, verbose=False):
         """ 
         Generates a controller to maintain a static pose
         
         Arguments:
             qref: (N,) numpy array, the static pose to be maintained
+            dtol: float, tolerance at which to consider distance = 0. (optional, default=1e-6)
+            verbose: bool, set to true to print a detailed report when the solver fails
 
         Return Values:
             u: (M,) numpy array, actuations to best achieve static pose
@@ -550,9 +552,15 @@ class TimeSteppingMultibodyPlant():
         u_var = prog.NewContinuousVariables(self.multibody.num_actuators(), name="controls")
         # Ensure dynamics approximately satisfied
         prog.Add2NormSquaredCost(A = A, b = -G, vars=np.concatenate([u_var, l_var], axis=0))
-        # Enforce normal complementarity
-        prog.AddBoundingBoxConstraint(np.zeros(l_var.shape), np.full(l_var.shape, np.inf), l_var)
-        prog.AddConstraint(phi.dot(l_var) == 0)
+        # Enforce normal complementarity - approximately
+        in_contact = phi < dtol
+        if np.any(in_contact):
+            l_active = l_var[in_contact]
+            prog.AddBoundingBoxConstraint(np.zeros(l_active.shape), np.full(l_active.shape, np.inf), l_active)
+        if np.any(~in_contact):
+            l_inactive = l_var[~in_contact]
+            prog.AddBoundingBoxConstraint(np.zeros(l_inactive.shape), np.zeros(l_inactive.shape), l_inactive)
+        # Create the initial guess
         # Solve
         result = Solve(prog)
         # Check for a solution
@@ -563,7 +571,7 @@ class TimeSteppingMultibodyPlant():
                 printProgramReport(result, prog)
             return (u, f)
         else:
-            print(f"Optimization failed. Returning zeros")
+            print(f"Optimization failed using {result.get_solver_id().name()}. Returning zeros")
             if verbose:
                 printProgramReport(result,prog)
             return (np.zeros(u_var.shape), np.zeros(l_var.shape))
