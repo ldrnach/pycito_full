@@ -199,26 +199,27 @@ class NonlinearVariableSlackComplementarity(ComplementarityConstraint):
         """Return the upper bound"""
         return np.concatenate([np.zeros((2*self.zdim,)), -np.full((self.zdim,), np.inf)], axis=0)
 
-    def addToProgram(self, prog, xvars, zvars):
+    def addToProgram(self, prog, xvars, zvars, rvars=None):
         """ Add the constraint with the slack variables to the mathematical program"""
         xvars, zvars = self._check_vars(xvars, zvars)
-        new_slack = prog.NewContinuousVariables(rows=1, cols=zvars.shape[1], name=self.name+"_slacks")
-        dvars = np.concatenate([xvars, zvars, new_slack], axis=0)
+        if rvars is None:
+            rvars = prog.NewContinuousVariables(rows=1, cols=zvars.shape[1], name=self.name+"_slacks")
+            # Add a cost on the slack variables
+            new_cost = prog.AddLinearCost(a = self.cost_weight * np.ones((rvars.shape[1]),), b=np.zeros((1,)), vars = rvars)
+            new_cost.evaluator().set_description(self.name + "SlackCost")
+        dvars = np.concatenate([xvars, zvars, rvars], axis=0)
         for n in range(dvars.shape[1]):
             prog.AddConstraint(self, 
                             lb = self.lower_bound(),
                             ub = self.upper_bound(),
                             vars = dvars[:,n],
                             description = self.name)
-        # Add a cost on the slack variables
-        new_cost = prog.AddLinearCost(a = self.cost_weight * np.ones((new_slack.shape[1]),), b=np.zeros((1,)), vars = new_slack)
-        new_cost.evaluator().set_description(self.name + "SlackCost")
         # concatenate the associated variables and cost
         self._slack_cost.append(new_cost)
         if self._var_slack is None:
-            self._var_slack = new_slack
+            self._var_slack = rvars
         else:
-            self._var_slack = np.row_stack([self._var_slack, new_slack])
+            self._var_slack = np.row_stack([self._var_slack, rvars])
 
     @property
     def cost_weight(self):
@@ -410,22 +411,27 @@ class LinearEqualityVariableSlackComplementarity(ComplementarityConstraint):
         """Return the lower bound of the constraint"""
         return np.concatenate([np.zeros((3*self.zdim,)), -np.full((self.zdim,), np.inf)], axis=0)
 
-    def addToProgram(self, prog, xvars, zvars):
+    def addToProgram(self, prog, xvars, zvars, rvars=None):
+
         xvars, zvars = self._check_vars(xvars, zvars)
         # Create new slack variables
-        new_slacks = prog.NewContinuousVariables(rows = zvars.shape[0]+1, cols=zvars.shape[1], name=self.name + "_slacks")
+        if rvars is None:
+            rvars = prog.NewContinuousVariables(rows = 1, cols = zvars.shape[1], name=self.name + "_relax")
+            # Add a cost on the slack variables
+            new_cost = prog.AddLinearCost(a = self.cost_weight * np.ones((new_slacks.shape[1]),), b=np.zeros((1,)), vars = rvars)
+            new_cost.evaluator().set_description(self.name+"SlackCost")
+            self._slack_cost.append(new_cost)
+        else:
+            assert rvars.shape == (1, zvars.shape[1]), f"Expected relaxation variables to have shape (1, {zvars.shape[1]})"
+        new_slacks = prog.NewContinuousVariables(rows = zvars.shape[0], cols=zvars.shape[1], name=self.name + "_slacks")
         # Add bounding box constraints
-        dvars = np.concatenate([xvars, zvars, new_slacks], axis=0)
+        dvars = np.concatenate([xvars, zvars, new_slacks, rvars], axis=0)
         # Add complementarity constraints
         for n in range(dvars.shape[1]):
             prog.AddConstraint(self,lb=self.lower_bound(), ub=self.upper_bound(), vars=dvars[:,n], description=self.name)
-        # Add a cost on the slack variables
-        new_cost = prog.AddLinearCost(a = self.cost_weight * np.ones((new_slacks.shape[1]),), b=np.zeros((1,)), vars = new_slacks[-1,:])
-        new_cost.evaluator().set_description(self.name+"SlackCost")
-        self._slack_cost.append(new_cost)
         # Store the variables
         if self._var_slack is not None:
-            self._var_slack = np.column_stack([self._var_slack, new_slacks])
+            self._var_slack = np.column_stack([self._var_slack, new_slacks, rvars])
         else:
             self._var_slack = new_slacks
     

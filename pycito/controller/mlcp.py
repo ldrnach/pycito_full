@@ -148,7 +148,6 @@ class PseudoLinearComplementarityConstraint():
     @cost_weight.setter
     def cost_weight(self, val):
         warnings.warn(f"{type(self).__name__} does not have an associated cost. The value is ignored.")
-
 class CostRelaxedPseudoLinearComplementarityConstraint(PseudoLinearComplementarityConstraint):
     """
         Recasts the pseudo linear complementarity constraint using an exact penalty method. The constraint is implemented as:
@@ -194,7 +193,6 @@ class CostRelaxedPseudoLinearComplementarityConstraint(PseudoLinearComplementari
                 self._cost.evaluator().UpdateCoefficients(new_Q = self.cost_matrix, new_b = np.zeros((2*self.dim)))
         else:
             raise ValueError("cost_weight must be a nonnegative numeric value")
-
 class VariableRelaxedPseudoLinearComplementarityConstraint(PseudoLinearComplementarityConstraint):
     """
         Recasts the pseudo linear complementarity constraint using an relaxation method. The constraint is implemented as:
@@ -210,34 +208,45 @@ class VariableRelaxedPseudoLinearComplementarityConstraint(PseudoLinearComplemen
         self._cost = None
         self._cost_weight = np.ones((1,1))
 
-    def _add_orthogonality_constraint(self, prog, zvars, svars):
+    def addToProgram(self, prog, xvar, zvar, rvar=None):
         """
-        Add the constraint
-            r - s*z >= 0
-        With the cost term:
-            min r
-            r > 0
+        Add the constraint to a mathematical program 
         """
-        self._relax = prog.NewContinuousVariables(rows=1, name=f'{self.name}_relax')
-        # Add the orthogonality constraint
-        prog.AddConstraint(self._eval_orthogonality, 
-            lb = np.zeros((self.dim, )),
-            ub = np.full((self.dim, ), np.inf),
-            vars = np.concatenate([zvars, svars, self._relax], axis=0),
-            description=f"{self.name}_orthogonality")
-        # Add the slack cost
-        self._cost = prog.AddLinearCost(a = self._cost_weight, vars=self._relax)
+        # Check the dimensions
+        assert xvar.shape[0] == self.num_free, f"xvar must be a ({self.num_free}, ) array"
+        assert zvar.shape[0] == self.dim, f"zvar must be a ({self.dim},) array"
+        if rvar is None:
+            self._relax = prog.NewContinuousVariables(rows = 1, name = f'{self.name}_relax')
+            # If a relaxation variable was not provided, add relaxation constraints
+            self._add_relaxation_constraint(prog, self._relax)
+        else:
+            assert rvar.shape[0] == 1, f"rvar must be a scalar variable"
+            self._relax = rvar
+        # Create and store the slack variables
+        self._slack = prog.NewContinuousVariables(rows = self.dim, name=f'{self.name}_slack')
+        # Enforce the constraints
+        self._prog = prog
+        prog = self._add_equality_constraint(prog, xvar, self._slack)
+        prog = self._add_nonnegativity_constraint(prog, zvar, self._slack)
+        prog = self._add_orthogonality_constraint(prog, zvar, np.hstack([self._slack, self._relax]))
+        # Store pointers to the decision variables
+        self._xvars = xvar
+        self._zvars = zvar
+        # Return the program
+        return prog
+
+    def _add_relaxation_constraint(self, prog, relax):
+         # Add the slack cost
+        self._cost = prog.AddLinearCost(a = self._cost_weight, vars=relax)
         self._cost.evaluator().set_description(f'{self.name}_relax')
         # Add the nonnegativity constraint on the relaxation parameter
         prog.AddBoundingBoxConstraint(np.zeros((1,)), np.full((1,), np.inf), self._relax).evaluator().set_description(f"{self.name}_relax_nonnegativity")
         self.initializeRelaxation()
-        return prog
 
     def initializeRelaxation(self, val=0.):
         val = np.atleast_1d(val)
         assert val.size == 1, 'relaxation must be a scalar'
         self._prog.SetInitialGuess(self._relax, val)
-
 
     def _eval_orthogonality(self, dvals):
         zval, sval, rval = np.split(dvals, [self.dim, 2*self.dim])
@@ -362,29 +371,37 @@ class VariableRelaxedMixedLinearComplementarityConstraint(MixedLinearComplementa
         self._cost = None
         self._cost_weight = np.ones((1,1))
 
-    def _add_orthogonality_constraint(self, prog, zvars, svars):
-        """
-        Add the constraint
-            r - s*z >= 0
-        With the cost term:
-            min r
-            r > 0
-        """
-        self._relax = prog.NewContinuousVariables(rows=1, name=f'{self.name}_relax')
-        # Add the orthogonality constraint
-        prog.AddConstraint(self._eval_orthogonality, 
-            lb = np.zeros((self.dim, )),
-            ub = np.full((self.dim, ), np.inf),
-            vars = np.concatenate([zvars, svars, self._relax], axis=0),
-            description=f"{self.name}_orthogonality")
-        # Add the slack cost
-        self._cost = prog.AddLinearCost(a = self._cost_weight, vars=self._relax)
+    def addToProgram(self, prog, xvar, zvar, rvar=None):
+        # Check the dimensions
+        assert xvar.shape[0] == self.num_free, f"xvar must be a ({self.num_free}, ) array"
+        assert zvar.shape[0] == self.dim, f"zvar must be a ({self.dim},) array"
+        # Create and store relaxation variables
+        if rvar is None:
+            self._relax = prog.NewContinuousVariables(rows=1, name=f'{self.name}_relax')
+            self._add_relaxation_constraint(prog, self._relax)
+        else:
+            assert rvar.shape[0] == 1, f"rvar must be a scalar"
+            self._relax = rvar
+        # Create and store the slack variables
+        self._slack = prog.NewContinuousVariables(rows = self.dim, name=f'{self.name}_slack')
+        # Enforce the constraints
+        self._prog = prog
+        prog = self._add_equality_constraint(prog, xvar, zvar, self._slack)
+        prog = self._add_nonnegativity_constraint(prog, zvar, self._slack)
+        prog = self._add_orthogonality_constraint(prog, zvar, np.hstack([self._slack, self._relax]))
+        # Store the variables
+        self._xvars = xvar
+        self._zvars = zvar
+        # Return the program
+        return prog
+
+    def _add_relaxation_constraint(self, prog, relax):
+         # Add the slack cost
+        self._cost = prog.AddLinearCost(a = self._cost_weight, vars=relax)
         self._cost.evaluator().set_description(f'{self.name}_relax')
         # Add the nonnegativity constraint on the relaxation parameter
         prog.AddBoundingBoxConstraint(np.zeros((1,)), np.full((1,), np.inf), self._relax).evaluator().set_description(f"{self.name}_relax_nonnegativity")
-        # Initialize the relaxation variable
         self.initializeRelaxation()
-        return prog
 
     def _eval_orthogonality(self, dvals):
         """
