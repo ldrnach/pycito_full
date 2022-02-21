@@ -13,6 +13,8 @@ from pydrake.all import MathematicalProgram
 
 import pycito.trajopt.constraints as cstr
 import pycito.trajopt.complementarity as cp
+import pycito.controller.mlcp as mlcp
+
 
 class ObservationTrajectory():
     """
@@ -86,6 +88,9 @@ class ObservationTrajectory():
             return None
 
 class ContactEstimationTrajectory(ObservationTrajectory):
+    # TODO: Store forces and velocity slacks from previous solves
+    # TODO: return duplication matrix from getDissipationConstraint, getFrictionCoefficientParameters
+    # TODO: Implement getForceGuess, getDissipationGuess
     def __init__(self, plant):
         super(ContactEstimationTrajectory, self).__init__()
         self._plant = plant
@@ -95,6 +100,8 @@ class ContactEstimationTrajectory(ObservationTrajectory):
         self._distance_cstr = []
         self._dissipation_cstr = []
         self._friction_cstr = []
+        # Store the duplication matrix
+        self._D = self._plant.duplicator_matrix()
 
     def add_sample(self, time, state, control):
         """
@@ -117,7 +124,7 @@ class ContactEstimationTrajectory(ObservationTrajectory):
         # Get the Jacobian matrix - the "A" parameter
         self._plant.multibody.SetPositionsAndVelocities(self._context, state)
         Jn, Jt = self._plant.GetContactJacobians(self._context)
-        A = np.concatenate([Jn.T, Jt.T], axis=0)
+        A = dt*np.concatenate([Jn.T, Jt.T], axis=0)
         # Now get the dynamics defect
         if self._plant.has_joint_limits:
             forces = np.zeros((A.shape[1] + self._plant.joint_limit_jacobian().shape[1], ))
@@ -125,7 +132,7 @@ class ContactEstimationTrajectory(ObservationTrajectory):
             forces = np.zeros((A.shape[1], ))
         b = cstr.BackwardEulerDynamicsConstraint.eval(self._plant, self._context, dt, self._state[-2], state, control, forces)
         # Append - wrap this in it's own constraint
-        self._dynamics_cstr.append((A, b))
+        self._dynamics_cstr.append((A, -b))
 
     def _add_distance(self):
         """
@@ -154,7 +161,7 @@ class ContactEstimationTrajectory(ObservationTrajectory):
         # Append the friction coefficients
         self._plant.multibody.SetPositionsAndVelocities(self._context, self._state[-1])
         mu = self.plant.GetFrictionCoefficients(self._context)
-        self._friction_cstr.append(np.diag(mu))
+        self._friction_cstr.append(np.atleast_1d(mu))
 
     def getDynamicsConstraint(self, index):
         """
@@ -175,16 +182,43 @@ class ContactEstimationTrajectory(ObservationTrajectory):
         Return the dissipation constraint at the specified index
         """
         assert index >= 0 and index < len(self._dissipation_cstr), "index out of bounds"
-        return self._dissipation_cstr[index]
+        return self._D.transpose(), self._dissipation_cstr[index]
 
     def getFrictionConstraint(self, index):
         """
         Return the friction cone constraint at the specified index
         """
         assert index >= 0  and index < len(self._friction_cstr), "index out of bounds"
-        return self._friction_cstr[index]
+        return self._D, self._friction_cstr[index]
+
+    def getForceGuess(self, index):
+        """
+        Return the initial guess for the forces at the specified index
+        """
+        A, b = self.getDynamicsConstraint(index)
+        f = np.linalg.solve(A, b)
+        f[f < 0] = 0
+        return f
+
+    def getDissipationGuess(self, index):
+        """
+        Return the initial guess for the dissipation slacks at the specified index
+        """
+        D, v = self.getDissipationConstraint(index)
+        return np.max(-v)*np.ones((D.shape[1], 1))
+
+    @property
+    def num_contacts(self):
+        return self._plant.num_contacts
+
+    @property
+    def num_friction(self):
+        return self._plant.num_friction
 
 class ContactModelEstimator():
+    # TODO: Get the kernel matrices for the contact distance, friction coefficient
+    # TODO: Relaxation variables - tie together? Implement and update cost?
+    # TODO: Save the forces/weights from previous solves, and use them to warmstart successive solves
     def __init__(self, esttraj, horizon):
         """
         Arguments:
@@ -192,53 +226,175 @@ class ContactModelEstimator():
             horizon: a scalar indicating the reverse horizon to use for estimation
         """
         self.traj = esttraj
-        self.horizon = horizon
+        self.maxhorizon = horizon
+        self._clear_program()
+        # Cost weights
+        self._relax_cost_weight = 1.
+        self._force_cost_weight = 1.
+        self._force_cost = None
+
+    def estimate_contact(self, x1, x2, u, dt):
+        pass
+
+    def _clear_program(self):
+        """Clears the pointers to the mathematical program and it's decision variables"""
         # Internal variables - program and decision variables
         self._prog = None
         self._distance_weights = None
         self._friction_weights = None
-        self._normal_forces = None
-        self._friction_forces = None
-        self._velocity_slacks = None
+        self._normal_forces = []
+        self._friction_forces = []
+        self._velocity_slacks = []
         self._relaxation_vars = None
-        # Cost weights
-        self._relax_cost = 1.
-        self._force_cost = 1.
+        self._distance_kernel = None
+        self._friction_kernel = None
 
     def create_estimator(self):
         """
         Create a mathematical program to solve the estimation problem
         """
+        self._clear_program()
         self._prog = MathematicalProgram()
+        # Determine whether or not we can use the whole horizon
+        N = self.traj.num_timesteps
+        if N - self.maxhorizon < 0:
+            self._startptr = 0
+            self.horizon = N
+        else:
+            self._startptr = N - self.maxhorizon
+            self.horizon = self.maxhorizon
+        # TODO: Setup the distance and friction kernels
+        
+        # Add the kernel weights
+        self._add_kernel_weights()
+        # Add all the contact constraints
+        for index in range(self.horizon):
+            self._add_force_variables()
+            self._add_dynamics_constraints(index)
+            self._add_distance_constraints(index)
+            self._add_dissipation_constraints(index)
+            self._add_friction_cone_constraints(index)
+        # Add the cost functions
+        self._add_costs()
+
+    def _add_kernel_weights(self):
+        """
+        Add the kernel weights as decision variables in the program, and add the associated quadratic costs
+        """
+        # Create decision variables 
+        dvars = self._distance_kernel.shape[1]
+        fvars = self._friction_kernel.shape[1]
+        self._distance_weights = self._prog.NewContinuousVariables(rows = dvars, name='distance_weights')
+        self._friction_weights = self._prog.NewContinuousVariables(rows = fvars, name='friction_weights')
+        # Add the quadratic costs
+        self._prog.AddQuadraticCost(self._distance_kernel, np.zeros((dvars,)), self._distance_weights).evaluator().set_description('Distance Error Cost')
+        self._prog.AddQuadraticCost(self._friction_kernel, np.zeros((fvars,)), self._friction_weights).evaluator().set_description('Friction Error Cost')
+        # Initialize the kernel weights
+        self._prog.SetInitialGuess(self._friction_weights, np.zeros(self._friction_weights.shape))
+        distances = np.concatenate(self.traj._distance_cstr[self._startptr:self._startptr + self._horizon], axis=0)
+        guess = np.linalg.solve(self._distance_kernel, -distances)
+        self._prog.SetInitialGuess(self._distance_weights, guess)
+
+    def _add_force_variables(self):
+        """
+        Add forces and velocity slacks as decision variables to the program
+        """
+        # Parameters
+        nc = self.traj.num_contacts
+        nf = self.traj.num_friction
+        # Add the forces, etc
+        self._normal_forces.append(self._prog.NewContinuousVariables(rows=nc, name='normal_forces'))
+        self._friction_forces.append(self._prog.NewContinuousVariables(rows=nf, name='friction_forces'))
+        self._velocity_slacks.append(self._prog.NewContinuousVariables(rows=nc, name='velocity_slacks'))
+
+    def _add_costs(self):
+        """
+        Add costs on the reaction forces and relaxation variables
+        """
+        #TODO: Slack variable costs
+        # Force cost
+        all_forces = np.ravel(self.forces)
+        weight = self._force_cost_weight * np.ones(all_forces.shape)
+        self._force_cost = self._prog.AddLinearCost(weight, all_forces)
+        self._force_cost.evaluator().set_description('Force Cost')
+        # Relaxation cost -- Needed - YES
+
+    def _add_dynamics_constraints(self, index):
+        """Add and initialize the linear dynamics constraints for force estimation"""
+        #TODO: Store the dynamics constraints for use with relaxed costs
+        A, b = self.traj.getDynamicsConstraint(self._startprt + index)
+        dyn_cstr = cstr.RelaxedLinearConstraint(A, b)
+        force  = np.concatenate([self._normal_forces[-1], self._friction_forces[-1]], axis=0)
+        dyn_cstr.addToProgram(self._prog, force)
+        # Set the initial guess
+        self._prog.SetInitialGuess(force, self.traj.getForceGuess(self._startptr + index))
+
+    def _add_distance_constraints(self, index):
+        """Add and initialize the semiparametric distance constraints"""
+        kstart, kstop = self.kernelslice(index)
+        dist = self.traj.getDistanceConstraint(self._startptr + index)
+        dist_cstr = mlcp.VariableRelaxedPseudoLinearComplementarityConstraint(A = self._distance_kernel[kstart:kstop, :], c = dist)
+        dist_cstr.addToProgram(self._prog, self._distance_weights, self._normal_forces[-1])
+        dist_cstr.initializeSlackVariables()
+
+    def _add_dissipation_constraints(self, index):
+        """Add and initialize the parametric maximum dissipation constraints"""
+        D, v = self.traj.getDissipationConstraint(self._startptr + index)
+        diss_cstr = mlcp.VariableRelaxedPseudoLinearComplementarityConstraint(D, v)
+        diss_cstr.addToProgram(self._prog, self._velocity_slacks[-1], self._friction_forces[-1])
+        diss_cstr.initializeSlackVariables()
+        # Set the initial guess for the slack variables
+        self._prog.SetInitialGuess(self._velocity_slacks[-1], self.traj.getDissipationGuess(self._startptr + index))
+        
+    def _add_friction_cone_constraints(self, index):
+        """Add and initialize the friction cone constraints"""
+        # Get the appropriate kernel slice
+        kstart, kstop = self.kernelslice(index)
+        #Store the friction cone constraints to set the weights accordingly
+        D, mu = self.traj.getFrictionConeConstraint(self._startptr + index)
+        fc_cstr = SemiparametricFrictionConeConstraint(mu, self._friction_kernel[kstart:kstop, :], D)
+        fc_cstr.addToProgram(self._prog, self._friction_weights, self._normal_forces[-1], self._friction_forces[-1], self._velocity_slacks[-1])    
+
+    def kernelslice(self, index):
+        """Map the current index to start and stop indices for the kernel matrices"""
+        nc = self.traj.num_contacts
+        return nc * index, nc * (index + 1)
 
     @property
     def relaxedcost(self):
-        return self._relax_cost
+        return self._relax_cost_weight
 
     @relaxedcost.setter
     def relaxedcost(self, val):
         assert isinstance(val, [int, float]) and val >=0, f"val must be a nonnegative float or a nonnegative int"
-        self._relax_cost = val
+        self._relax_cost_weight = val
+        #TODO: Update the relaxation cost in the various constraints
 
     @property
     def forcecost(self):
-        return self._force_cost
+        return self._force_cost_weight
 
     @forcecost.setter
     def forcecost(self, val):
         assert isinstance(val, [int, float]) and val >= 0, "val must be a nonnegative float or nonnegative int"
-        self._force_cost = val
+        self._force_cost_weight = val
+        # Update the force cost in the program
+        if self._force_cost is not None:
+            allforceshape = np.ravel(self.forces).shape
+            self._force_cost.evaluator().UpdateCoefficients(val * np.ones(allforceshape))
 
     @property
     def forces(self):
-        if self._normal_forces is not None:
-            return np.concatenate([self._normal_forces, self._friction_forces], axis=0)
+        if self._normal_forces is not []:
+            fN = np.column_stack(self._normal_forces)
+            fT = np.column_stack(self._friction_forces)
+            return np.row_stack([fN, fT])
         else:
             return None
 
     @property
     def velocities(self):
-        if self._velocity_slacks is not None:
+        if self._velocity_slacks is not []:
             return self._velocity_slacks
         else:
             return None
@@ -250,7 +406,7 @@ class SemiparametricFrictionConeConstraint():
         self.friccoeff = friccoeff
         self.kernel = kernel            # The kernel matrix
         self.duplicator = duplicator    # Friction force duplication/coupling matrix
-        self.ncptype = ncptype              # Nonlinear complementarity constraint implementation
+        self.ncptype = ncptype          # Nonlinear complementarity constraint implementation
         self._ncp_cstr = None
 
     def addToProgram(self, prog, *args):
