@@ -100,7 +100,7 @@ def create_warmstart(a1, q):
 
 def a1_first_step_fast_optimization():
     # Get the footstep parameters
-    savedir = os.path.join('examples','a1','foot_tracking_fast','firststep')
+    savedir = os.path.join('examples','a1','foot_tracking_fast_shift','firststep')
     a1 = opttools.make_a1()
     feet, _, qtraj = a1_fast_shifted_steps(a1)
     foot, q = feet[1], qtraj[1]
@@ -199,20 +199,23 @@ def a1_multistep_optimization(numsteps = 10):
     savedir = os.path.join('examples','a1','foot_tracking_fast_shift',f'multistep_{numsteps}')
     a1 = opttools.make_a1()
     # Get the foot trajectories
+    print('loading foot trajectories')
     feet, _, qtraj = a1_fast_shifted_steps(a1, numsteps)
     foot = join_foot_trajectories(feet[1:-1])
     q = join_configuration_trajectories(qtraj[1:-1])
     # Get the previous trajectories as a warmstart
-    sourcedir = os.path.join('examples','a1','foot_tracking_fast_shift')
-    subdirs = ['firststep','secondstep']
-    file = os.path.join('weight_1e+03','trajoptresults.pkl')
-    dataset = [utils.load(utils.FindResource(os.path.join(sourcedir, subdir, file))) for subdir in subdirs]
+    print('generating warmstart')
+    sourcedir = os.path.join('examples','a1','foot_tracking_fast_shift','fullstep','weight_1e+03','trajoptresults.pkl')
+    dataset = [utils.load(utils.FindResource(sourcedir))]
+    data = copy.deepcopy(dataset)
     for _ in range(numsteps-1):
-        dataset.extend(copy.deepcopy(dataset))
+        dataset.extend(copy.deepcopy(data))
     warmstart = join_backward_euler_trajectories(dataset)
     duration = warmstart['time'][-1]
+    print("Creating trajectory optimization")
     trajopt = setup_foot_tracking_gait(a1, foot, q[:6, :], duration, warmstart)
     # Add periodicity constraints
+    print("Adding periodicity constraints")
     Au, bu = periodicity_parameters(trajopt.u.shape[0])
     Al, bl = periodicity_parameters(trajopt.l.shape[0])
     Aj, bj = periodicity_parameters(trajopt.jl.shape[0])
@@ -224,7 +227,7 @@ def a1_multistep_optimization(numsteps = 10):
     opttools.progressive_solve(trajopt, weights, savedir)
 
 if __name__ == '__main__':
-    # a1_first_step_fast_optimization()
-    # a1_second_step_fast_optimization()
-    # a1_full_step_fast_optimization()
+    #a1_first_step_fast_optimization()
+    #a1_second_step_fast_optimization()
+    #a1_full_step_fast_optimization()
     a1_multistep_optimization()
