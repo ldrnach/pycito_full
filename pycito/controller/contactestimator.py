@@ -5,11 +5,10 @@ Luke Drnach
 February 14, 2022
 """
 #TODO: Refactor with MPC.ReferenceTrajectory
-#TODO: Integrate constraints with ContactEstimationTrajectory
-#TODO: Finish ContactModelEstimator by integrating with ContactEstimationTrajectory
+
 import numpy as np
 
-from pydrake.all import MathematicalProgram
+from pydrake.all import MathematicalProgram, SnoptSolver
 
 import pycito.trajopt.constraints as cstr
 import pycito.trajopt.complementarity as cp
@@ -25,6 +24,8 @@ class ObservationTrajectory():
         self._time = []
         self._state = []
         self._control = []
+        self._est_forces = []
+        self._slacks = []
 
     def getTimeIndex(self, t):
         """Return the index of the last timepoint less than the current time"""
@@ -89,7 +90,6 @@ class ObservationTrajectory():
 
 class ContactEstimationTrajectory(ObservationTrajectory):
     # TODO: Store forces and velocity slacks from previous solves
-    # TODO: Implement getForceGuess, getDissipationGuess
     def __init__(self, plant):
         super(ContactEstimationTrajectory, self).__init__()
         self._plant = plant
@@ -112,6 +112,15 @@ class ContactEstimationTrajectory(ObservationTrajectory):
         self._add_distance()
         self._add_dissipation()
         self._add_friction()
+
+    def add_force(self, time, force):
+        pass
+
+    def add_dissipation(self, time, dslack):
+        pass
+
+    def add_feasibility(self, time, rslack):
+        pass
 
     def _add_dynamics(self):
         """
@@ -229,9 +238,43 @@ class ContactModelEstimator():
         # Cost weights
         self._relax_cost_weight = 1.
         self._force_cost_weight = 1.
+        # Solver details
+        self.solveroptions = {}
+        self._solver = SnoptSolver()
 
-    def estimate_contact(self, x1, x2, u, dt):
-        pass
+    def setSolverOptions(self, optionsdict = {}):
+        # Store the solver options
+        for key, value in optionsdict.items():
+            self.solveroptions[key] = value
+
+    def estimate_contact(self, t, u, x):
+        # Append new samples
+
+        # Create contact estimation problem 
+        print(f"Creating contact estimation problem")
+        self.create_estimator()
+        print(f"Solving contact estimation")
+        result = self.solve()
+        # Stash the forces, slack variables, etc
+        forces = result.GetSolution(self.forces)
+        vslacks = result.GetSolution(self.velocities)
+        relax = result.GetSolution(np.concatenate(self._relaxation_vars, axis=0))
+        self.traj.add_force(t, forces[:, -1])
+        self.traj.add_velocity(t, vslacks[:, -1])
+        self.traj.add_feasibility(t, relax[-1])
+        # Get the distance and friction weights
+        dweights = result.GetSolution(self._distance_weights)
+        fweights = result.GetSolution(self._friction_weights)
+        # TODO: Return an updated contact model
+        return dweights, fweights
+
+    def solve(self):
+        """Solves the Contact Model Estimation program"""
+        # Update solver options
+        for key, value in self.solveroptions.items():
+            self.prog.SetSolverOption(self._solver.solver_id(), key, value)
+        # Solve the estimation problem
+        return self._solver.Solve(self._prog)
 
     def _clear_program(self):
         """Clears the pointers to the mathematical program and it's decision variables"""
@@ -406,7 +449,7 @@ class ContactModelEstimator():
     @property
     def velocities(self):
         if self._velocity_slacks is not []:
-            return self._velocity_slacks
+            return np.column_stack(self._velocity_slacks)
         else:
             return None
 
