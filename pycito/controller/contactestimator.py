@@ -89,7 +89,6 @@ class ObservationTrajectory():
 
 class ContactEstimationTrajectory(ObservationTrajectory):
     # TODO: Store forces and velocity slacks from previous solves
-    # TODO: return duplication matrix from getDissipationConstraint, getFrictionCoefficientParameters
     # TODO: Implement getForceGuess, getDissipationGuess
     def __init__(self, plant):
         super(ContactEstimationTrajectory, self).__init__()
@@ -217,7 +216,6 @@ class ContactEstimationTrajectory(ObservationTrajectory):
 
 class ContactModelEstimator():
     # TODO: Get the kernel matrices for the contact distance, friction coefficient
-    # TODO: Relaxation variables - tie together? Implement and update cost?
     # TODO: Save the forces/weights from previous solves, and use them to warmstart successive solves
     def __init__(self, esttraj, horizon):
         """
@@ -231,7 +229,6 @@ class ContactModelEstimator():
         # Cost weights
         self._relax_cost_weight = 1.
         self._force_cost_weight = 1.
-        self._force_cost = None
 
     def estimate_contact(self, x1, x2, u, dt):
         pass
@@ -245,9 +242,11 @@ class ContactModelEstimator():
         self._normal_forces = []
         self._friction_forces = []
         self._velocity_slacks = []
-        self._relaxation_vars = None
+        self._relaxation_vars = []
         self._distance_kernel = None
         self._friction_kernel = None
+        self._force_cost = None
+        self._relax_cost = None
 
     def create_estimator(self):
         """
@@ -306,26 +305,33 @@ class ContactModelEstimator():
         self._normal_forces.append(self._prog.NewContinuousVariables(rows=nc, name='normal_forces'))
         self._friction_forces.append(self._prog.NewContinuousVariables(rows=nf, name='friction_forces'))
         self._velocity_slacks.append(self._prog.NewContinuousVariables(rows=nc, name='velocity_slacks'))
+        # Add the relaxation variables
+        self._relaxation_vars.append(self._prog.NewContinuousVariables(rows=1, name='relaxation'))
 
     def _add_costs(self):
         """
         Add costs on the reaction forces and relaxation variables
         """
-        #TODO: Slack variable costs
         # Force cost
         all_forces = np.ravel(self.forces)
         weight = self._force_cost_weight * np.ones(all_forces.shape)
         self._force_cost = self._prog.AddLinearCost(weight, all_forces)
         self._force_cost.evaluator().set_description('Force Cost')
-        # Relaxation cost -- Needed - YES
-
+        # Relaxation cost 
+        all_relax = np.concatenate(self._relaxation_vars, axis=0)
+        r_weights = self._relax_cost_weight * np.eye(all_relax.shape[0])
+        r_ref = np.zeros((all_relax.shape[0],))
+        self._relax_cost = self._prog.AddQuadraticErrorCost(r_weights, r_ref, all_relax)
+        self._relax_cost.evaluator().set_description('Relaxation Cost')
+        # Bounding box constraint on the relaxations
+        self._prog.AddBoundingBoxConstraint(r_ref, np.full(r_ref.shape, np.inf), all_relax).evaluator().set_description("Relaxation Nonnegativity")
+    
     def _add_dynamics_constraints(self, index):
         """Add and initialize the linear dynamics constraints for force estimation"""
-        #TODO: Store the dynamics constraints for use with relaxed costs
         A, b = self.traj.getDynamicsConstraint(self._startprt + index)
         dyn_cstr = cstr.RelaxedLinearConstraint(A, b)
         force  = np.concatenate([self._normal_forces[-1], self._friction_forces[-1]], axis=0)
-        dyn_cstr.addToProgram(self._prog, force)
+        dyn_cstr.addToProgram(self._prog, force, relax=self._relaxation_vars[-1])
         # Set the initial guess
         self._prog.SetInitialGuess(force, self.traj.getForceGuess(self._startptr + index))
 
@@ -334,14 +340,14 @@ class ContactModelEstimator():
         kstart, kstop = self.kernelslice(index)
         dist = self.traj.getDistanceConstraint(self._startptr + index)
         dist_cstr = mlcp.VariableRelaxedPseudoLinearComplementarityConstraint(A = self._distance_kernel[kstart:kstop, :], c = dist)
-        dist_cstr.addToProgram(self._prog, self._distance_weights, self._normal_forces[-1])
+        dist_cstr.addToProgram(self._prog, self._distance_weights, self._normal_forces[-1], rvar=self._relaxation_vars[-1])
         dist_cstr.initializeSlackVariables()
 
     def _add_dissipation_constraints(self, index):
         """Add and initialize the parametric maximum dissipation constraints"""
         D, v = self.traj.getDissipationConstraint(self._startptr + index)
         diss_cstr = mlcp.VariableRelaxedPseudoLinearComplementarityConstraint(D, v)
-        diss_cstr.addToProgram(self._prog, self._velocity_slacks[-1], self._friction_forces[-1])
+        diss_cstr.addToProgram(self._prog, self._velocity_slacks[-1], self._friction_forces[-1], rvar=self._relaxation_vars[-1])
         diss_cstr.initializeSlackVariables()
         # Set the initial guess for the slack variables
         self._prog.SetInitialGuess(self._velocity_slacks[-1], self.traj.getDissipationGuess(self._startptr + index))
@@ -353,7 +359,9 @@ class ContactModelEstimator():
         #Store the friction cone constraints to set the weights accordingly
         D, mu = self.traj.getFrictionConeConstraint(self._startptr + index)
         fc_cstr = SemiparametricFrictionConeConstraint(mu, self._friction_kernel[kstart:kstop, :], D)
-        fc_cstr.addToProgram(self._prog, self._friction_weights, self._normal_forces[-1], self._friction_forces[-1], self._velocity_slacks[-1])    
+        xvars = np.concatenate([self._friction_weights, self._normal_forces[-1], self._friction_forces[-1]], axis=0)
+        zvars = self._velocity_slacks[-1]
+        fc_cstr.addToProgram(self._prog, xvars, zvars, rvars=self._relaxation_vars[-1])    
 
     def kernelslice(self, index):
         """Map the current index to start and stop indices for the kernel matrices"""
@@ -368,7 +376,10 @@ class ContactModelEstimator():
     def relaxedcost(self, val):
         assert isinstance(val, [int, float]) and val >=0, f"val must be a nonnegative float or a nonnegative int"
         self._relax_cost_weight = val
-        #TODO: Update the relaxation cost in the various constraints
+        if self._relax_cost is not None:
+            # Update the relaxation costs in the program
+            nrelax = len(self._relaxation_vars)
+            self._relax_cost.evaluator().UpdateCoefficients(val*np.eye(nrelax), np.zeros((nrelax,)))
 
     @property
     def forcecost(self):
@@ -400,22 +411,19 @@ class ContactModelEstimator():
             return None
 
 class SemiparametricFrictionConeConstraint():
-    def __init__(self, friccoeff, kernel, duplicator, ncptype=cp.NonlinearVariableSlackComplementarity):
+    def __init__(self, friccoeff, kernel, duplicator):
         assert friccoeff.shape[0] == kernel.shape[0], 'Friction coefficient and kernel matrix must have the same number of rows'
         assert duplicator.shape[0] == friccoeff.shape[0], 'The duplication matrix must have as many rows as there are friction coefficients'
         self.friccoeff = friccoeff
         self.kernel = kernel            # The kernel matrix
         self.duplicator = duplicator    # Friction force duplication/coupling matrix
-        self.ncptype = ncptype          # Nonlinear complementarity constraint implementation
         self._ncp_cstr = None
 
-    def addToProgram(self, prog, *args):
-        dvars = np.concatenate(args)
-        xvars, zvars = np.split(dvars, [self.num_weights + self.num_normals + self.num_friction])
-        self._ncp_cstr = self.ncptype(self.eval_frictioncone, xdim = xvars.shape[0], zdim = zvars.shape[0])
+    def addToProgram(self, prog, xvars, zvars, rvars=None):
+        self._ncp_cstr = cp.NonlinearVariableSlackComplementarity(self.eval_frictioncone, xdim = xvars.shape[0], zdim = zvars.shape[0])
         self._ncp_cstr.set_description('SemiparametricFrictionCone')
         # Add the nonlinear complementarity constraint to the program
-        self._ncp_cstr.addToProgram(prog, xvars, zvars)
+        self._ncp_cstr.addToProgram(prog, xvars, zvars, rvars=rvars)
         # Add the nonnegativity constraint to the program - linear constraint
         weights = xvars[:self.num_weights]
         prog.AddLinearConstraint(A = self.kernel, lb = -self.friccoeff, ub = np.full(self.friccoeff.shape, np.inf), vars=weights).evaluator().set_description('friction_coeff_nonnegativity')
