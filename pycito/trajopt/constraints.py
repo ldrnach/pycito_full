@@ -418,7 +418,7 @@ class RelaxedLinearConstraint():
         if text:
             self.name = str(text)
 
-    def addToProgram(self, prog, *args):
+    def addToProgram(self, prog, dvars, relax=None):
         """
         Add the relaxed constraint to the program. 
 
@@ -428,21 +428,25 @@ class RelaxedLinearConstraint():
             b <= Ax + s <= inf
             s >= 0
         """
-        dvars = np.concatenate(args)
         # Add the extra variable
-        self._relax = prog.NewContinuousVariables(rows=1, name=f"{self.name}_relax")
+        if relax is None:
+            self._relax = prog.NewContinuousVariables(rows=1, name=f"{self.name}_relax")
+            # Add the bounding box constraints
+            prog.AddBoundingBoxConstraint(np.zeros((1,)), np.full((1,), np.inf), self._relax).evaluator().set_description(f"{self.name}_bounding")
+            # Add the Linear cost
+            c = np.atleast_1d(self.cost_weight) 
+            self._cost = prog.AddLinearCost(c, self._relax)
+            self._cost.evaluator().set_description(f"{self.name}_cost")
+        else:
+            assert relax.shape == (1,), f"RelaxedLinearConstraint expects a scalar relaxation variable"
+            self._relax = relax
         A_minus = np.column_stack([self.A, np.ones_like(self.b)])
         A_plus = np.column_stack([self.A, -np.ones_like(self.b)])
         dvars = np.concatenate([dvars, self._relax], axis=0)
         # Add the linear constraints
         prog.AddLinearConstraint(A = A_minus, lb = np.full(self.b.shape, -np.inf), ub = self.b, vars = dvars).evaluator().set_description(f"{self.name}")
         prog.AddLinearConstraint(A = A_plus, lb = self.b, ub = np.full(self.b.shape, np.inf), vars = dvars).evaluator().set_description(f"{self.name}")
-        # Add the bounding box constraints
-        prog.AddBoundingBoxConstraint(np.zeros((1,)), np.full((1,), np.inf), self._relax).evaluator().set_description(f"{self.name}_bounding")
-        # Add the Linear cost
-        c = np.atleast_1d(self.cost_weight) 
-        self._cost = prog.AddLinearCost(c, self._relax)
-        self._cost.evaluator().set_description(f"{self.name}_cost")
+        
 
     @property
     def relax(self):
