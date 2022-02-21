@@ -192,4 +192,4 @@ def progressive_solve(trajopt, weights, savedir):
         trajopt.printer.save_and_clear(savename=os.path.join(savedir_this, 'CostsAndConstraints.png'))
         # Pause and allow python to clear figures and the like
         time.sleep(1.0)
-        plt.close()
+    plt.close('all')
