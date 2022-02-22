@@ -4,7 +4,6 @@ Contact model estimation
 Luke Drnach
 February 14, 2022
 """
-#TODO: Refactor with MPC.ReferenceTrajectory
 
 import numpy as np
 
@@ -24,8 +23,9 @@ class ObservationTrajectory():
         self._time = []
         self._state = []
         self._control = []
-        self._est_forces = []
+        self._forces = []
         self._slacks = []
+        self._feasibility = []
 
     def getTimeIndex(self, t):
         """Return the index of the last timepoint less than the current time"""
@@ -70,6 +70,29 @@ class ObservationTrajectory():
             self._state.append(state)
             self._control.append(control)
 
+    def add_force(self, time, force):
+        idx = self.getTimeIndex(time)
+        if time > self._time[-1] or idx > len(self._forces):
+            # Add a new force value
+            self._forces.append(force)
+        else:
+            # Update the force value
+            self._forces[idx] = force
+
+    def add_dissipation(self, time, dslack):
+        idx = self.getTimeIndex(time)
+        if time > self._time[-1] or idx > len(self._slacks):
+            self._slacks.append(dslack)
+        else:
+            self._slacks[idx] = dslack
+
+    def add_feasibility(self, time, rslack):
+        idx = self.getTimeIndex(time)
+        if time > self._time[-1] or idx > len(self._feasibility):
+            self._feasibility.append(rslack)
+        else:
+            self._feasibility[idx] = rslack
+
     @property
     def num_timesteps(self):
         return len(self._time)
@@ -89,7 +112,7 @@ class ObservationTrajectory():
             return None
 
 class ContactEstimationTrajectory(ObservationTrajectory):
-    # TODO: Store forces and velocity slacks from previous solves
+    # TODO: Integrate kernel matrices
     def __init__(self, plant):
         super(ContactEstimationTrajectory, self).__init__()
         self._plant = plant
@@ -101,6 +124,7 @@ class ContactEstimationTrajectory(ObservationTrajectory):
         self._friction_cstr = []
         # Store the duplication matrix
         self._D = self._plant.duplicator_matrix()
+        # Store the terrain kernel matrices
 
     def add_sample(self, time, state, control):
         """
@@ -112,15 +136,6 @@ class ContactEstimationTrajectory(ObservationTrajectory):
         self._add_distance()
         self._add_dissipation()
         self._add_friction()
-
-    def add_force(self, time, force):
-        pass
-
-    def add_dissipation(self, time, dslack):
-        pass
-
-    def add_feasibility(self, time, rslack):
-        pass
 
     def _add_dynamics(self):
         """
@@ -203,17 +218,32 @@ class ContactEstimationTrajectory(ObservationTrajectory):
         """
         Return the initial guess for the forces at the specified index
         """
-        A, b = self.getDynamicsConstraint(index)
-        f = np.linalg.solve(A, b)
-        f[f < 0] = 0
-        return f
+        if index < len(self._forces):
+            return self._forces[index]
+        else:
+            A, b = self.getDynamicsConstraint(index)
+            f = np.linalg.solve(A, b)
+            f[f < 0] = 0
+            return f
 
     def getDissipationGuess(self, index):
         """
         Return the initial guess for the dissipation slacks at the specified index
         """
-        D, v = self.getDissipationConstraint(index)
-        return np.max(-v)*np.ones((D.shape[1], 1))
+        if index < len(self._slacks):
+            return self._slacks[index]
+        else:
+            D, v = self.getDissipationConstraint(index)
+            return np.max(-v)*np.ones((D.shape[1], 1))
+
+    def getFeasibilityGuess(self, index):
+        """
+        Return an initial guess for the feasibility relaxation variable
+        """
+        if index < len(self._feasibility):
+            return self._feasibility[index]
+        else:
+            return np.ones((1,))
 
     @property
     def num_contacts(self):
@@ -225,7 +255,6 @@ class ContactEstimationTrajectory(ObservationTrajectory):
 
 class ContactModelEstimator():
     # TODO: Get the kernel matrices for the contact distance, friction coefficient
-    # TODO: Save the forces/weights from previous solves, and use them to warmstart successive solves
     def __init__(self, esttraj, horizon):
         """
         Arguments:
@@ -377,6 +406,8 @@ class ContactModelEstimator():
         dyn_cstr.addToProgram(self._prog, force, relax=self._relaxation_vars[-1])
         # Set the initial guess
         self._prog.SetInitialGuess(force, self.traj.getForceGuess(self._startptr + index))
+        # Set the initial guess for the relaxation variables
+        self._prog.SetInitialGuess(self._relaxation_vars[-1], self.traj.getFeasibilityGuess(self._startptr + index))
 
     def _add_distance_constraints(self, index):
         """Add and initialize the semiparametric distance constraints"""
