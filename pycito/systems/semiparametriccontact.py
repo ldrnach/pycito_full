@@ -4,10 +4,12 @@ Tools for modeling contact semiparametrically
 Luke Drnach
 February 16, 2022
 """
+#TODO: Unittesting
+#TODO: Offically subclass SemiparametricContactModel
 
 import numpy as np
 import abc
-from pycito.systems.kernels import DifferentiableKernelBase
+import pycito.systems.kernels as kernels
 
 class DifferentiablePrior(abc.ABC):
     def __call__(self, x):
@@ -39,7 +41,7 @@ class ConstantPrior(DifferentiablePrior):
         """
         return 0 * x
 
-class FlatTerrainPrior(DifferentiablePrior):
+class FlatSurfacePrior(DifferentiablePrior):
     def __init__(self, height = 1.0, direction = np.array([0, 0, 1])):
         self._height = 1.0
         self._direction = direction
@@ -59,7 +61,7 @@ class FlatTerrainPrior(DifferentiablePrior):
 class SemiparametricModel():
     def __init__(self, prior, kernel):
         assert issubclass(type(prior), DifferentiablePrior), "prior must be a concrete implementation of DifferentiablePrior"
-        assert issubclass(type(kernel), DifferentiableKernelBase), "kernel must be a concrete implementation of DifferentiableKernelBase"
+        assert issubclass(type(kernel), kernels.DifferentiableKernelBase), "kernel must be a concrete implementation of DifferentiableKernelBase"
         self.prior = prior
         self.kernel = kernel
         self._kernel_weights = None
@@ -119,9 +121,51 @@ class SemiparametricModel():
         return K.dot(self._kernel_weights)
 
 class SemiparametricContactModel():    
-    pass
+    def __init__(self, surface_model, friction_model):
+        assert isinstance(surface_model, SemiparametricModel), 'surface_model must be a semiparametric model'
+        assert isinstance(friction_model, SemiparametricModel), 'friction_model must be a semiparametric model'
+        self.surface = surface_model
+        self.friction = friction_model
+
+    @classmethod
+    def FlatSurfaceWithRBFKernel(cls, height=0., friction=1., lengthscale=0.1):
+        """
+        Factory method for constructing a semiparametric contact model
+        
+        Assumes the prior is a flat surface with constant friction
+        uses independent RBF kernels for the surface and friction models
+        """
+        surf = SemiparametricModel(prior = FlatSurfacePrior(height = height),
+                                    kernel = kernels.RBFKernel(length_scale = lengthscale))
+        fric = SemiparametricModel(prior = ConstantPrior(const = friction),
+                                    kernel = kernels.RBFKernel(length_scale = lengthscale))
+        return cls(surf, fric)
+
+    @classmethod
+    def FlatSurfaceWithHuberKernel(cls, height = 0., friction = 1., lengthscale = 0.1, delta = 0.1):
+        """
+        Factory method for constructing a semiparametric contact model
+        Assumes the prior is a flat surface with constant friction
+        Uses independent Pseudo-Huber kernels for the surface and friction models
+        """
+        surf = SemiparametricModel(prior = FlatSurfacePrior(height = height),
+                                    kernel = kernels.PseudoHuberKernel(lengthscale, delta))
+        fric = SemiparametricModel(prior = ConstantPrior(friction),
+                                    kernel = kernels.PseudoHuberKernel(lengthscale, delta))
+        return cls(surf, fric)
+
+    def add_samples(self, sample_points, surface_weights, friction_weights):
+        self.surface.add_samples(sample_points, surface_weights)
+        self.friction.add_samples(sample_points, friction_weights)
 
 
+    def eval_surface(self, x):
+        return self.surface(x)
+
+    def eval_friction(self, x):
+        return self.friction(x)
+
+    
 
 if __name__ == '__main__':
     print("Hello from semi-parametric contact!")

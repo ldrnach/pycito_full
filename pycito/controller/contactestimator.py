@@ -4,7 +4,9 @@ Contact model estimation
 Luke Drnach
 February 14, 2022
 """
-
+#TODO: Store contact points, kernel weights in ContactEstimationTrajectory
+#TODO: Implement 'contact model rectifier' to calculate the global contact model offline
+#TODO: Implement 'ambiguity set optimization' to calculate bounds on contact model
 import numpy as np
 
 from pydrake.all import MathematicalProgram, SnoptSolver
