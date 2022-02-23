@@ -23,14 +23,14 @@ def householderortho3D(normal):
     """
     if normal[0] < 0 and normal[1] == 0 and normal[2] == 0:
         normal = -normal
-    mag = np.norm(normal)
+    mag = np.linalg.norm(normal)
     h = np.zeros((3,))
     h[0] = max([normal[0] - mag, normal[0] + mag])
     h[1:] = np.copy(normal[1:])
     # Calculate the tangent and binormal vectors
     hmag = h.dot(h)
     tangent = np.array([-2 * h[0]*h[1]/hmag, 1 - 2 * h[1]**2 /hmag, -2*h[1]*h[2]/hmag])
-    binormal = np.array([-2 *h[0] * h[2]/hmag, -2 * h[1] * h[2] / hmag, 1 - 2 * h[2]*2 / hmag])
+    binormal = np.array([-2 *h[0] * h[2]/hmag, -2 * h[1] * h[2] / hmag, 1 - 2 * h[2]**2 / hmag])
     return tangent, binormal
 
 class DifferentiableModel(abc.ABC):
@@ -47,7 +47,7 @@ class DifferentiableModel(abc.ABC):
 
 class ConstantModel(DifferentiableModel):
     def __init__(self, const = 1.0):
-        self._const = 1.0
+        self._const = const
 
     def eval(self, x):    
         """
