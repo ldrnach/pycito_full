@@ -15,6 +15,10 @@ from pycito.systems.simulator import Simulator
 import pycito.controller.mpc as mpc
 import pycito.utilities as utils
 
+SOURCE = os.path.join('examples','a1','foot_tracking_gait','first_step','weight_1e+03','trajoptresults.pkl')
+SAVEDIR = os.path.join('examples','a1','simulations')
+FILENAME = 'simdata.pkl'
+
 def visualize_controlled_trajectory():
     plant = A1VirtualBase()
     plant.Finalize()
@@ -42,6 +46,66 @@ def plot_sim_results(plant, t, x, u, f, savedir, vis=True):
     # Visualize in meshcat
     if vis:
         plant.visualize(xtraj)
+
+def run_simulation(plant, controller, initial_state, duration, savedir=None, vis=False):
+    #Check if the target directory exists
+    if savedir is not None and not os.path.exists(savedir):
+        os.makedirs(savedir)
+    # Create and run the simulation
+    sim = Simulator(plant, controller)
+    tsim, xsim, usim, fsim, status = sim.simulate(initial_state, duration)
+    if ~status:
+        print(f"Simulation failed at timestep {tsim[-1]}")
+    # Save the results
+    plot_sim_results(plant, tsim, xsim, usim, fsim, savedir=savedir, vis=vis)
+    # Save the data
+    simdata = {'time': tsim,
+                'state': xsim,
+                'control': usim,
+                'force': fsim,
+                'succees': status}
+    if savedir is not None:
+        utils.save(os.path.join(savedir, FILENAME), simdata)
+        print(f"Simulation results saved to {os.path.join(savedir, FILENAME)}")
+    return simdata
+
+def get_a1_mpc_controller(source = SOURCE, horizon = 5):
+    # Create the reference model
+    plant = A1VirtualBase()
+    plant.terrain.friction = 1.0
+    plant.Finalize()
+    # Load the reference trajectory
+    reftraj = mpc.LinearizedContactTrajectory.load(plant, source)
+    # Make the controller
+    controller = mpc.LinearContactMPC(reftraj, horizon = 5)
+    controller.useSnoptSolver()
+    controller.setSolverOptions({'Major feasibility tolerance': 1e-6,
+                                'Major optimality tolerance': 1e-6})
+    # Set the cost terms
+    controller.complementaritycost = 1e3
+    controller.statecost = np.diag([1e2] * plant.multibody.num_positions() + [1e-2] * plant.multibody.num_velocities())
+    controller.controlcost = 1e-2 * np.eye(controller.control_dim)
+    controller.forcecost = 1e-2 * np.eye(controller.force_dim)
+    controller.slackcost = 1e-2 * np.eye(controller.slack_dim)
+    controller.limitcost = 1e-2 * np.eye(reftraj._jlimit.shape[0])
+
+    return controller
+
+def flatground_walking_sim():
+    source = os.path.join('examples','a1','foot_tracking_fast_shift','10step_plots','combinedresults.pkl')
+    savedir = os.path.join('examples','a1','simulations','flatground_walking_fast')
+    # Get the reference controller
+    controller = get_a1_mpc_controller(source=source)
+    # Create the 'true model' for simulation
+    a1 = A1VirtualBase()
+    a1.terrain.friction = 1.0
+    a1.Finalize()
+    # Initial state
+    x0 = controller.lintraj.getState(0)
+    T = controller.lintraj._time[-1]
+    # Run the closed loop simulation
+    print(f"Running flat ground walking A1 simulations")
+    run_simulation(a1, controller, x0, T, savedir = None, vis=False)
 
 def main():
     # Data source
@@ -118,5 +182,6 @@ def debug_a1_controller():
 
 if __name__ == '__main__':
     #main()
-    visualize_open_loop_trajectory()
+    #visualize_open_loop_trajectory()
     #debug_a1_controller()
+    flatground_walking_sim()

@@ -86,5 +86,30 @@ def main(numsteps=1):
     # Plot the constraints
     check_constraint_satisfaction(data, os.path.join(savedir, 'constraints.png'))
 
+def main_fast(numsteps=1):
+    dir = os.path.join('examples','a1','foot_tracking_fast_shift')
+    file = os.path.join(dir,'fullstep','weight_1e+03','trajoptresults.pkl')
+    data = [utils.load(utils.FindResource(file))]
+    cdata = copy.deepcopy(data)
+    for _ in range(numsteps-1):
+        data.extend(copy.deepcopy(cdata))
+    data = join_backward_euler_trajectories(data)
+    # Convert to trajectories
+    trajdata = {}
+    trajdata['state'] = pp.FirstOrderHold(data['time'], data['state'])
+    for key in keys[1:]:
+        trajdata[key] = pp.ZeroOrderHold(data['time'], data[key])
+    # Plot the data
+    a1 = A1VirtualBase()
+    a1.Finalize()
+    savedir = os.path.join(dir, f'{numsteps}step_plots')
+    if not os.path.isdir(savedir):
+        os.makedirs(savedir)
+    a1.plot_trajectories(trajdata['state'], trajdata['control'], trajdata['force'], trajdata['jointlimit'], show=False, savename=os.path.join(savedir, 'vis.png'))
+    utils.save(os.path.join(savedir, 'combinedresults.pkl'), data)
+    a1.visualize(trajdata['state'])
+    # Plot the constraints
+    check_constraint_satisfaction(data, os.path.join(savedir, 'constraints.png'))
+
 if __name__ == "__main__":
-    main(numsteps=5)
+    main_fast(numsteps=10)
