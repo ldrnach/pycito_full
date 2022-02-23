@@ -51,14 +51,17 @@ def run_simulation(plant, controller, initial_state, duration, savedir=None):
         os.makedirs(savedir)
     # Create and run the simulation
     sim = Simulator(plant, controller)
-    tsim, xsim, usim, fsim = sim.simulate(initial_state, duration)
+    tsim, xsim, usim, fsim, status = sim.simulate(initial_state, duration)
+    if ~status:
+        print(f"Simulation faied at timestep {tsim[-1]}")
     # Save the results
     plot_sim_results(plant, tsim, xsim, usim, fsim, savedir=savedir, vis=False)
     # Save the data
     simdata = {'time': tsim,
                 'state': xsim,
                 'control': usim,
-                'force': fsim}
+                'force': fsim,
+                'success': status}
     if savedir is not None:
         utils.save(os.path.join(savedir, FILENAME), simdata)
         print(f"Simulation results saved to {os.path.join(savedir, FILENAME)}")

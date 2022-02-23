@@ -34,12 +34,20 @@ class Simulator():
         control = np.zeros((self.plant.multibody.num_actuators(), N))
         force  = np.zeros((self.plant.num_contacts() + self.plant.num_friction(), N))
         # Run the simulation
+        status = True
         for n in range(1, N):
             control[:, n-1] = self.controller.get_control(time[n-1], state[:, n-1])
             force[:, n] = self.plant.contact_impulse(self._timestep, state[:, n-1], control[:, n-1])
-            state[:, n] = self.plant.integrate(self._timestep, state[:, n-1], control[:, n-1], force[:, n])            
+            state[:, n] = self.plant.integrate(self._timestep, state[:, n-1], control[:, n-1], force[:, n])
+            if np.any(np.isnan(state[:, n])):
+                control = control[:, :n-1]
+                force = force[:, :n-1]
+                state = state[:, :n-1]
+                time = time[:n-1]
+                status = False
+                break            
         # Return the simulation values
-        return time, state, control, force
+        return time, state, control, force, status
 
     @property
     def timestep(self):
