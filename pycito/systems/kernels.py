@@ -43,7 +43,7 @@ class DifferentiableKernelBase(abc.ABC):
         K = np.zeros((X.shape[0], X.shape[0]))
         for i, x in enumerate(X):
             K[i, i] = 0.5 * self.eval(x, x)
-            for j in range(i+1, X.shape[1]):
+            for j in range(i+1, X.shape[0]):
                 K[i, j] = self.eval(x, X[j, :])
         # Symmetrize
         return K + K.transpose()
