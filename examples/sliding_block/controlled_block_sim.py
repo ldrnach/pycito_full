@@ -33,14 +33,17 @@ def high_friction(x):
     else:
         return 0.9
 
-def plot_sim_results(plant, t, x, u, f, savedir, vis=True):
+def plot_sim_results(plant, t, x, u, f, savedir=None, vis=True):
     """Plot the block trajectories"""
-    if not os.path.exists(savedir):
+    if savedir is not None and not os.path.exists(savedir):
         os.makedirs(savedir)
     xtraj = pp.FirstOrderHold(t, x)
     utraj = pp.ZeroOrderHold(t, u)
     ftraj = pp.ZeroOrderHold(t, f)
-    plant.plot_trajectories(xtraj, utraj, ftraj, show=False, savename=os.path.join(savedir, 'sim.png'))
+    if savedir is None:
+        plant.plot_trajectories(xtraj, utraj, ftraj, show=True)
+    else:
+        plant.plot_trajectories(xtraj, utraj, ftraj, show=False, savename=os.path.join(savedir, 'sim.png'))
     # Visualize in meshcat
     if vis:
         plant.visualize(xtraj)
@@ -52,7 +55,7 @@ def run_simulation(plant, controller, initial_state, duration, savedir=None):
     # Create and run the simulation
     sim = Simulator(plant, controller)
     tsim, xsim, usim, fsim, status = sim.simulate(initial_state, duration)
-    if ~status:
+    if not status:
         print(f"Simulation faied at timestep {tsim[-1]}")
     # Save the results
     plot_sim_results(plant, tsim, xsim, usim, fsim, savedir=savedir, vis=False)
@@ -114,6 +117,7 @@ def flatterrain_sim():
     # Run the mpc simulation
     print("Running flat terrain MPC simulation")
     run_simulation(block, controller, x0, duration = 1.5, savedir=os.path.join(SAVEDIR, 'flatterrain', 'mpc'))
+    
 
 def lowfriction_sim():
     """Run open and closed loop simulations on terrain with low friction"""
@@ -197,9 +201,9 @@ def steppedterrain_sim():
     run_simulation(block, controller, x0, duration = 1.5, savedir = os.path.join(SAVEDIR, 'steppedterrain','mpc'))
 
 if __name__ == '__main__':
-    #flatterrain_sim()
-    lowfriction_sim()
+    flatterrain_sim()
+    #lowfriction_sim()
     #highfriction_sim()
     #steppedterrain_sim()
-    lowfriction_special()
+    #lowfriction_special()
 
