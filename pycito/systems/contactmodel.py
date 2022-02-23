@@ -200,9 +200,9 @@ class ContactModel():
             R: a (3,3) numpy array. The first row is the surface normal vector. The next two rows are the surface tangent vectors
         """
         normal = self.surface.gradient(pt)
-        normal = normal / np.norm(normal)
+        normal = normal / np.linalg.norm(normal)
         tangent, binormal = householderortho3D(normal)
-        return np.hstack([normal, tangent, binormal])
+        return np.column_stack([normal, tangent, binormal])
 
 class SemiparametricContactModel(ContactModel):
     def __init__(self, surface, friction):

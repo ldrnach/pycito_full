@@ -4,7 +4,8 @@ unittests for pycito.systems.contactmodel.py
 Luke Drnach
 February 23, 2022
 """
-
+#TODO: Test semiparametric models 
+#TODO: Unit test with autodiff types
 import unittest
 import numpy as np
 
@@ -118,8 +119,35 @@ class SemiparametricModelTest(unittest.TestCase):
         pass
 
 class ContactModelTest(unittest.TestCase):
-    pass
+    # TODO: Unit test with autodiff types, for use in MathematicalProgramming / MPC
+    def setUp(self):
+        self.model = cm.ContactModel.FlatSurfaceWithConstantFriction(friction = 0.5)
+        self.test_points = [np.array([1, 2, 3]), 
+                            np.array([-1, 0, -3]),
+                            np.array([0, 1, 0]),
+                            np.array([-4, 3, 2])]
+        self.expected_surfs = [np.array([val]) for val in [3, -3, 0, 2]]
+        self.expected_friction = np.array([0.5])
+        self.expected_frame = np.array([[0, 0, -1],
+                                        [0, 1, 0],
+                                        [1, 0, 0]])
+    def test_surface_evaluation(self):
+        """Test contact model surface evaluation"""
+        for test, expected in zip(self.test_points, self.expected_surfs):
+            surf = self.model.eval_surface(test)
+            np.testing.assert_allclose(surf, expected, atol=1e-12, err_msg=f"Evaluating contact model surface inaccurate for test case {test}")
 
+    def test_friction_evaluation(self):
+        """Test contact model friction evaluation"""
+        for test in self.test_points:
+            fric = self.model.eval_friction(test)
+            np.testing.assert_allclose(fric, self.expected_friction, atol=1e-12, err_msg=f"Evaluating contact model friction inaccurate for test point {test}")
+
+    def test_local_frame(self):
+        """Test contact model surface local frame evaluation"""
+        for test in self.test_points:
+            frame = self.model.local_frame(test)
+            np.testing.assert_allclose(frame, self.expected_frame, atol=1e-12, err_msg=f"Evaluating local frame inaccurate at test point {test}")
 class SemiparametricContactModelTest(unittest.TestCase):
     pass
 
