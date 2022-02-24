@@ -5,7 +5,6 @@ Luke Drnach
 February 23, 2022
 """
 #TODO: Test semiparametric models 
-#TODO: Unit test with autodiff types
 import unittest
 import numpy as np
 
@@ -46,6 +45,14 @@ class OrthogonalizationTest(unittest.TestCase):
         d = np.linalg.det(R)
         self.assertAlmostEqual(d, 1., places = 12, msg="Orthogonalization returns rotation matrix with non-unit determinant")
 
+    def test_orthogonalization_autodiff(self):
+        """Test that we can evaluate orthogonalization using autodiff types"""
+        x_ad = ad.InitializeAutoDiff(self.x)
+        t, b = cm.householderortho3D(x_ad)
+        # Check that the *values* are correct. We don't need to check the value of the gradients
+        np.testing.assert_allclose(np.squeeze(ad.ExtractValue(t)), self.y, atol=1e-6, err_msg='Orthogonalization returns inaccurate tangent vector when input is autodiff type')
+        np.testing.assert_allclose(np.squeeze(ad.ExtractValue(b)), self.z, atol=1e-6, err_msg="Orthogonalization returns inaccurate binormal vector when input is autodiff type")
+
 class ConstantModelTest(unittest.TestCase):
     def setUp(self):
         self.c = 2
@@ -71,6 +78,20 @@ class ConstantModelTest(unittest.TestCase):
             dout_ad = out_ad.derivatives()
             np.testing.assert_allclose(dout, dout_ad, atol=1e-12, err_msg=f"Gradients for constant model do not match autodiff gradients on input {test}")
 
+    def test_eval_autodiff(self):
+        """Test that we can evaluate the function with autodiff types"""
+        test = ad.InitializeAutoDiff(self.test_vals[2])
+        expected = self.c
+        eval_ad = self.fun.eval(test)
+        np.testing.assert_allclose(eval_ad.value(), expected, atol=1e-12, err_msg=f"ConstantModel fails to evaluate autodiff type correctly")
+
+    def test_gradient_autodiff(self):
+        """Test that we can evaluate the gradient using autodiff types"""
+        test = ad.InitializeAutoDiff(self.test_vals[2])
+        expected = np.zeros((3,))
+        grad_ad = self.fun.gradient(test)
+        np.testing.assert_allclose(np.squeeze(ad.ExtractValue(grad_ad)), expected, atol=1e-12, err_msg=f"ConstantModel fails to correctly evaluate gradient with autodiff type")
+
 class FlatModelTest(unittest.TestCase):
     def setUp(self):
         self.loc = 3
@@ -92,34 +113,25 @@ class FlatModelTest(unittest.TestCase):
     def test_gradient(self):
         for test in self.test_vals:
             grad = self.fun.gradient(test)
-            test_ad = np.squeeze(ad.InitializeAutoDiff(test))
+            test_ad = ad.InitializeAutoDiff(test)
             eval_ad = self.fun.eval(test_ad)
             np.testing.assert_allclose(grad, eval_ad.derivatives(), atol=1e-12, err_msg=f"FlatModel gradient does not match autodiff gradient on {test} example")
 
-class SemiparametricModelTest(unittest.TestCase):
-    def setUp(self):
-        pass
+    def test_eval_autodiff(self):
+        """Test that we can evaluate the function with autodiff types"""
+        test = ad.InitializeAutoDiff(self.test_vals[0])
+        expected = self.test_ans[0]
+        eval_ad = self.fun.eval(test)
+        np.testing.assert_allclose(eval_ad.value(), expected, atol=1e-12, err_msg=f"FlatModel fails to evaluate autodiff type correctly")
 
-    def test_prior_evaluation(self):
-        pass
-
-    def test_prior_gradient(self):
-        pass
-
-    def test_posterior_evaluation(self):
-        pass
-
-    def test_posterior_gradient(self):
-        pass
-
-    def test_add_samples(self):
-        pass
-
-    def test_model_errors(self):
-        pass
+    def test_gradient_autodiff(self):
+        """Test that we can evaluate the gradient using autodiff types"""
+        test = ad.InitializeAutoDiff(self.test_vals[0])
+        expected = self.dir
+        grad_ad = self.fun.gradient(test)
+        np.testing.assert_allclose(np.squeeze(ad.ExtractValue(grad_ad)), expected, atol=1e-12, err_msg=f"FlatModel fails to correctly evaluate gradient with autodiff type")
 
 class ContactModelTest(unittest.TestCase):
-    # TODO: Unit test with autodiff types, for use in MathematicalProgramming / MPC
     def setUp(self):
         self.model = cm.ContactModel.FlatSurfaceWithConstantFriction(friction = 0.5)
         self.test_points = [np.array([1, 2, 3]), 
@@ -148,9 +160,114 @@ class ContactModelTest(unittest.TestCase):
         for test in self.test_points:
             frame = self.model.local_frame(test)
             np.testing.assert_allclose(frame, self.expected_frame, atol=1e-12, err_msg=f"Evaluating local frame inaccurate at test point {test}")
-class SemiparametricContactModelTest(unittest.TestCase):
-    pass
 
+    def test_surface_eval_autodiff(self):
+        """Test evaluating the contact surface with autodiff types"""
+        test = ad.InitializeAutoDiff(self.test_points[0])
+        expected = self.expected_surfs[0]
+        surf_ad = self.model.eval_surface(test)
+        np.testing.assert_allclose(surf_ad.value(), expected, atol=1e-12, err_msg=f"Contact Model surface evaluation inaccurate using autodiff types")
+
+    def test_friction_eval_autodiff(self):
+        """Test evaluating the friction coefficient with autodiff types"""
+        test = ad.InitializeAutoDiff(self.test_points[0])
+        expected = self.expected_friction
+        fric_ad = self.model.eval_friction(test)
+        np.testing.assert_allclose(fric_ad.value(), expected, atol=1e-12, err_msg=f"Contact model evaluating friction using autodiffs is inaccurate")
+
+    def test_local_frame_autodiff(self):
+        """Test evaluating the local frame using autodiffs"""
+        test = ad.InitializeAutoDiff(self.test_points[0])
+        frame_ad = self.model.local_frame(test)
+        np.testing.assert_allclose(ad.ExtractValue(frame_ad), self.expected_frame, atol=1e-12, err_msg=f"Contact model local frame evaluation inaccurate when using autodiff types")
+
+class SemiparametricModelTest(unittest.TestCase):
+    def setUp(self):
+        self.model = cm.SemiparametricModel.ConstantPriorWithRBFKernel(const = 0, length_scale=1)
+        self.data = np.array([[1, 0, 0],
+                             [2, 0, -1]]) 
+        self.weights = np.array([0, 1]) 
+        # Test case data
+        self.test_point = np.array([[1, 1, 0]])  
+        self.expected_posterior = np.array([np.exp(-6)])
+        self.expected_errors = np.array([np.exp(-1), 1])
+
+    def test_prior_evaluation(self):
+        """Test evaluating the model before data has been added"""
+        eval = self.model.eval(self.test_point)
+        np.testing.assert_allclose(eval, np.zeros((1,)), atol=1e-12, err_msg=f"Semiparametric model fails to evaluate the prior accurately")
+
+    def test_prior_gradient(self):
+        """Test that we can evaluate the model gradient before data has been added"""
+        grad = self.model.gradient(self.test_point)
+        np.testing.assert_allclose(grad, np.zeros((3,)), atol=1e-12, err_msg=f"Semiparametric model fails to evaluate the prior gradient accurately")
+
+    def test_posterior_evaluation(self):
+        """Test evaluating the model after data has been added"""
+        self.model.add_samples(self.data, self.weights)
+        eval = self.model.eval(self.test_point)
+        np.testing.assert_allclose(eval, self.expected_posterior, atol=1e-8, err_msg=f"Semiparametric model fails to evaluate the posterior accurately")
+        
+    def test_posterior_gradient(self):
+        """
+        Test evaluating the model gradient after data has been added
+        Check gradient calculation against autodiff type
+        """
+        self.model.add_samples(self.data, self.weights)
+        grad = self.model.gradient(self.test_point)
+        test_ad = ad.InitializeAutoDiff(self.test_point)
+        grad_expected = ad.ExtractGradient(self.model.eval(test_ad))
+        np.testing.assert_allclose(grad, grad_expected, atol=1e-8, err_msg=f"Semiparametric model fails to evaluate the posterior gradient accurately")
+
+    def test_add_samples(self):
+        """Check that adding sample points to the model works"""
+        self.assertEqual(self.model.num_samples, 0, msg=f"Nonzero number of example points before adding data to the model")
+        self.model.add_samples(self.data, self.weights)
+        self.assertEqual(self.model.num_samples, 2, msg=f"Incorrect number of example points added")
+
+    def test_model_errors(self):
+        """Check that we can get the modeling errors accurately"""
+        self.model.add_samples(self.data, self.weights)
+        err = self.model.model_errors
+        np.testing.assert_allclose(err, self.expected_errors, atol=1e-8, err_msg=f"Calculating model errors is inaccurate")
+
+    def test_posterior_autodiff(self):
+        """
+        Check that we can evaluate the posterior using autodiffs
+        Check against the gradient calculated by evaluating *eval* with autodiff types
+        """
+        self.model.add_samples(self.data, self.weights)
+        test_ad = ad.InitializeAutoDiff(self.test_point)
+        eval_ad = self.model.eval(test_ad)
+        np.testing.assert_allclose(eval_ad.value(), self.expected_posterior, atol=1e-8, err_msg=f"Semiparametric model fails to evaluate posterior correctly using autodiff types")
+
+    def test_posterior_gradient_autodiff(self):
+        """Check that we can evaluate the posterior gradient using autodiffs"""
+        self.model.add_samples(self.data, self.weights)
+        test_ad = ad.InitializeAutoDiff(self.test_point)
+        grad_ad = self.model.gradient(test_ad)
+        eval_ad = self.model.eval(test_ad)
+        np.testing.assert_allclose(ad.ExtractValue(grad_ad), eval_ad.derivatives(), atol=1e-8, err_msg=f"Semiparametric model fails to evaluate posterior correctly using autodiff types")
+
+
+class SemiparametricContactModelTest(unittest.TestCase):
+    def setUp(self):
+        pass
+
+    def test_add_samples(self):
+        pass
+
+    def test_surface_eval(self):
+        pass
+
+    def test_friction_eval(self):
+        pass
+
+    def test_surface_eval_autodiff(self):
+        pass
+
+    def test_friction_eval_autodiff(self):
+        pass
 
 if __name__ == '__main__':
     unittest.main()
