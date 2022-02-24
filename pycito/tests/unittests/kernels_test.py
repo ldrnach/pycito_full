@@ -5,6 +5,7 @@ Luke Drnach
 February 23, 2022
 """
 #TODO: Handle cases where input to kernel is (N, 1) instead of (N, )
+#TODO: Unittesting using autodiff types as inputs - (N,1) types
 import unittest
 import numpy as np
 import pydrake.autodiffutils as ad

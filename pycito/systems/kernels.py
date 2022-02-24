@@ -24,12 +24,18 @@ class DifferentiableKernelBase(abc.ABC):
         Return values:
             K: (n_samples_x, n_samples_y) kernel matrix
         """
+        # Input checking
         assert X.shape[0] == Y.shape[0], 'X and Y must have the same number of rows (features)'
-        X = np.atleast_2d(X)
-        Y = np.atleast_2d(Y)
-        K = np.zeros((X.shape[1], Y.shape[1]))
-        for i, x in enumerate(X.T):
-            for j, y in enumerate(Y.T):
+        X = np.reshape(X, (X.shape[0], -1)).T   # broadcasting for (N, ) vectors
+        Y = np.reshape(Y, (Y.shape[0], -1)).T
+        if X.dtype is np.dtype(object) or Y.dtype is np.dtype(object):
+            ktype=np.dtype(object)
+        else:
+            ktype=np.dtype(float)
+        # Create the kernel matrix
+        K = np.zeros((X.shape[0], Y.shape[0]), dtype=ktype)
+        for i, x in enumerate(X):
+            for j, y in enumerate(Y):
                 K[i, j] = self.eval(x, y)
         return K
 
@@ -40,12 +46,18 @@ class DifferentiableKernelBase(abc.ABC):
         Return values:
             K: (n_samples_x, n_samples_x) symmetric positive-semidefinite kernel matrix
         """
-        X = np.atleast_2d(X)
-        K = np.zeros((X.shape[1], X.shape[1]))
-        for i, x in enumerate(X.T):
+        # Input checking
+        X = np.reshape(X, (X.shape[0], -1)).T   #Broadcasting for (N,) vectors
+        if X.dtype is np.dtype(object):
+            ktype=np.dtype(object)
+        else:
+            ktype=np.dtype(float)
+        # Calculate the kernel matrix
+        K = np.zeros((X.shape[0], X.shape[0]), dtype=ktype)
+        for i, x in enumerate(X):
             K[i, i] = 0.5 * self.eval(x, x)
-            for j in range(i+1, X.shape[1]):
-                K[i, j] = self.eval(x, X[:, j])
+            for j in range(i+1, X.shape[0]):
+                K[i, j] = self.eval(x, X[j,:])
         # Symmetrize
         return K + K.transpose()
 
