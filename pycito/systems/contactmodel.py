@@ -113,14 +113,15 @@ class SemiparametricModel(DifferentiableModel):
         adds samples, and the relevant weights, to the model
 
         Arguments:
-            samples (n_samples, n_features): numpy array of sample points
+            samples (n_features, n_samples): numpy array of sample points
             weights (n_samples, ): numpy array of corresponding kernel weights
         """
-        assert samples.shape[0] == weights.shape[0], 'there must be as many weights as there are samples'
+        samples = np.atleast_2d(samples)
+        assert samples.shape[1] == weights.shape[0], 'there must be as many weights as there are samples'
         if self._sample_points is not None:
             assert samples.shape[1] == self._sample_points.shape[1], 'new samples must have the same number of features as the existing samples'
             self._sample_points = np.concatenate([self._sample_points, samples], axis=0)
-            self._kernel_weights = np.concatenate([self._weights, weights], axis=0)
+            self._kernel_weights = np.concatenate([self._kernel_weights, weights], axis=0)
         else:
             self._sample_points = samples
             self._kernel_weights = weights        
@@ -136,7 +137,7 @@ class SemiparametricModel(DifferentiableModel):
         y = self.prior(x)
         # Evaluate the kernel
         if self._sample_points is not None:
-            y += self.kernel(x, self._sample).dot(self._kernel_weights)
+            y += self.kernel(x, self._sample_points).dot(self._kernel_weights)
         return y
 
     def gradient(self, x):
@@ -150,8 +151,8 @@ class SemiparametricModel(DifferentiableModel):
         dy = self.prior.gradient(x)
         # Evaluate the kernel gradient
         if self._sample_points is not None:
-            for point, weight in zip(self._sample_points, self._kernel_weights):
-                dy += self.kernel.gradient(x, point) * weight
+            for point, weight in zip(self._sample_points.T, self._kernel_weights):
+                dy = dy + self.kernel.gradient(x, point) * weight
         return dy
 
     @property
@@ -166,7 +167,7 @@ class SemiparametricModel(DifferentiableModel):
         if self._sample_points is None:
             return 0
         else:
-            return self._sample_points.shape[0]
+            return self._sample_points.shape[1]
 
 class ContactModel():
     def __init__(self, surface, friction):

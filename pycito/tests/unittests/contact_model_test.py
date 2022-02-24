@@ -185,11 +185,11 @@ class SemiparametricModelTest(unittest.TestCase):
     def setUp(self):
         self.model = cm.SemiparametricModel.ConstantPriorWithRBFKernel(const = 0, length_scale=1)
         self.data = np.array([[1, 0, 0],
-                             [2, 0, -1]]) 
+                             [2, 0, -1]]).T 
         self.weights = np.array([0, 1]) 
         # Test case data
-        self.test_point = np.array([[1, 1, 0]])  
-        self.expected_posterior = np.array([np.exp(-6)])
+        self.test_point = np.array([1, 1, 0])  
+        self.expected_posterior = np.array([np.exp(-3/2)])
         self.expected_errors = np.array([np.exp(-1), 1])
 
     def test_prior_evaluation(self):
@@ -216,7 +216,7 @@ class SemiparametricModelTest(unittest.TestCase):
         self.model.add_samples(self.data, self.weights)
         grad = self.model.gradient(self.test_point)
         test_ad = ad.InitializeAutoDiff(self.test_point)
-        grad_expected = ad.ExtractGradient(self.model.eval(test_ad))
+        grad_expected = np.squeeze(ad.ExtractGradient(self.model.eval(test_ad)))
         np.testing.assert_allclose(grad, grad_expected, atol=1e-8, err_msg=f"Semiparametric model fails to evaluate the posterior gradient accurately")
 
     def test_add_samples(self):
@@ -236,18 +236,24 @@ class SemiparametricModelTest(unittest.TestCase):
         Check that we can evaluate the posterior using autodiffs
         Check against the gradient calculated by evaluating *eval* with autodiff types
         """
+        #TODO: Update kernels to handle (N,1) inputs as well as (N,) inputs - autodiff is (N,1)
         self.model.add_samples(self.data, self.weights)
         test_ad = ad.InitializeAutoDiff(self.test_point)
         eval_ad = self.model.eval(test_ad)
-        np.testing.assert_allclose(eval_ad.value(), self.expected_posterior, atol=1e-8, err_msg=f"Semiparametric model fails to evaluate posterior correctly using autodiff types")
+        self.assertEqual(eval_ad.shape, self.expected_posterior.shape, msg="Evaluating posterior with autodiff returns the wrong shape")
+        np.testing.assert_allclose(np.squeeze(ad.ExtractValue(eval_ad)), self.expected_posterior, atol=1e-8, err_msg=f"Semiparametric model fails to evaluate posterior correctly using autodiff types")
 
     def test_posterior_gradient_autodiff(self):
-        """Check that we can evaluate the posterior gradient using autodiffs"""
+        """
+        Check that we can evaluate the posterior gradient using autodiffs
+        Check against the gradient calculated using *eval* with autodiff types
+        """
+        #TODO: Update kernels to handle (N,1) inputs as well as (N,) inputs - autodiff is (N,1)
         self.model.add_samples(self.data, self.weights)
         test_ad = ad.InitializeAutoDiff(self.test_point)
         grad_ad = self.model.gradient(test_ad)
         eval_ad = self.model.eval(test_ad)
-        np.testing.assert_allclose(ad.ExtractValue(grad_ad), eval_ad.derivatives(), atol=1e-8, err_msg=f"Semiparametric model fails to evaluate posterior correctly using autodiff types")
+        np.testing.assert_allclose(ad.ExtractValue(grad_ad), ad.ExtractGradient(eval_ad), atol=1e-8, err_msg=f"Semiparametric model fails to evaluate posterior correctly using autodiff types")
 
 
 class SemiparametricContactModelTest(unittest.TestCase):
