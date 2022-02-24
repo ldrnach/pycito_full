@@ -7,8 +7,6 @@ February 22, 2022
 import numpy as np
 import abc
 
-#TODO Unittest
-
 class DifferentiableKernelBase(abc.ABC):
     
     def __call__(self, X, Y = None):
@@ -20,31 +18,34 @@ class DifferentiableKernelBase(abc.ABC):
     def _kernel_matrix(self, X, Y):
         """
         Arguments:
-            X: (n_samples_x, n_features) set of feature vectors
-            Y: (n_samples_y, n_features) set of feature vectors
+            X: (n_features, n_samples_x) set of feature vectors
+            Y: (n_features, n_samples_y) set of feature vectors
         
         Return values:
             K: (n_samples_x, n_samples_y) kernel matrix
         """
-        assert X.shape[1] == Y.shape[1], 'X and Y must have the same number of columns'
-        K = np.zeros((X.shape[0], Y.shape[0]))
-        for i, x in enumerate(X):
-            for j, y in enumerate(Y):
+        assert X.shape[0] == Y.shape[0], 'X and Y must have the same number of rows (features)'
+        X = np.atleast_2d(X)
+        Y = np.atleast_2d(Y)
+        K = np.zeros((X.shape[1], Y.shape[1]))
+        for i, x in enumerate(X.T):
+            for j, y in enumerate(Y.T):
                 K[i, j] = self.eval(x, y)
         return K
 
     def _symmetric_kernel_matrix(self, X):
         """
         Arguments:
-            X: (n_samples_x, n_features) set of feature vectors
+            X: (n_features, n_samples_x) set of feature vectors
         Return values:
             K: (n_samples_x, n_samples_x) symmetric positive-semidefinite kernel matrix
         """
-        K = np.zeros((X.shape[0], X.shape[0]))
-        for i, x in enumerate(X):
+        X = np.atleast_2d(X)
+        K = np.zeros((X.shape[1], X.shape[1]))
+        for i, x in enumerate(X.T):
             K[i, i] = 0.5 * self.eval(x, x)
-            for j in range(i+1, X.shape[0]):
-                K[i, j] = self.eval(x, X[j, :])
+            for j in range(i+1, X.shape[1]):
+                K[i, j] = self.eval(x, X[:, j])
         # Symmetrize
         return K + K.transpose()
 
