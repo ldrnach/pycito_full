@@ -24,11 +24,11 @@ def householderortho3D(normal):
     if normal[0] < 0 and normal[1] == 0 and normal[2] == 0:
         normal = -normal
     mag = np.linalg.norm(normal)
-    h = np.zeros((3,))
+    h = np.zeros_like(normal)
     h[0] = max([normal[0] - mag, normal[0] + mag])
     h[1:] = np.copy(normal[1:])
     # Calculate the tangent and binormal vectors
-    hmag = h.dot(h)
+    hmag = np.sum(h ** 2)
     tangent = np.array([-2 * h[0]*h[1]/hmag, 1 - 2 * h[1]**2 /hmag, -2*h[1]*h[2]/hmag])
     binormal = np.array([-2 *h[0] * h[2]/hmag, -2 * h[1] * h[2] / hmag, 1 - 2 * h[2]**2 / hmag])
     return tangent, binormal
@@ -54,7 +54,7 @@ class ConstantModel(DifferentiableModel):
         Evalute the constant prior
         Note: the strange syntax ensures the prior works with autodiff types
         """
-        return np.zeros_like(x).dot(x) + self._const
+        return np.vdot(np.zeros_like(x), x) + self._const
 
     def gradient(self, x):
         """
@@ -72,13 +72,13 @@ class FlatModel(DifferentiableModel):
         """
         Evaluates the flat model, written to work with autodiff types
         """
-        return self._direction.dot(x) - self._location
+        return np.vdot(self._direction, x) - self._location
 
     def gradient(self, x):
         """
         Evaluate the gradient of the flat model, written to work with autodiff types
         """
-        return self._direction + 0*x
+        return self._direction + np.vdot(np.zeros_like(x), x)
 
 class SemiparametricModel(DifferentiableModel):
     def __init__(self, prior, kernel):
@@ -88,6 +88,25 @@ class SemiparametricModel(DifferentiableModel):
         self.kernel = kernel
         self._kernel_weights = None
         self._sample_points = None
+
+    @classmethod
+    def ConstantPriorWithRBFKernel(cls, const=0, length_scale=1):
+        return cls(prior = ConstantModel(const = const), kernel=kernels.RBFKernel(length_scale=length_scale))
+
+    @classmethod
+    def FlatPriorWithRBFKernel(cls, location = 0., direction = np.array([0, 0, 1]), length_scale = 1.):
+        return cls(prior = FlatModel(location = location, direction = direction),
+                    kernel = kernels.RBFKernel(length_scale=length_scale))
+
+    @classmethod
+    def ConstantPriorWithHuberKernel(cls, const=0, length_scale=1, delta=1):
+        return cls(prior = ConstantModel(const = const),
+                    kernel = kernels.PseudoHuberKernel(length_scale=length_scale, delta=delta))
+    
+    @classmethod
+    def FlatPriorWithHuberKernel(cls, location = 0, direction = np.array([0, 0, 1]), length_scale = 1., delta = 1):
+        return cls(prior = FlatModel(location, direction),
+                    kernel = kernels.PseudoHuberKernel(length_scale, delta))
 
     def add_samples(self, samples, weights):
         """
@@ -101,10 +120,10 @@ class SemiparametricModel(DifferentiableModel):
         if self._sample_points is not None:
             assert samples.shape[1] == self._sample_points.shape[1], 'new samples must have the same number of features as the existing samples'
             self._sample_points = np.concatenate([self._sample_points, samples], axis=0)
-            self._weights = np.concatenate([self._weights, weights], axis=0)
+            self._kernel_weights = np.concatenate([self._weights, weights], axis=0)
         else:
             self._sample_points = samples
-            self._weights = weights        
+            self._kernel_weights = weights        
 
     def eval(self, x):
         """
@@ -117,7 +136,7 @@ class SemiparametricModel(DifferentiableModel):
         y = self.prior(x)
         # Evaluate the kernel
         if self._sample_points is not None:
-            y += self.kernel(self._sample_points, x).dot(self._kernel_weights)
+            y += self.kernel(x, self._sample).dot(self._kernel_weights)
         return y
 
     def gradient(self, x):
@@ -141,6 +160,13 @@ class SemiparametricModel(DifferentiableModel):
             return None
         K = self.kernel(self._sample_points)
         return K.dot(self._kernel_weights)
+
+    @property
+    def num_samples(self):
+        if self._sample_points is None:
+            return 0
+        else:
+            return self._sample_points.shape[0]
 
 class ContactModel():
     def __init__(self, surface, friction):
@@ -211,30 +237,27 @@ class SemiparametricContactModel(ContactModel):
         super(SemiparametricContactModel, self).__init__(surface, friction)
 
     @classmethod
-    def FlatSurfaceWithRBFKernel(cls, height=0., friction=1., lengthscale=0.1):
+    def FlatSurfaceWithRBFKernel(cls, height=0., friction=1., length_scale=0.1):
         """
         Factory method for constructing a semiparametric contact model
         
         Assumes the prior is a flat surface with constant friction
         uses independent RBF kernels for the surface and friction models
         """
-        surf = SemiparametricModel(prior = FlatModel(height = height),
-                                    kernel = kernels.RBFKernel(length_scale = lengthscale))
-        fric = SemiparametricModel(prior = ConstantModel(const = friction),
-                                    kernel = kernels.RBFKernel(length_scale = lengthscale))
+        surf = SemiparametricModel.FlatModelWithRBFKernel(location = height, length_scale=length_scale)
+        fric = SemiparametricModel.ConstantModelWithRBFKernel(const = friction, length_scale=length_scale)
         return cls(surf, fric)
 
     @classmethod
-    def FlatSurfaceWithHuberKernel(cls, height = 0., friction = 1., lengthscale = 0.1, delta = 0.1):
+    def FlatSurfaceWithHuberKernel(cls, height = 0., friction = 1., length_scale = 0.1, delta = 0.1):
         """
         Factory method for constructing a semiparametric contact model
         Assumes the prior is a flat surface with constant friction
         Uses independent Pseudo-Huber kernels for the surface and friction models
         """
-        surf = SemiparametricModel(prior = FlatModel(height = height),
-                                    kernel = kernels.PseudoHuberKernel(lengthscale, delta))
-        fric = SemiparametricModel(prior = ConstantModel(friction),
-                                    kernel = kernels.PseudoHuberKernel(lengthscale, delta))
+        surf = SemiparametricModel.FlatModelWithHuberKernel(location = height, length_scale=length_scale, delta=delta)
+        fric = SemiparametricModel.ConstantModelWithHuberKernel(const = friction, length_scale=length_scale, delta=delta)
+    
         return cls(surf, fric)
 
     def add_samples(self, sample_points, surface_weights, friction_weights):
