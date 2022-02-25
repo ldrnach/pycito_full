@@ -83,7 +83,7 @@ class FlatModel(DifferentiableModel):
 class SemiparametricModel(DifferentiableModel):
     def __init__(self, prior, kernel):
         assert issubclass(type(prior), DifferentiableModel), "prior must be a concrete implementation of DifferentiablePrior"
-        assert issubclass(type(kernel), kernels.DifferentiableKernelBase), "kernel must be a concrete implementation of DifferentiableKernelBase"
+        assert issubclass(type(kernel), kernels.DifferentiableStationaryKernel), "kernel must be a concrete implementation of DifferentiableStationaryKernel"
         self.prior = prior
         self.kernel = kernel
         self._kernel_weights = None
@@ -132,13 +132,16 @@ class SemiparametricModel(DifferentiableModel):
         
         Arguments:
             x: (n_features,) numpy array, the sample point at which to evaluate the model
+        
+        Return Values:
+            y: (1,) the output of the model
         """
         # Evaluate the prior
         y = self.prior(x)
         # Evaluate the kernel
         if self._sample_points is not None:
             y += self.kernel(x, self._sample_points).dot(self._kernel_weights)
-        return y
+        return y.flatten()
 
     def gradient(self, x):
         """
@@ -146,14 +149,19 @@ class SemiparametricModel(DifferentiableModel):
 
         Arguments:
             x: (n_features,) numpy array, the sample point at which to evaluate the model
+
+        Return value:
+            grad (1, n_features) numpy array, the gradient of the model at the sample point
         """
         # Evaluate the gradient of the prior
         dy = self.prior.gradient(x)
+        dy = np.reshape(dy, (dy.shape[0], -1))
         # Evaluate the kernel gradient
         if self._sample_points is not None:
-            for point, weight in zip(self._sample_points.T, self._kernel_weights):
-                dy = dy + self.kernel.gradient(x, point) * weight
-        return dy
+            dk = self.kernel.gradient(x, self._sample_points)
+            w = np.reshape(self._kernel_weights, (self._kernel_weights.shape[0], -1))
+            dy = dy + dk.T.dot(w) 
+        return dy.T
 
     @property
     def model_errors(self):
