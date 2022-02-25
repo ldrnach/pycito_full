@@ -10,9 +10,10 @@ Note that, due to issues with pybind, TimeSteppingMultibodyPlant does NOT subcla
 Luke Drnach
 October 9, 2020
 """
+import abc
 import numpy as np
 from math import pi
-from pydrake.all import MultibodyPlant, DiagramBuilder, SceneGraph,AddMultibodyPlantSceneGraph, JacobianWrtVariable, AngleAxis, RotationMatrix, RigidTransform, MathematicalProgram, Solve
+from pydrake.all import DiagramBuilder, AddMultibodyPlantSceneGraph, JacobianWrtVariable, AngleAxis, RotationMatrix, MathematicalProgram, Solve, SnoptSolver
 from pydrake.geometry import Role, Sphere
 from pydrake.multibody.parsing import Parser
 from pycito.systems.terrain import FlatTerrain
@@ -578,9 +579,29 @@ class TimeSteppingMultibodyPlant():
 
     @property
     def has_joint_limits(self):
+        return self.num_joint_limits > 0
+
+    @property
+    def num_states(self):
+        return self.multibody.num_positions() + self.multibody.num_velocities()
+
+    @property
+    def num_acutators(self):
+        return self.multibody.num_actuators()
+
+    @property
+    def num_positions(self):
+        return self.multibody.num_positions()
+
+    @property
+    def num_velocities(self):
+        return self.multibody.num_velocities()
+
+    @property
+    def num_joint_limits(self):
         qhigh= self.multibody.GetPositionUpperLimits()
         qlow = self.multibody.GetPositionLowerLimits()
-        return np.any(np.isfinite(np.concatenate([qhigh, qlow])))
+        return np.sum(np.isfinite(np.row_stack(qhigh, qlow)))
 
 def solve_lcp(P, q):
     prog = MathematicalProgram()
