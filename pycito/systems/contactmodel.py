@@ -5,7 +5,7 @@ Luke Drnach
 February 16, 2022
 """
 
-#TODO: Unittesting
+#TODO: rewrite models to always return numpy arrays
 #TODO: Integrate with Timestepping
 import numpy as np
 import abc
@@ -53,15 +53,27 @@ class ConstantModel(DifferentiableModel):
         """
         Evalute the constant prior
         Note: the strange syntax ensures the prior works with autodiff types
+
+        Arguments:
+            x: (n, ) numpy array
+
+        Return Values:
+            out: (1, ) numpy array
         """
-        return np.vdot(np.zeros_like(x), x) + self._const
+        return np.atleast_1d(np.vdot(np.zeros_like(x), x) + self._const)
 
     def gradient(self, x):
         """
         Evalute the gradient of the prior
         Note: the syntax 0*x ensures the prior works with autodiff types
+
+        Arguments:
+            x: (n, ) numpy array
+
+        Return Values:
+            out: (1, n) numpy array
         """
-        return 0 * x
+        return np.reshape(0 * x, (1, x.shape[0]))
 
 class FlatModel(DifferentiableModel):
     def __init__(self, location = 1.0, direction = np.array([0, 0, 1])):
@@ -71,14 +83,26 @@ class FlatModel(DifferentiableModel):
     def eval(self, x):
         """
         Evaluates the flat model, written to work with autodiff types
+
+        Arguments:
+            x: (3,) numpy array
+
+        Return values:
+            out: (1,) numpy array
         """
-        return np.vdot(self._direction, x) - self._location
+        return np.atleast_1d(np.vdot(self._direction, x) - self._location)
 
     def gradient(self, x):
         """
         Evaluate the gradient of the flat model, written to work with autodiff types
+
+        Arguments:
+            x: (3,) numpy array
+
+        Return values:
+            out: (1,3) numpy array
         """
-        return self._direction + np.vdot(np.zeros_like(x), x)
+        return np.reshape(self._direction + np.vdot(np.zeros_like(x), x), (1, self._direction.size))
 
 class SemiparametricModel(DifferentiableModel):
     def __init__(self, prior, kernel):
@@ -140,8 +164,8 @@ class SemiparametricModel(DifferentiableModel):
         y = self.prior(x)
         # Evaluate the kernel
         if self._sample_points is not None:
-            y += self.kernel(x, self._sample_points).dot(self._kernel_weights)
-        return y.flatten()
+            y = y + self.kernel(x, self._sample_points).dot(self._kernel_weights)
+        return y
 
     def gradient(self, x):
         """
@@ -160,8 +184,8 @@ class SemiparametricModel(DifferentiableModel):
         if self._sample_points is not None:
             dk = self.kernel.gradient(x, self._sample_points)
             w = np.reshape(self._kernel_weights, (self._kernel_weights.shape[0], -1))
-            dy = dy + dk.T.dot(w) 
-        return dy.T
+            dy = dy + w.T.dot(dk)
+        return dy
 
     @property
     def model_errors(self):
@@ -234,7 +258,7 @@ class ContactModel():
         Return values:
             R: a (3,3) numpy array. The first row is the surface normal vector. The next two rows are the surface tangent vectors
         """
-        normal = self.surface.gradient(pt)
+        normal = self.surface.gradient(pt).flatten()
         normal = normal / np.linalg.norm(normal)
         tangent, binormal = householderortho3D(normal)
         return np.column_stack([normal, tangent, binormal])
@@ -253,8 +277,8 @@ class SemiparametricContactModel(ContactModel):
         Assumes the prior is a flat surface with constant friction
         uses independent RBF kernels for the surface and friction models
         """
-        surf = SemiparametricModel.FlatModelWithRBFKernel(location = height, length_scale=length_scale)
-        fric = SemiparametricModel.ConstantModelWithRBFKernel(const = friction, length_scale=length_scale)
+        surf = SemiparametricModel.FlatPriorWithRBFKernel(location = height, length_scale=length_scale)
+        fric = SemiparametricModel.ConstantPriorWithRBFKernel(const = friction, length_scale=length_scale)
         return cls(surf, fric)
 
     @classmethod
@@ -264,8 +288,8 @@ class SemiparametricContactModel(ContactModel):
         Assumes the prior is a flat surface with constant friction
         Uses independent Pseudo-Huber kernels for the surface and friction models
         """
-        surf = SemiparametricModel.FlatModelWithHuberKernel(location = height, length_scale=length_scale, delta=delta)
-        fric = SemiparametricModel.ConstantModelWithHuberKernel(const = friction, length_scale=length_scale, delta=delta)
+        surf = SemiparametricModel.FlatPriorWithHuberKernel(location = height, length_scale=length_scale, delta=delta)
+        fric = SemiparametricModel.ConstantPriorWithHuberKernel(const = friction, length_scale=length_scale, delta=delta)
     
         return cls(surf, fric)
 

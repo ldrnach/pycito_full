@@ -4,7 +4,6 @@ unittests for pycito.systems.contactmodel.py
 Luke Drnach
 February 23, 2022
 """
-#TODO: Test semiparametric models 
 import unittest
 import numpy as np
 
@@ -75,15 +74,15 @@ class ConstantModelTest(unittest.TestCase):
             dout = self.fun.gradient(test)
             t_ad = np.squeeze(ad.InitializeAutoDiff(test))
             out_ad = self.fun(t_ad)
-            dout_ad = out_ad.derivatives()
+            dout_ad = ad.ExtractGradient(out_ad)
             np.testing.assert_allclose(dout, dout_ad, atol=1e-12, err_msg=f"Gradients for constant model do not match autodiff gradients on input {test}")
 
     def test_eval_autodiff(self):
         """Test that we can evaluate the function with autodiff types"""
         test = ad.InitializeAutoDiff(self.test_vals[2])
-        expected = self.c
+        expected = np.array([self.c])
         eval_ad = self.fun.eval(test)
-        np.testing.assert_allclose(eval_ad.value(), expected, atol=1e-12, err_msg=f"ConstantModel fails to evaluate autodiff type correctly")
+        np.testing.assert_allclose(ad.ExtractValue(eval_ad).flatten(), expected, atol=1e-12, err_msg=f"ConstantModel fails to evaluate autodiff type correctly")
 
     def test_gradient_autodiff(self):
         """Test that we can evaluate the gradient using autodiff types"""
@@ -115,21 +114,21 @@ class FlatModelTest(unittest.TestCase):
             grad = self.fun.gradient(test)
             test_ad = ad.InitializeAutoDiff(test)
             eval_ad = self.fun.eval(test_ad)
-            np.testing.assert_allclose(grad, eval_ad.derivatives(), atol=1e-12, err_msg=f"FlatModel gradient does not match autodiff gradient on {test} example")
+            np.testing.assert_allclose(grad, ad.ExtractGradient(eval_ad), atol=1e-12, err_msg=f"FlatModel gradient does not match autodiff gradient on {test} example")
 
     def test_eval_autodiff(self):
         """Test that we can evaluate the function with autodiff types"""
         test = ad.InitializeAutoDiff(self.test_vals[0])
         expected = self.test_ans[0]
         eval_ad = self.fun.eval(test)
-        np.testing.assert_allclose(eval_ad.value(), expected, atol=1e-12, err_msg=f"FlatModel fails to evaluate autodiff type correctly")
+        np.testing.assert_allclose(ad.ExtractValue(eval_ad).flatten(), expected, atol=1e-12, err_msg=f"FlatModel fails to evaluate autodiff type correctly")
 
     def test_gradient_autodiff(self):
         """Test that we can evaluate the gradient using autodiff types"""
         test = ad.InitializeAutoDiff(self.test_vals[0])
-        expected = self.dir
+        expected = np.reshape(self.dir, (1,3))
         grad_ad = self.fun.gradient(test)
-        np.testing.assert_allclose(np.squeeze(ad.ExtractValue(grad_ad)), expected, atol=1e-12, err_msg=f"FlatModel fails to correctly evaluate gradient with autodiff type")
+        np.testing.assert_allclose(ad.ExtractValue(grad_ad), expected, atol=1e-12, err_msg=f"FlatModel fails to correctly evaluate gradient with autodiff type")
 
 class ContactModelTest(unittest.TestCase):
     def setUp(self):
@@ -166,14 +165,14 @@ class ContactModelTest(unittest.TestCase):
         test = ad.InitializeAutoDiff(self.test_points[0])
         expected = self.expected_surfs[0]
         surf_ad = self.model.eval_surface(test)
-        np.testing.assert_allclose(surf_ad.value(), expected, atol=1e-12, err_msg=f"Contact Model surface evaluation inaccurate using autodiff types")
+        np.testing.assert_allclose(ad.ExtractValue(surf_ad).flatten(), expected, atol=1e-12, err_msg=f"Contact Model surface evaluation inaccurate using autodiff types")
 
     def test_friction_eval_autodiff(self):
         """Test evaluating the friction coefficient with autodiff types"""
         test = ad.InitializeAutoDiff(self.test_points[0])
         expected = self.expected_friction
         fric_ad = self.model.eval_friction(test)
-        np.testing.assert_allclose(fric_ad.value(), expected, atol=1e-12, err_msg=f"Contact model evaluating friction using autodiffs is inaccurate")
+        np.testing.assert_allclose(ad.ExtractValue(fric_ad).flatten(), expected, atol=1e-12, err_msg=f"Contact model evaluating friction using autodiffs is inaccurate")
 
     def test_local_frame_autodiff(self):
         """Test evaluating the local frame using autodiffs"""
@@ -257,22 +256,81 @@ class SemiparametricModelTest(unittest.TestCase):
 
 class SemiparametricContactModelTest(unittest.TestCase):
     def setUp(self):
-        pass
-
-    def test_add_samples(self):
-        pass
+        self.model = cm.SemiparametricContactModel.FlatSurfaceWithRBFKernel(height = 1.0, friction=1.0)
+        self.data = np.array([[1, 0, 0],
+                        [2, 0, -1]]).T 
+        self.weights = np.array([0, 1]) 
+        # Test case data
+        self.test_point = np.array([1, 1, 0])  
+        self.expected_surface_posterior = np.array([np.exp(-3/2) - 1])
+        self.expected_friction_posterior = np.array([1 + np.exp(-3/2)])
 
     def test_surface_eval(self):
-        pass
+        """Test that we can evaluate the surface function accurately before and after adding points to the model"""
+        # Test evaluating the surface prior
+        eval = self.model.eval_surface(self.test_point)
+        np.testing.assert_allclose(eval, -np.ones((1,)), atol=1e-12, err_msg=f"Semiparametric model fails to evaluate the surface prior accurately for float types")
+        # Test evaluating the surface posterior
+        self.model.add_samples(self.data, self.weights, self.weights)
+        eval = self.model.eval_surface(self.test_point)
+        np.testing.assert_allclose(eval, self.expected_surface_posterior, atol=1e-8, err_msg=f"Semiparametric model fails to evaluate the surface posterior accurately for float types")
 
     def test_friction_eval(self):
-        pass
+        """Test that we can evaluate the friction function accurately before and after adding points to the model"""
+        # Test evaluating the friction prior
+        eval = self.model.eval_friction(self.test_point)
+        np.testing.assert_allclose(eval, np.ones((1,)), atol=1e-12, err_msg=f"Semiparametric model fails to evaluate the friction prior accurately for float types")
+        # Test evaluating the friction posterior
+        self.model.add_samples(self.data, self.weights, self.weights)
+        eval = self.model.eval_friction(self.test_point)
+        np.testing.assert_allclose(eval, self.expected_friction_posterior, atol=1e-8, err_msg=f"Semiparametric model fails to evaluate the friction posterior accurately for float types")
 
+    def test_local_frame(self):
+        """Test that we can evaluate the local frame before and after adding points to the model"""
+        # Test evaluating the local frame before adding data
+        R = self.model.local_frame(self.test_point)
+        R_expected = np.array([[0, 0, 1], [0, 1, 0], [-1, 0, 0]]).T
+        np.testing.assert_allclose(R, R_expected, atol=1e-6, err_msg=f"Evaluating prior local frame fails for float types")
+        # Test evaluating the local frame after adding data
+        self.model.add_samples(self.data, self.weights, self.weights)
+        R = self.model.local_frame(self.test_point)
+        np.testing.assert_allclose(R.dot(R.T), np.eye(3), atol=1e-6, err_msg=f"Evaluating posterior local frame does not return an orthonormal matrix for float types")
+        
     def test_surface_eval_autodiff(self):
-        pass
+        """Test that we can evaluate the surface using autodiff types"""
+        # Test evaluating the surface prior
+        test_ad = ad.InitializeAutoDiff(self.test_point)
+        eval = self.model.eval_surface(test_ad)
+        np.testing.assert_allclose(ad.ExtractValue(eval).flatten(), -np.ones((1,)), atol=1e-12, err_msg=f"Semiparametric model fails to evaluate the surface prior accurately using autodiff types")
+        # Test evaluating the surface posterior
+        self.model.add_samples(self.data, self.weights, self.weights)
+        eval = self.model.eval_surface(test_ad)
+        np.testing.assert_allclose(ad.ExtractValue(eval).flatten(), self.expected_surface_posterior, atol=1e-8, err_msg=f"Semiparametric model fails to evaluate the surface posterior accurately using autodiff types")
 
     def test_friction_eval_autodiff(self):
-        pass
+        """Test that we can evaluate the friction function accurately before and after adding points to the model"""
+        # Test evaluating the friction prior
+        test_ad = ad.InitializeAutoDiff(self.test_point)
+        eval = self.model.eval_friction(test_ad)
+        np.testing.assert_allclose(ad.ExtractValue(eval).flatten(), np.ones((1,)), atol=1e-12, err_msg=f"Semiparametric model fails to evaluate the friction prior accurately using autodiff types")
+        # Test evaluating the friction posterior
+        self.model.add_samples(self.data, self.weights, self.weights)
+        eval = self.model.eval_friction(test_ad)
+        np.testing.assert_allclose(ad.ExtractValue(eval).flatten(), self.expected_friction_posterior, atol=1e-8, err_msg=f"Semiparametric model fails to evaluate the friction posterior accurately using autodiff types")
+
+    def test_local_frame_autodiff(self):
+        """Test that we can evaluate the local frame before and after adding points to the model"""
+        # Test evaluating the local frame before adding data
+        test_ad = ad.InitializeAutoDiff(self.test_point)
+        R = self.model.local_frame(test_ad)
+        R_expected = np.array([[0, 0, 1], [0, 1, 0], [-1, 0, 0]]).T
+        np.testing.assert_allclose(ad.ExtractValue(R), R_expected, atol=1e-6, err_msg=f"Evaluating prior local frame fails for autodiff types")
+        # Test evaluating the local frame after adding data
+        self.model.add_samples(self.data, self.weights, self.weights)
+        R_ad = self.model.local_frame(test_ad)
+        R = ad.ExtractValue(R_ad)
+        np.testing.assert_allclose(R.dot(R.T), np.eye(3), atol=1e-6, err_msg=f"Evaluating posterior local frame does not return an orthonormal matrix for autodiff types")
+        
 
 if __name__ == '__main__':
     unittest.main()
