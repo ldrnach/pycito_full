@@ -231,6 +231,154 @@ class BackwardEulerDynamicsConstraint(MultibodyConstraint):
         nu = self.plant.multibody.num_actuators()
         return np.split(dvals, np.cumsum([1, nx, nx, nu]))
 
+class ExplicitEulerDynamicsConstraint(BackwardEulerDynamicsConstraint):
+    def __init__(self, plant):
+        super(ExplicitEulerDynamicsConstraint, self).__init__(plant)
+        self._description = "explicit_dynamics"
+
+
+    @staticmethod
+    def eval(plant, context, dt, state1, state2, control, force):
+        """
+        Uses Backward Euler integration to evaluate the multibody plant dynamics
+
+        Arguments:
+            plant: The TimeSteppingMultibodyPlant model to operate on
+            context: the associated MultibodyPlant Context
+            dt: scalar, the integration timestep
+            state1: the current state of the plant
+            state2: the next state of the plant
+            control: the control torques on the plant
+            force: all external forces on the plant (contact forces and joint limits)
+
+        Returns:
+            an array of constraint defects, (pos_err, vel_err) containing the position integration error pos_err and the velocity integration error vel_err
+        """
+        # Get positions and velocities
+        q1, v1 = np.split(state1, [plant.multibody.num_positions()])
+        q2, v2 = np.split(state2, [plant.multibody.num_positions()])
+        # Update the context - backward Euler integration
+        plant.multibody.SetPositionsAndVelocities(context, state1)
+        # Calculate the position integration error
+        fq = q2 - q1 - dt*plant.multibody.MapVelocityToQDot(context, v1)
+        # calculate generalized forces
+        M = plant.multibody.CalcMassMatrixViaInverseDynamics(context)
+        C = plant.multibody.CalcBiasTerm(context)
+        G = plant.multibody.CalcGravityGeneralizedForces(context)
+        B = plant.multibody.MakeActuationMatrix()
+        # Integrated Generalized forces
+        forces = (B.dot(control) - C + G)
+        # External forces
+        fN, fT = np.split(force, [plant.num_contacts()])
+        # Joint limits
+        if plant.has_joint_limits:
+            fT, jl = np.split(fT, [plant.num_friction()])
+            forces += plant.joint_limit_jacobian().dot(jl)
+        # Contact reaction forces
+        Jn, Jt = plant.GetContactJacobians(context)
+        forces += Jn.transpose().dot(fN) + Jt.transpose().dot(fT)
+        # Do inverse dynamics - velocity dynamics error
+        fv = M.dot(v2 - v1) - dt*forces
+        return np.concatenate((fq, fv), axis=0)
+class SemiImplicitEulerDynamicsConstraint(BackwardEulerDynamicsConstraint):
+    def __init__(self, plant):
+        super(SemiImplicitEulerDynamicsConstraint, self).__init__(plant)
+        self._description = "semi_implicit_dynamics"
+
+    @staticmethod
+    def eval(plant, context, dt, state1, state2, control, force):
+        """
+        Uses Backward Euler integration to evaluate the multibody plant dynamics
+
+        Arguments:
+            plant: The TimeSteppingMultibodyPlant model to operate on
+            context: the associated MultibodyPlant Context
+            dt: scalar, the integration timestep
+            state1: the current state of the plant
+            state2: the next state of the plant
+            control: the control torques on the plant
+            force: all external forces on the plant (contact forces and joint limits)
+
+        Returns:
+            an array of constraint defects, (pos_err, vel_err) containing the position integration error pos_err and the velocity integration error vel_err
+        """
+        # Get positions and velocities
+        q1, v1 = np.split(state1, [plant.multibody.num_positions()])
+        q2, v2 = np.split(state2, [plant.multibody.num_positions()])
+        # Update the context - backward Euler integration
+        plant.multibody.SetPositionsAndVelocities(context, state1)
+        # Calculate the position integration error
+        fq = q2 - q1 - dt*plant.multibody.MapVelocityToQDot(context, v2)
+        # calculate generalized forces
+        M = plant.multibody.CalcMassMatrixViaInverseDynamics(context)
+        C = plant.multibody.CalcBiasTerm(context)
+        G = plant.multibody.CalcGravityGeneralizedForces(context)
+        B = plant.multibody.MakeActuationMatrix()
+        # Integrated Generalized forces
+        forces = (B.dot(control) - C + G)
+        # External forces
+        fN, fT = np.split(force, [plant.num_contacts()])
+        # Joint limits
+        if plant.has_joint_limits:
+            fT, jl = np.split(fT, [plant.num_friction()])
+            forces += plant.joint_limit_jacobian().dot(jl)
+        # Contact reaction forces
+        Jn, Jt = plant.GetContactJacobians(context)
+        forces += Jn.transpose().dot(fN) + Jt.transpose().dot(fT)
+        # Do inverse dynamics - velocity dynamics error
+        fv = M.dot(v2 - v1) - dt*forces
+        return np.concatenate((fq, fv), axis=0)
+class ImplicitMidpointDynamicsConstraint(BackwardEulerDynamicsConstraint):
+    def __init__(self, plant):
+        super(ImplicitMidpointDynamicsConstraint, self).__init__(plant)
+        self._description = "midpoint_dynamics"
+
+    @staticmethod
+    def eval(plant, context, dt, state1, state2, control, force):
+        """
+        Uses Backward Euler integration to evaluate the multibody plant dynamics
+
+        Arguments:
+            plant: The TimeSteppingMultibodyPlant model to operate on
+            context: the associated MultibodyPlant Context
+            dt: scalar, the integration timestep
+            state1: the current state of the plant
+            state2: the next state of the plant
+            control: the control torques on the plant
+            force: all external forces on the plant (contact forces and joint limits)
+
+        Returns:
+            an array of constraint defects, (pos_err, vel_err) containing the position integration error pos_err and the velocity integration error vel_err
+        """
+        # Get positions and velocities
+        q1, v1 = np.split(state1, [plant.multibody.num_positions()])
+        q2, v2 = np.split(state2, [plant.multibody.num_positions()])
+        x_mid = (state1 + state2) / 2
+        _, vmid = np.split(x_mid, [plant.multibody.num_positions()])
+        # Update the context - backward Euler integration
+        plant.multibody.SetPositionsAndVelocities(context, x_mid)
+        # Calculate the position integration error
+        fq = q2 - q1 - dt*plant.multibody.MapVelocityToQDot(context, vmid)
+        # calculate generalized forces
+        M = plant.multibody.CalcMassMatrixViaInverseDynamics(context)
+        C = plant.multibody.CalcBiasTerm(context)
+        G = plant.multibody.CalcGravityGeneralizedForces(context)
+        B = plant.multibody.MakeActuationMatrix()
+        # Integrated Generalized forces
+        forces = (B.dot(control) - C + G)
+        # External forces
+        fN, fT = np.split(force, [plant.num_contacts()])
+        # Joint limits
+        if plant.has_joint_limits:
+            fT, jl = np.split(fT, [plant.num_friction()])
+            forces += plant.joint_limit_jacobian().dot(jl)
+        # Contact reaction forces
+        Jn, Jt = plant.GetContactJacobians(context)
+        forces += Jn.transpose().dot(fN) + Jt.transpose().dot(fT)
+        # Do inverse dynamics - velocity dynamics error
+        fv = M.dot(v2 - v1) - dt*forces
+        return np.concatenate((fq, fv), axis=0)
+
 class NormalDistanceConstraint(MultibodyConstraint):
     """
     Implements a normal distance constraint. Ensures the normal contact distance is nonnegative.
