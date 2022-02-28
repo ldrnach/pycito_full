@@ -67,6 +67,9 @@ class RBFKernel(DifferentiableStationaryKernel):
         self.length_scale = 1.0
         self._scale = -1/(2*self.length_scale **2)
 
+    def __deepcopy__(self):
+        return RBFKernel(self.length_scale)
+
     def _eval_stationary(self, distances):
         """
         Evaluate the kernel, using a matrix of pointwise distances
@@ -101,6 +104,9 @@ class PseudoHuberKernel(DifferentiableStationaryKernel):
         assert delta > 0, 'delta must be positive'
         self._length_scale =  length_scale
         self._delta = delta
+
+    def __deepcopy__(self):
+        return PseudoHuberKernel(self._length_scale, self._delta)
 
     def _pseudohuber(self, dist): 
         return np.sqrt(1 + dist/self._delta ** 2 )

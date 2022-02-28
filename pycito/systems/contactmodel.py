@@ -10,6 +10,7 @@ February 16, 2022
 import numpy as np
 import abc
 import pycito.systems.kernels as kernels
+from copy import deepcopy
 
 def householderortho3D(normal):
     """
@@ -49,6 +50,9 @@ class ConstantModel(DifferentiableModel):
     def __init__(self, const = 1.0):
         self._const = const
 
+    def __deepcopy__(self):
+        return ConstantModel(deepcopy(self._const))
+
     def eval(self, x):    
         """
         Evalute the constant prior
@@ -79,6 +83,9 @@ class FlatModel(DifferentiableModel):
     def __init__(self, location = 1.0, direction = np.array([0, 0, 1])):
         self._location = location
         self._direction = direction
+
+    def __deepcopy__(self):
+        return FlatModel(deepcopy(self.location), deepcopy(self.direction))
 
     def eval(self, x):
         """
@@ -131,6 +138,12 @@ class SemiparametricModel(DifferentiableModel):
     def FlatPriorWithHuberKernel(cls, location = 0, direction = np.array([0, 0, 1]), length_scale = 1., delta = 1):
         return cls(prior = FlatModel(location, direction),
                     kernel = kernels.PseudoHuberKernel(length_scale, delta))
+
+    def __deepcopy__(self):
+        new = SemiparametricModel(deepcopy(self.prior), deepcopy(self.kernel))
+        if self._sample_points is not None:
+            new.add_samples(deepcopy(self._sample_points), deepcopy(self._kernel_weights))
+        return new
 
     def add_samples(self, samples, weights):
         """
@@ -267,8 +280,8 @@ class ContactModel(_ContactModel):
         fric = ConstantModel(friction)
         return cls(surf, fric)
 
-    def str(self):
-        return f"{type(self).__name__}"
+    def __deepcopy__(self):
+        return ContactModel(deepcopy(self.surface), deepcopy(self.friction))
 
     def eval_surface(self, pt):
         """
@@ -342,6 +355,11 @@ class SemiparametricContactModel(ContactModel):
         fric = SemiparametricModel.ConstantPriorWithHuberKernel(const = friction, length_scale=length_scale, delta=delta)
     
         return cls(surf, fric)
+
+    def __deepcopy__(self):
+        """Make a deep copy of the current object"""
+        return SemiparametricContactModel(deepcopy(self.surface), deepcopy(self.friction))
+        
 
     def add_samples(self, sample_points, surface_weights, friction_weights):
         """
