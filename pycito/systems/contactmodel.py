@@ -201,7 +201,57 @@ class SemiparametricModel(DifferentiableModel):
         else:
             return self._sample_points.shape[1]
 
-class ContactModel():
+class _ContactModel(abc.ABC):
+    """
+    Abstract base class for specifying a generic contact model
+    """
+    def str(self):
+        return f"{type(self).__name__}"
+    
+    @abc.abstractclassmethod
+    def eval_surface(self, pt):
+        """
+        Returns the value of the level sets of the surface geometry at the supplied point
+
+        If eval_surface(pt) > 0, then the point is not in contact with the surface
+        If eval_surface(pt) = 0, then the point is on the surface 
+        If eval_surface(pt) < 0, then the point is inside the surface
+        
+        Arguments:
+            pt: a (3,) numpy array, specifying a point in world coordinates
+        
+        Return Values
+            out: a (1,) numpy array, the surface evaluation (roughly the 'distance')
+        """
+        raise NotImplementedError
+
+    @abc.abstractclassmethod
+    def eval_friction(self, pt):
+        """
+        Returns the value of the level sets of the surface friction at the supplied point. Note that the values of friction returned by eval_friction may only be considered accurate when eval_surface(pt) = 0
+        
+        Arguments:
+            pt: a (3,) numpy array, specifying a point in world coordinates
+        
+        Return Values
+            out: a (1,) numpy array, the friction coefficient evaluation
+        """
+        raise NotImplementedError
+
+    @abc.abstractclassmethod
+    def local_frame(self, pt):
+        """
+        Return the local coordinate frame of the surface geometry at the specified point. 
+
+        Arguments:
+            pt: a (3,) numpy array, specifying a point in world coordinates
+
+        Return values:
+            R: a (3,3) numpy array. The first row is the surface normal vector. The next two rows are the surface tangent vectors
+        """
+        raise NotImplementedError
+
+class ContactModel(_ContactModel):
     def __init__(self, surface, friction):
         assert issubclass(type(surface), DifferentiableModel), 'surface must be a subclass of DifferentiableModel'
         assert issubclass(type(friction), DifferentiableModel), 'friction must be a subclass of DifferentiableModel'
@@ -261,7 +311,7 @@ class ContactModel():
         normal = self.surface.gradient(pt).flatten()
         normal = normal / np.linalg.norm(normal)
         tangent, binormal = householderortho3D(normal)
-        return np.column_stack([normal, tangent, binormal])
+        return np.row_stack([normal, tangent, binormal])
 
 class SemiparametricContactModel(ContactModel):
     def __init__(self, surface, friction):
