@@ -8,6 +8,7 @@ February 8, 2022
 import numpy as np
 import pycito.controller.mpc as mpc
 from pycito.systems.integrators import ContactDynamicsIntegrator
+import pycito.utilities as utils
 
 class Simulator():
     def __init__(self, plant, controller):
@@ -43,7 +44,7 @@ class Simulator():
         state[:, 0] = initial_state
         # Everything else
         control = np.zeros((self.integrator.u.shape[0], N))
-        force  = np.zeros((self.integrator.all_forces.shape[0], N))
+        force  = np.zeros((self.integrator.forces.shape[0], N))
         # Run the simulation
         status = True
         n = 1

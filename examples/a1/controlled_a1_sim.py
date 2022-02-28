@@ -4,7 +4,7 @@ Comparison of open and closed loop simulations using A1
 Luke Drnach
 February 9, 2022
 """
-
+#TODO: Use a different complementarity scheme for simulating A1
 import os
 import numpy as np
 
@@ -57,6 +57,8 @@ def run_simulation(plant, controller, initial_state, duration, savedir=None, vis
     tsim, xsim, usim, fsim, status = sim.simulate(initial_state, duration)
     if not status:
         print(f"Simulation failed at timestep {tsim[-1]}")
+        #NOTE: SNOPT fails to find an accurate solution, although all the constraints are satisfied (save maybe normal distance) - use CostRelaxed instead?
+        return None
     # Save the results
     plot_sim_results(plant, tsim, xsim, usim, fsim, savedir=savedir, vis=vis)
     # Save the data
@@ -136,7 +138,7 @@ def flatground_step_open_loop_sim():
 
 def flatground_walking_sim():
     source = WALK_SOURCE
-    savedir = os.path.join(SAVEDIR,'flatground_walk_fast', 'closedloop')
+    savedir = os.path.join(SAVEDIR,'flatground_walk_fast', 'closedloop','midpoint')
     # Get the reference controller
     controller = get_a1_mpc_controller(source=source)
     # Create the 'true model' for simulation
