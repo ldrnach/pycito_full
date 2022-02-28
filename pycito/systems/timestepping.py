@@ -17,7 +17,7 @@ from pydrake.geometry import Role, Sphere
 from pydrake.multibody.parsing import Parser
 from pycito.systems.terrain import FlatTerrain
 from pycito.utilities import FindResource, printProgramReport
-from pycito.systems.contactmodel import _ContactModel
+import pycito.systems.contactmodel as cm
 #TODO: Implement toAutoDiffXd method to convert to autodiff class
 
 class TimeSteppingMultibodyPlant():
@@ -30,7 +30,7 @@ class TimeSteppingMultibodyPlant():
         self.builder = DiagramBuilder()
         self.multibody, self.scene_graph = AddMultibodyPlantSceneGraph(self.builder, 0.001)
         # Store the terrain
-        assert issubclass(type(terrain), _ContactModel), "Terrain must be a subclass of ContactModel"
+        assert issubclass(type(terrain), cm._ContactModel), "Terrain must be a subclass of ContactModel"
         self.terrain = terrain
         self._dlevel = dlevel
         # Build the MultibodyPlant from the file, if one exists
