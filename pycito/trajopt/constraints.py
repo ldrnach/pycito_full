@@ -553,7 +553,7 @@ class NormalDissipationConstraint(MultibodyConstraint):
 
     @property
     def upper_bound(self):
-        return np.full((self.plant.num_contacts(), ), np.inf)
+        return np.zeros((self.plant.num_contacts(), ))
 
     @property
     def lower_bound(self):
