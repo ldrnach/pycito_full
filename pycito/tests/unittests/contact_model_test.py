@@ -139,9 +139,9 @@ class ContactModelTest(unittest.TestCase):
                             np.array([-4, 3, 2])]
         self.expected_surfs = [np.array([val]) for val in [3, -3, 0, 2]]
         self.expected_friction = np.array([0.5])
-        self.expected_frame = np.array([[0, 0, -1],
+        self.expected_frame = np.array([[0, 0, 1],
                                         [0, 1, 0],
-                                        [1, 0, 0]])
+                                        [-1, 0, 0]])
     def test_surface_evaluation(self):
         """Test contact model surface evaluation"""
         for test, expected in zip(self.test_points, self.expected_surfs):
@@ -289,7 +289,7 @@ class SemiparametricContactModelTest(unittest.TestCase):
         """Test that we can evaluate the local frame before and after adding points to the model"""
         # Test evaluating the local frame before adding data
         R = self.model.local_frame(self.test_point)
-        R_expected = np.array([[0, 0, 1], [0, 1, 0], [-1, 0, 0]]).T
+        R_expected = np.array([[0, 0, 1], [0, 1, 0], [-1, 0, 0]])
         np.testing.assert_allclose(R, R_expected, atol=1e-6, err_msg=f"Evaluating prior local frame fails for float types")
         # Test evaluating the local frame after adding data
         self.model.add_samples(self.data, self.weights, self.weights)
@@ -323,7 +323,7 @@ class SemiparametricContactModelTest(unittest.TestCase):
         # Test evaluating the local frame before adding data
         test_ad = ad.InitializeAutoDiff(self.test_point)
         R = self.model.local_frame(test_ad)
-        R_expected = np.array([[0, 0, 1], [0, 1, 0], [-1, 0, 0]]).T
+        R_expected = np.array([[0, 0, 1], [0, 1, 0], [-1, 0, 0]])
         np.testing.assert_allclose(ad.ExtractValue(R), R_expected, atol=1e-6, err_msg=f"Evaluating prior local frame fails for autodiff types")
         # Test evaluating the local frame after adding data
         self.model.add_samples(self.data, self.weights, self.weights)

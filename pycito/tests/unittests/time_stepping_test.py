@@ -209,12 +209,12 @@ class MultiContactTest(unittest.TestCase):
         """ 
         Set the position variables for each test
         
-        with multiple bodies, the position vector is [x1, x2, x3, z1, z2, z3].
+        with multiple bodies, the position vector is [x1, z1, x2, z2, x3, z3].
 
         In this case, we set the positions of the blocks to [1, 1], [-2, 2], and [4, -1] respectively.
         """
         self.context = self.model.multibody.CreateDefaultContext()
-        self.model.multibody.SetPositions(self.context, [1., -2., 4., 1., 2., -1.])
+        self.model.multibody.SetPositions(self.context, [1., 1., -2, 2, 4, -1.])
 
     def test_set_positions(self):
         """
@@ -222,9 +222,14 @@ class MultiContactTest(unittest.TestCase):
         
         Expected behavior: we get a vector of positions, [1, -2, 4, 1, 2, -1]
         """
-
+        # Check the position of each block independently
+        pos_true = [np.array([1, 1]), np.array([-2, 2]), np.array([4, -1])]
+        for index, expected in zip(self.model.model_index, pos_true):
+            pos = self.model.multibody.GetPositions(self.context, index)
+            np.testing.assert_allclose(pos, expected, atol=1e-6, err_msg=f"Unexpected position for model index {index}")
+        # Full state of the three-block system
         pos = self.model.multibody.GetPositions(self.context)
-        pos_true = np.array([1., -2., 4., 1., 2., -1.])
+        pos_true = np.concatenate(pos_true)
         np.testing.assert_allclose(pos, pos_true, err_msg="Setting positions failed")
 
     def test_contact_jacobians(self):
@@ -236,11 +241,11 @@ class MultiContactTest(unittest.TestCase):
         # Calculate the normal and tangent jacobians
         Jn_true = np.zeros((3, 6))
         for n in range(3):
-            Jn_true[n, n+3] = 1.
+            Jn_true[n, 2*n+1] = 1.
         Jt_true = np.zeros((12, 6))
         for n in range(3):
-            Jt_true[4*n, n] = 1.
-            Jt_true[4*n+2,n] = -1.
+            Jt_true[4*n,   2*n] = 1.
+            Jt_true[4*n+2, 2*n] = -1.
         # Get the values from the model
         Jn, Jt = self.model.GetContactJacobians(self.context)
         np.testing.assert_allclose(Jn, Jn_true, err_msg="Normal Jacobian incorrect")
@@ -255,6 +260,17 @@ class MultiContactTest(unittest.TestCase):
         distances = self.model.GetNormalDistances(self.context)
         true_dist = np.array([0.5, 1.5, -1.5])
         np.testing.assert_allclose(distances, true_dist, err_msg="Normal distances are incorrect")
+
+    def test_friction_coefficients(self):
+        """
+        Check that the friction coefficients are correct
+        
+        Expected behavior: GetFrictionCoefficient should return a 3-list of friction coefficients
+        """
+        # Get friction coefficients
+        friction_coeff = self.model.GetFrictionCoefficients(self.context)
+        # Check that the friction coefficient is correct
+        self.assertListEqual(friction_coeff, [0.5, 0.5, 0.5], msg="wrong number of friction coefficients")
 
     def test_duplicator_matrix(self):
         """ 
