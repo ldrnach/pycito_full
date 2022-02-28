@@ -31,7 +31,7 @@ class ComplementarityConstraint(ABC):
         self._var_slack = None
         self._slack_cost = None
         self._cost_weight = None
-        self.name = self.fcn.__name__
+        self.name = str(self.fcn)
 
     def __call__(self, vars):
         """Evaluate the constraint"""
