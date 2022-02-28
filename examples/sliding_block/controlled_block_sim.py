@@ -113,11 +113,10 @@ def flatterrain_sim():
     x0 = controller.lintraj.getState(0)
     # Run the open-loop simulation
     print("Running flat terrain open loop simulation")
-    run_simulation(block, open_loop, x0, duration = 1.5, savedir=os.path.join(SAVEDIR, 'flatterrain', 'openloop'))
+    run_simulation(block, open_loop, x0, duration = 1.5, savedir=os.path.join(SAVEDIR, 'flatterrain', 'midpoint', 'openloop'))
     # Run the mpc simulation
     print("Running flat terrain MPC simulation")
-    run_simulation(block, controller, x0, duration = 1.5, savedir=os.path.join(SAVEDIR, 'flatterrain', 'mpc'))
-    
+    run_simulation(block, controller, x0, duration = 1.5, savedir=os.path.join(SAVEDIR, 'flatterrain', 'midpoint', 'mpc'))
 
 def lowfriction_sim():
     """Run open and closed loop simulations on terrain with low friction"""

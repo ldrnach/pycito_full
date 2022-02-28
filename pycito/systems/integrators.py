@@ -24,10 +24,10 @@ class ContactDynamicsIntegrator():
         self.setup_program()
         # Set up the solver
         self.solver = SnoptSolver()
+        self.solveroption = {'Major feasibility tolerance': 1e-6}
         # Store previous solves to warmstart the forces and slacks in the integrator
         self._last_force = None
         self._last_slack = None
-
 
     @classmethod
     def ImplicitEulerIntegrator(cls, plant, ncp = cp.NonlinearConstantSlackComplementarity):
@@ -97,7 +97,7 @@ class ContactDynamicsIntegrator():
                             self.vs[:, 0])
         # Add a normal dissipation constraint to constraint the size of the normal forces
         self.normal_dissipation = cstr.NormalDissipationConstraint(self.plant)
-        self.normal_dissipation.addToProgram(self.prog, self.x[:, 1], self.fn)
+        self.normal_dissipation.addToProgram(self.prog, self.x[:, 1], self.fn[:, 0])
 
     def _add_joint_limit_constraint(self):
         """Add the joint limit constraint, if there are any"""
@@ -124,6 +124,8 @@ class ContactDynamicsIntegrator():
         self._timestep_constraint.evaluator().UpdateUpperBound(dt)
         # Solve
         self.initialize(dt, x0, u)
+        for key, value in self.solveroption.items():
+            self.prog.SetSolverOption(self.solver.solver_id(), key, value)
         result = self.solver.Solve(self.prog)
         # Return the states, forces, and the status flag
         x = result.GetSolution(self.x[:, 1])
