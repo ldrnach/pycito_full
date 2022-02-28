@@ -7,14 +7,13 @@ February 25, 2022
 
 
 import numpy as np
-import abc
 
 from pydrake.all import MathematicalProgram, SnoptSolver
 
 from pycito.trajopt import constraints as cstr
 from pycito.trajopt import complementarity as cp
 
-class ContactDynamicsIntegrator(abc.ABC):
+class ContactDynamicsIntegrator():
     def __init__(self, plant, dynamics_class = cstr.BackwardEulerDynamicsConstraint, ncp=cp.NonlinearConstantSlackComplementarity):
         self.plant = plant
         self.dynamics = dynamics_class(self.plant)
@@ -25,14 +24,14 @@ class ContactDynamicsIntegrator(abc.ABC):
         self.setup_program()
         # Set up the solver
         self.solver = SnoptSolver()
+        # Store previous solves to warmstart the forces and slacks in the integrator
+        self._last_force = None
+        self._last_slack = None
+
 
     @classmethod
     def ImplicitEulerIntegrator(cls, plant, ncp = cp.NonlinearConstantSlackComplementarity):
         return cls(plant, dynamics_class = cstr.BackwardEulerDynamicsConstraint, ncp = ncp)
-
-    @classmethod
-    def ExplicitEulerIntegrator(cls, plant, ncp = cp.NonlinearConstantSlackComplementarity):
-        return cls(plant, dynamics_class = cstr.ExplicitEulerDynamicsConstraint, ncp=ncp)
 
     @classmethod
     def SemiImplicitEulerIntegrator(cls, plant, ncp = cp.NonlinearConstantSlackComplementarity):
@@ -40,11 +39,11 @@ class ContactDynamicsIntegrator(abc.ABC):
 
     @classmethod
     def ImplicitMidpointIntegrator(cls, plant, ncp=cp.NonlinearConstantSlackComplementarity):
-        return cls(plant, dynamics_class = cstr.ImplicitMidpointDynamicsConstraint, npc=ncp)
+        return cls(plant, dynamics_class = cstr.ImplicitMidpointDynamicsConstraint, ncp=ncp)
 
-    @abc.abstractmethod
     def _add_dynamics_constraint(self):
-        raise NotImplementedError
+        """Add the dynamics constraint to the program"""
+        self.dynamics.addToProgram(self.prog, self.dt[:, 0], self.x[:, 0], self.x[:, 1], self.u[:, 0], self.all_forces[:, 0])
 
     def setup_program(self):
         """Create a mathematical program, adding variables and constraints"""
@@ -53,15 +52,15 @@ class ContactDynamicsIntegrator(abc.ABC):
         self._add_dynamics_constraint()
         self._add_contact_constraints()
         self._add_initial_conditions()
-        self._add_joint_limit_constraints()
+        self._add_joint_limit_constraint()
 
     def _create_variables(self):
         """Create the decision variables for the program"""
         self.x = self.prog.NewContinuousVariables(rows = self.plant.num_states, cols=2, name='states')
-        self.u = self.prog.NewContinuousVariables(rows = self.plant.num_acutators, cols=1, name='controls')
-        self.fn = self.prog.NewContinuousVariables(rows = self.plant.num_contacts, cols=1, name='normal_forces')
-        self.ft = self.prog.NewContinuousVariables(rows = self.plant.num_friction, cols=1, name='friction_forces')
-        self.vs = self.prog.NewContinuousVariables(rows = self.plant.num_contacts, cols=1, name='relative_velocity')
+        self.u = self.prog.NewContinuousVariables(rows = self.plant.num_actuators, cols=1, name='controls')
+        self.fn = self.prog.NewContinuousVariables(rows = self.plant.num_contacts(), cols=1, name='normal_forces')
+        self.ft = self.prog.NewContinuousVariables(rows = self.plant.num_friction(), cols=1, name='friction_forces')
+        self.vs = self.prog.NewContinuousVariables(rows = self.plant.num_contacts(), cols=1, name='relative_velocity')
         self.dt = self.prog.NewContinuousVariables(rows = 1, cols=1, name='timestep')
 
     def _add_initial_conditions(self):
@@ -69,7 +68,6 @@ class ContactDynamicsIntegrator(abc.ABC):
         self._state_constraint = self.prog.AddBoundingBoxConstraint(np.zeros((self.plant.num_states,)), np.zeros((self.plant.num_states, )), self.x[:, 0])
         self._control_constraint = self.prog.AddBoundingBoxConstraint(np.zeros((self.plant.num_actuators, 1)), np.zeros((self.plant.num_actuators, 1)), self.u)
         self._timestep_constraint = self.prog.AddBoundingBoxConstraint(np.zeros((1,)), np.zeros((1,)), self.dt)
-
 
     def _add_contact_constraints(self):
         # Create the functions
@@ -79,23 +77,23 @@ class ContactDynamicsIntegrator(abc.ABC):
         # Add the complementarity constraints
         self.distance_cstr = self.ncp(self.distance, 
                             xdim = self.plant.num_states, 
-                            zdim = self.plant.num_contacts)
+                            zdim = self.plant.num_contacts())
         self.distance_cstr.set_description('normal distance')
-        self.distance_cstr.addToProgram(self.prog, self.states[:, 1], self.fn[:, 0])
+        self.distance_cstr.addToProgram(self.prog, self.x[:, 1], self.fn[:, 0])
         self.dissipation_cstr = self.ncp(self.dissipation, 
-                            xdim=self.plant.num_states + self.plant.num_contacts, 
-                            zdim=self.plant.num_friction)
+                            xdim=self.plant.num_states + self.plant.num_contacts(), 
+                            zdim=self.plant.num_friction())
         self.dissipation_cstr.set_description('max dissipation')
         self.dissipation_cstr.addToProgram(self.prog, 
-                            np.row_stack([self.states[:, 1], 
+                            np.hstack([self.x[:, 1], 
                             self.vs[:, 0]]), 
                             self.ft[:, 0])
         self.friction_cstr = self.ncp(self.friction, 
-                            xdim=self.plant.num_states + self.plant.num_contacts + self.plant.num_friction, 
-                            zdim = self.plant.num_contacts)
+                            xdim=self.plant.num_states + self.plant.num_contacts() + self.plant.num_friction(), 
+                            zdim = self.plant.num_contacts())
         self.friction_cstr.set_description('friction cone')
         self.friction_cstr.addToProgram(self.prog,
-                            np.row_stack([self.state[:, 1], self.forces[:, 0]]),
+                            np.hstack([self.x[:, 1], self.forces[:, 0]]),
                             self.vs[:, 0])
 
     def _add_joint_limit_constraint(self):
@@ -113,7 +111,7 @@ class ContactDynamicsIntegrator(abc.ABC):
             self.limits = None
             self.limit_cstr = None
 
-    def simulate(self, dt, x0, u):
+    def integrate(self, dt, x0, u):
         # Update the boundary constraints
         self._state_constraint.evaluator().UpdateUpperBound(x0)
         self._state_constraint.evaluator().UpdateLowerBound(x0)
@@ -127,6 +125,9 @@ class ContactDynamicsIntegrator(abc.ABC):
         # Return the states, forces, and the status flag
         x = result.GetSolution(self.x[:, 1])
         f = result.GetSolution(self.forces)
+        # Store the forces and slacks for the next iteration
+        self._last_force = result.GetSolution(self.all_forces)
+        self._last_slack = result.GetSolution(self.vs)
         return x, f, result.is_success()
 
     def initialize(self, dt, x0, u):
@@ -139,8 +140,21 @@ class ContactDynamicsIntegrator(abc.ABC):
         self.plant.multibody.SetPositionsAndVelocities(context, x0)
         q, v = np.split(x0, [self.plant.num_positions])
         q += dt * self.plant.multibody.MapVelocityToQDot(context, v)
-        self.prog.SetInitialGuess(self.x[:, 1], np.row_stack([q, v]))
-        # Currently - do not initialize the forces
+        self.prog.SetInitialGuess(self.x[:, 1], np.hstack([q, v]))
+        # Currently - do not initialize the forces (use previous solve if one exists)
+        if self._last_force is not None:
+            self.prog.SetInitialGuess(self.all_forces, self._last_force)
+        else:
+            # Initialize using the static case
+            _, f = self.plant.static_controller(q)
+            self.prog.SetInitialGuess(self.fn, f)
+        if self._last_slack is not None:
+            self.prog.SetInitialGuess(self.vs, self._last_slack)
+        else:
+            # Initialize using maximum velocity
+            _, Jt = self.plant.GetContactJacobians(context)
+            vmax = np.max(Jt.dot(v))
+            self.prog.SetInitialGuess(self.vs, vmax * np.ones((self.plant.num_contacts(), )))
 
     @property
     def forces(self):
