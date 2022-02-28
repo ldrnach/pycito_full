@@ -509,7 +509,7 @@ class TimeSteppingMultibodyPlant():
         ff = D.dot(fT)
         return np.concatenate((fN, ff), axis=0)
 
-    def static_controller(self, qref, verbose=False):
+    def static_controller(self, qref, verbose=False, dtol=1e-4):
         """ 
         Generates a controller to maintain a static pose
         
@@ -547,9 +547,15 @@ class TimeSteppingMultibodyPlant():
         u_var = prog.NewContinuousVariables(self.multibody.num_actuators(), name="controls")
         # Ensure dynamics approximately satisfied
         prog.Add2NormSquaredCost(A = A, b = -G, vars=np.concatenate([u_var, l_var], axis=0))
-        # Enforce normal complementarity
-        prog.AddBoundingBoxConstraint(np.zeros(l_var.shape), np.full(l_var.shape, np.inf), l_var)
-        prog.AddConstraint(phi.dot(l_var) == 0)
+        # Enforce normal complementarity - check for active constraints
+        active = phi <= dtol
+        if np.any(active):
+            l_active = l_var[active]
+            prog.AddBoundingBoxConstraint(np.zeros(l_active.shape), np.full(l_active.shape, np.inf), l_active)
+        if np.any(~active):
+            l_inactive = l_var[~active]
+            prog.AddBoundingBoxConstraint(np.zeros(l_inactive.shape), np.zeros(l_inactive.shape), l_inactive)
+
         # Solve
         result = Solve(prog)
         # Check for a solution
@@ -586,7 +592,7 @@ class TimeSteppingMultibodyPlant():
         return self.multibody.num_positions() + self.multibody.num_velocities()
 
     @property
-    def num_acutators(self):
+    def num_actuators(self):
         return self.multibody.num_actuators()
 
     @property
@@ -601,7 +607,7 @@ class TimeSteppingMultibodyPlant():
     def num_joint_limits(self):
         qhigh= self.multibody.GetPositionUpperLimits()
         qlow = self.multibody.GetPositionLowerLimits()
-        return np.sum(np.isfinite(np.row_stack(qhigh, qlow)))
+        return np.sum(np.isfinite(np.hstack((qhigh, qlow))))
 
 def solve_lcp(P, q):
     prog = MathematicalProgram()
