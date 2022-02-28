@@ -95,6 +95,9 @@ class ContactDynamicsIntegrator():
         self.friction_cstr.addToProgram(self.prog,
                             np.hstack([self.x[:, 1], self.forces[:, 0]]),
                             self.vs[:, 0])
+        # Add a normal dissipation constraint to constraint the size of the normal forces
+        self.normal_dissipation = cstr.NormalDissipationConstraint(self.plant)
+        self.normal_dissipation.addToProgram(self.prog, self.x[:, 1], self.fn)
 
     def _add_joint_limit_constraint(self):
         """Add the joint limit constraint, if there are any"""
