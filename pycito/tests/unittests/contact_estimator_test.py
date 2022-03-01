@@ -4,7 +4,7 @@ import unittest
 from pydrake.all import MathematicalProgram, Solve
 
 from pycito.controller import contactestimator as ce
-
+from pycito.systems.block.block import Block
 class SemiparametricFrictionConstraintTest(unittest.TestCase):
     def setUp(self):
         mu = np.array([1, .1])
@@ -23,7 +23,7 @@ class SemiparametricFrictionConstraintTest(unittest.TestCase):
         self.vS = self.prog.NewContinuousVariables(rows=2, name='velocity_slack')
         self.w = self.prog.NewContinuousVariables(rows=2, name='weights')
         # Add the constraint
-        self.cstr.addToProgram(self.prog, self.w, self.fN, self.fT, self.vS)
+        self.cstr.addToProgram(self.prog, np.hstack([self.w, self.fN, self.fT]), self.vS)
         # Add error costs to regularize the program
         self.prog.AddQuadraticErrorCost(np.eye(2), self.fN_desired, self.fN)
         self.prog.AddQuadraticErrorCost(np.eye(4), self.fT_desired, self.fT)
@@ -77,6 +77,96 @@ class SemiparametricFrictionConstraintTest(unittest.TestCase):
         np.testing.assert_allclose(cost.evaluator().Eval(test), np.ones((1,)), atol=1e-6, err_msg='Unexpected cost value before changing cost weight')
         self.cstr.cost_weight = 10
         np.testing.assert_allclose(cost.evaluator().Eval(test), 10*np.ones((1,)), atol=1e-6, err_msg='Unexpected cost value after changing cost weight')
+
+class ContactTrajectoryTest(unittest.TestCase):
+    def setUp(self):
+        self.traj = ce.ContactTrajectory()
+
+    def test_set_generic(self):
+        """Test the generic set_at method in contacttrajectory"""
+        # Test changing an element that already exists
+        test_list = [1, 2, 3, None, None, 6, 7]
+        self.traj.set_at(test_list, 3, 4)
+        self.assertEqual(test_list[3], 4, 'set_at failed to set the appropriate element in the test list')
+        self.assertListEqual(test_list, [1, 2, 3, 4, None, 6, 7], 'set_at mutated other elements of the list')
+        # Test changing an element that does not already exist
+        self.traj.set_at(test_list, 9, 10)
+        self.assertEqual(len(test_list), 10, msg="set_at fails to lengthen the list appropriately")
+        self.assertEqual(test_list[9], 10, msg='set_at failed to add the new element to the list in the appropriate place')
+        self.assertListEqual(test_list, [1, 2, 3, 4, None, 6, 7, None, None, 10], msg='set_at mutates the list when extending for additional values')
+
+    def test_get_generic(self):
+        """Test the generic get_at method in contacttrajectory"""
+        test_list = [1, 2, 3, None, None, 6, 7]
+        val = self.traj.get_at(test_list, 1)
+        self.assertListEqual(val, [2], msg="get_at fails to return the correct single element list when only the start index is requested")
+        val = self.traj.get_at(test_list, 1, 4)
+        self.assertListEqual(val, [2, 3, None], msg="get_at fails to return the correct list when multiple indices are required")
+
+    def test_add_time(self):
+        """
+        Check that the add_time works, that:
+            the _time property is lengthed
+            the num_timesteps changes after adding timepoints
+        """
+        test_times = [0.1, 0.3, 0.5]
+        self.assertEqual(len(self.traj._time), 0, msg="time begins with a nonzero length")
+        self.assertEqual(self.traj.num_timesteps, 0, msg='num_timesteps fails to return 0 when no timesteps have been added')
+        for k, time in enumerate(test_times):
+            self.traj.add_time(time)
+            self.assertEqual(len(self.traj._time), k+1, msg="add_time did not lengthen the time array appropriately")
+        self.assertEqual(self.traj.num_timesteps, 3, msg='num_timesteps does not return accurate results after updating the time vector')
+
+        self.assertListEqual(self.traj._time, test_times, msg="calling add_times does not result in the correct time vector")
+
+    def test_add_contact(self):
+        """
+        Check that the 'add_contact_sample' method works:
+            1. the time vector is updated
+            2. the number of contact points is updated
+            3. getting the time and contact points afterwards returns the correct values
+        """
+        times = [0.2, 0.5]
+        contacts = [np.array([[0.1, 0.2, 0.3], [0.1, 0.4, 0.3]]).T, np.array([[0.2, 0.3, 0.5], [0.4, 0.6, 0.8]]).T]
+        for time, contact in zip(times, contacts):
+            self.traj.add_contact_sample(time, contact)
+        # Check that the points are correct
+        self.assertEqual(self.traj.num_timesteps, 2, msg='add_contact_samples added the wrong number of timesteps')
+        self.assertEqual(len(self.traj._contactpoints), 2, msg='add_contact_samples added the wrong number of contact points')
+        # Get the contact points
+        cpt = self.traj.get_contacts(0)
+        np.testing.assert_array_equal(cpt[0], contacts[0], err_msg='get_contacts returns the wrong contact point at index 0')
+        np.testing.assert_array_equal(self.traj.get_contacts(1)[0], contacts[1], err_msg='get_contacts returns the wrong contact point at index 1')
+
+
+    def test_get_time_index(self):
+        """
+        Evaluate the getTimeIndex method of ContactTrajectory. Check that:
+            1. getTimeIndex returns 0 when the sample point is less than the minimum time
+            2. getTimeIndex returns the length of the time array when the sample point is more than the maximum time
+            3. getTimeIndex returns the index of the nearest point when the sample is within the time bounds
+            4. getTimeIndex returns the index of the nearest point when the exact time is given
+        
+        """
+        # Add times to the time vector
+        test_times = [0.1, 0.3, 0.5]
+        for time in test_times:
+            self.traj.add_time(time)
+        # Check for a time before the first time
+        self.assertEqual(self.traj.getTimeIndex(-0.1), 0, msg='getTimeIndex does not return 0 when the query time is less than the minimum time')
+        # Check for times within the time vector
+        self.assertEqual(self.traj.getTimeIndex(0.2), 0, msg='getTimeIndex fails to return 0 when the query time is greater than only the minimum time')
+        self.assertEqual(self.traj.getTimeIndex(0.4), 1, msg='getTimeIndex fails to return the correct index when the query is within the time bounds')
+        self.assertEqual(self.traj.getTimeIndex(0.3), 1, msg='getTimeIndex fails to return the correct index when the exact time is given')
+        self.assertEqual(self.traj.getTimeIndex(0.5), 2, msg='getTimeIndex fails to return the last index with the exact time is given')
+        # Check for a time outside the last time
+        self.assertEqual(self.traj.getTimeIndex(0.6), 3, msg='getTimeIndex fails to return the length of the array when the query is greater than the maximum time')
+
+class ContactEstimationTrajectoryTest(unittest.TestCase):
+    pass
+
+class ContactModelEstimatorTest(unittest.TestCase):
+    pass
 
 
 if __name__ == '__main__':

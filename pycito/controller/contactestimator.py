@@ -72,7 +72,7 @@ class ContactTrajectory():
             time must be a float, and time must be greater than the current value at the end of self._time - i.e. the overall sequence of timesteps must be monotonically increasing
         """
         assert isinstance(time, float), f'timestamp must be a float'
-        if self._time is []:
+        if self._time == []:
             self._time = [time]
         else:
             assert time > self._time[-1], f'Time must be monotonically increasing'
@@ -130,6 +130,8 @@ class ContactTrajectory():
         """
         if t < self._time[0]:
             return 0
+        elif t == self._time[-1]:
+            return self.num_timesteps - 1
         elif t > self._time[-1]:
             return self.num_timesteps
         else:
