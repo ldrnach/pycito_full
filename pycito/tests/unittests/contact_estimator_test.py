@@ -1,9 +1,16 @@
+"""
+unittests for pycito.controller.contactestimator.py
+
+Luke Drnach
+March 1, 2022
+"""
 import numpy as np
 import unittest
 
 from pydrake.all import MathematicalProgram, Solve
 
-from pycito.controller import contactestimator as ce
+import pycito.controller.contactestimator as ce 
+from pycito.systems.contactmodel import SemiparametricContactModel
 from pycito.systems.block.block import Block
 class SemiparametricFrictionConstraintTest(unittest.TestCase):
     def setUp(self):
@@ -163,7 +170,135 @@ class ContactTrajectoryTest(unittest.TestCase):
         self.assertEqual(self.traj.getTimeIndex(0.6), 3, msg='getTimeIndex fails to return the length of the array when the query is greater than the maximum time')
 
 class ContactEstimationTrajectoryTest(unittest.TestCase):
-    pass
+    @classmethod
+    def setUpClass(cls) -> None:
+        """Setup the model and trajectory container for the class"""
+        terrain = SemiparametricContactModel.FlatSurfaceWithRBFKernel(friction=0.5)
+        cls.plant = Block(terrain = terrain)
+        cls.plant.Finalize()
+        x0 = np.array([0., 0.5, 0., 0.])
+        # Create the estimation trajectory
+        cls.traj = ce.ContactEstimationTrajectory(cls.plant, x0)
+
+    def setUp(self):
+        """Store the basic test example values"""
+        self.x_test = np.array([0.1, 0.5, 1.0, 0.0]).T
+        self.u_test = np.array([14.905])
+        self.t_test = np.array([0.1])
+
+    def test_append_sample(self):
+        """
+        Check that the "append_sample" method works:
+            1. Check that the time vector is updated
+            2. Check that the contact point vector is updated
+            3. Check that the last_state is updated
+            4. Check that the contact point added is correct
+        """
+        self.traj.append_sample(self.t_test, self.x_test, self.u_test)
+        self.assertEqual(self.traj.num_timesteps, 1, msg='append_sample did not update time axis')
+        # Just check that each list of constraints has been appropriately updated
+        self.assertEqual(len(self.traj._contactpoints), 1, msg='append_sample did not update contactpoints list')
+        # Check that the last_state has been updated
+        np.testing.assert_equal(self.traj._last_state, self.x_test, err_msg="append_sample did not update last_state")
+        # Check that the correct contact point was added
+
+
+    def test_get_dynamics(self):
+        """
+        Test the dynamics constraints added by append_sample
+        Append the test sample to the trajectory and test that:
+            1. the appropriate number of dynamics constraints have been added
+            2. getting the time index returns the appropriate set of dynamics constraints
+            3. the dynamics parameters are the expected values
+        """
+        # Test values
+        context = self.plant.multibody.CreateDefaultContext()
+        self.plant.multibody.SetPositionsAndVelocities(context, self.x_test)
+        J = self.plant.GetContactJacobians(context)
+        A_expected = self.t_test * np.concatenate(J, axis=0).transpose()
+        b_expected = np.array([.495, -.981])        
+        # Append the sample
+        self.traj.append_sample(self.t_test, self.x_test, self.u_test)
+        self.assertEqual(len(self.traj._dynamics_cstr), 1, msg="append_sample did not update dynamics_cstr correctly")
+        # Check the validity of the dynamics
+        idx = self.traj.getTimeIndex(self.t_test)
+        A, b = self.traj.getDynamicsConstraint(idx)
+        np.testing.assert_allclose(A, A_expected, atol=1e-6, err_msg=f"incorrect contact jacobian in dynamics constraint")
+        np.testing.assert_allclose(b, b_expected, atol=1e-6, err_msg=f"incorrect total contact force in dynamics constraint")
+
+    def test_get_distance(self):
+        """
+        Test the distance constraint added by append_sample
+        Append the test sample to the trajectory and test that:
+            1. the appropriate number of distance constraints have been added
+            2. getting the time index returns the appropriate set of distance constraints
+            3. the distance parameters are the expected values
+        """
+        # Test values
+        dist_expected = np.zeros((1,))       
+        # Append the sample
+        self.traj.append_sample(self.t_test, self.x_test, self.u_test)
+        self.assertEqual(len(self.traj._distance_cstr), 1, msg="append_sample did not update distance constraints correctly")
+        # Check the validity of the dynamics
+        idx = self.traj.getTimeIndex(self.t_test)
+        dist = self.traj.getDistanceConstraint(idx)
+        np.testing.assert_allclose(dist, dist_expected, atol=1e-6, err_msg=f"incorrect distance constraint value")
+
+    def test_get_dissipation(self):
+        """
+        Test the dissipation constraints added by append_sample
+        Append the test sample to the trajectory and test that:
+            1. the appropriate number of dissipation constraints have been added
+            2. getting the time index returns the appropriate set of dissipation constraints
+            3. the dissipation parameters are the expected values
+        """
+        # Test values
+        A_expected = np.ones((1,4))
+        context = self.plant.multibody.CreateDefaultContext()
+        self.plant.multibody.SetPositionsAndVelocities(context, self.x_test)
+        _, Jt = self.plant.GetContactJacobians(context)
+        b_expected = Jt.dot(self.x_test[3:])    
+        # Append the sample
+        self.traj.append_sample(self.t_test, self.x_test, self.u_test)
+        self.assertEqual(len(self.traj._dissipation_cstr), 1, msg="append_sample did not update dissipation_cstr correctly")
+        # Check the validity of the dynamics
+        idx = self.traj.getTimeIndex(self.t_test)
+        A, b = self.traj.getDissipationConstraint(idx)
+        np.testing.assert_allclose(A, A_expected, atol=1e-6, err_msg=f"incorrect duplication matrix in dynamics constraint")
+        np.testing.assert_allclose(b, b_expected, atol=1e-6, err_msg=f"incorrect total tangential velocity in dissipation constraint")
+
+    def test_get_friction(self):
+        """
+        Test the friction cone constraints added by append_sample
+        Append the test sample to the trajectory and test that:
+            1. the appropriate number of friction cone constraints have been added
+            2. getting the time index returns the appropriate set of friction cone constraints
+            3. the friction parameters are the expected values
+        """
+        # Test values
+        A_expected = np.ones((4,1))
+        b_expected = np.array([0.5])       
+        # Append the sample
+        self.traj.append_sample(self.t_test, self.x_test, self.u_test)
+        self.assertEqual(len(self.traj._friction_cstr), 1, msg="append_sample did not update friction_cstr correctly")
+        # Check the validity of the dynamics
+        idx = self.traj.getTimeIndex(self.t_test)
+        A, b = self.traj.getFrictionConstraint(idx)
+        np.testing.assert_allclose(A, A_expected, atol=1e-6, err_msg=f"incorrect duplication matrix in dynamics constraint")
+        np.testing.assert_allclose(b, b_expected, atol=1e-6, err_msg=f"incorrect total tangential velocity in dissipation constraint")
+
+    def test_get_force_guess(self):
+        pass
+
+    def test_get_dissipation_guess(self):
+        pass
+
+    def test_get_feasibility_guess(self):
+        pass
+
+    def test_get_contact_kernels(self):
+        pass
+
 
 class ContactModelEstimatorTest(unittest.TestCase):
     pass
