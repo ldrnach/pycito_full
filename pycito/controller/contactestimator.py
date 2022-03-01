@@ -4,9 +4,12 @@ Contact model estimation
 Luke Drnach
 February 14, 2022
 """
-#TODO: Store contact points, kernel weights in ContactEstimationTrajectory
-#TODO: Implement 'contact model rectifier' to calculate the global contact model offline
-#TODO: Implement 'ambiguity set optimization' to calculate bounds on contact model
+#TODO: Update ObservationTrajectory to be "ContactTrajectory" - store only contact points and forces
+#TODO: Get Kernel matrices from ContactEsimationTrajectory and pass to ContactModelEstimator
+#TODO: Unittesting
+#TODO: Implement 'contact model rectifier' to calculate the global contact model offline - this is a QP
+#TODO: Implement 'ambiguity set optimization' to calculate bounds on contact model - this is a LP
+ 
 import numpy as np
 
 from pydrake.all import MathematicalProgram, SnoptSolver
@@ -14,111 +17,188 @@ from pydrake.all import MathematicalProgram, SnoptSolver
 import pycito.trajopt.constraints as cstr
 import pycito.trajopt.complementarity as cp
 import pycito.controller.mlcp as mlcp
+from pycito.systems.contactmodel import SemiparametricContactModel
 
-
-class ObservationTrajectory():
+class ContactTrajectory():
     """
     Container for easily storing trajectories for contact estimation
     """
     def __init__(self):
         """Initialize the observation trajectory"""
         self._time = []
-        self._state = []
-        self._control = []
+        self._contactpoints = []
         self._forces = []
         self._slacks = []
         self._feasibility = []
 
+    def set_at(self, lst, idx, x, default=None):
+        """
+        Set the value of a list at the given index, extending the list if necessary
+        
+        Arguments:
+            lst: the list 
+            idx: (int) the desired index. If idx is a float, it is interpreted as the 'timestamp' and set_at calculates the nearest timepoint and sets the value to the corresponding index
+            x: the value to set
+            default (optional): the default value used to fill in unset values in the array. default = None
+        """
+        idx = self.getTimeIndex(idx) if isinstance(idx, float) else idx
+        if len(lst) <= idx:
+            lst.extend([default] * (idx - len(lst) + 1))
+        lst[idx] = x
+
+    def get_at(self, lst, start_idx, stop_idx=None):
+        stop_idx = start_idx+1 if stop_idx is None else stop_idx
+        return lst[start_idx:stop_idx]
+
+    def add_contact_sample(self, time, contacts):
+        """
+        Add a contact sample and the corresponding timestep
+        add_contact_sample updates the time axis and inserts a contact sample at the corresponding index
+
+        Arguments:
+            time: (float) the timestamp at which the contacts are measured
+            contacts: (array) the contact points at the current time
+        """
+        self.add_time(time)
+        self.set_contacts(self.num_timesteps-1, contacts)
+
+    def add_time(self, time):
+        """
+        Add a new time stamp to the time array
+        
+        Arguments:
+            time: the timestamp to append
+
+        Requirements:
+            time must be a float, and time must be greater than the current value at the end of self._time - i.e. the overall sequence of timesteps must be monotonically increasing
+        """
+        assert isinstance(time, float), f'timestamp must be a float'
+        if self._time is []:
+            self._time = [time]
+        else:
+            assert time > self._time[-1], f'Time must be monotonically increasing'
+            self._time.append(time)
+
+    def set_contacts(self, index, contacts):
+        """
+        Update contacts and the specified index
+        
+        Arguments:
+            index: (int) the index at which to set the value of the contacts
+            contacts: the values to set
+        """
+        self.set_at(self._contactpoints, index, contacts)
+
+    def set_force(self, index, force):
+        """
+        set contact forces and the specified index
+        
+        Arguments:
+            index: (int) the index at which to set the value 
+            force: the values to set
+        """
+        self.set_at(self._forces, index, force)
+
+    def set_dissipation(self, index, dslack):
+        """
+        set dissipation slacks and the specified index
+        
+        Arguments:
+            index: (int) the index at which to set the value 
+            dslack: the values to set
+        """
+        self.set_at(self._slacks, index, dslack)
+
+    def set_feasibility(self, index, rslack):
+        """
+        set feasibility values and the specified index
+        
+        Arguments:
+            index: (int) the index at which to set the value 
+            rslack: the feasibility value to set
+        """
+        self.set_at(self._feasibility, index, rslack)
+
     def getTimeIndex(self, t):
-        """Return the index of the last timepoint less than the current time"""
+        """
+        Return the index of the last timepoint less than the current time
+        
+        Argument:
+            t (float): the test timepoint
+
+        Return value:
+            idx (int) the index of the last timepoint less than t
+        """
         if t < self._time[0]:
             return 0
         elif t > self._time[-1]:
             return self.num_timesteps
         else:
-            return np.argmax(self._time > t) - 1
+            return np.argmax(np.array(self._time) > t) - 1
 
-    def getState(self, index):
+    def get_contacts(self, start_idx, stop_idx = None):
         """
-        Return the state at the given index, returning the last state if the index is out of bounds
-        """
-        index = min(max(0,index), self.num_timesteps-1)
-        return self._state[index]
+        Return a list of contact points at the specified index
 
-    def getControl(self, index):
+        Arguments:
+            start_idx (int): the first index to return
+            stop_idx (int, optional): the last index to return (by default, start_index)
+        
+        Returns:
+            lst: contact points between [start_idx, stop_idx)
         """
-        Return the control at the given index, returning the last control if the index is out of bounds
+        return self.get_at(self._contactpoints, start_idx, stop_idx)
+
+    def get_forces(self, start_idx, stop_idx = None):
         """
-        index = min(max(0,index), self.num_timesteps-1)
-        return self._control[index]
+        Return a list of contact forces at the specified index
 
-    def add_sample(self, time, state, control):
+        Arguments:
+            start_idx (int): the first index to return
+            stop_idx (int, optional): the last index to return (by default, start_index)
+        
+        Returns:
+            lst: contact forces between [start_idx, stop_idx)
         """
-        Add a new sample to the trajectory. 
-        Requires:
-            time is greater than the previous timestep (the overall time is monotonically increasing)
-            state has the same dimension as the previous state
-            control has the same dimension as the previous control
+        return self.get_at(self._forces, start_idx, stop_idx)
+
+    def get_feasibility(self, start_idx, stop_idx=None):
         """
-        if self._time is None:
-            self._time = [time]
-            self._state = [state]
-            self._control = [control]
-        else:
-            assert time > self._time[-1], "time must be monotonically increasing"
-            assert state.shape[0] == self._state.shape[0], f"state must have shape ({self._state.shape[0]}, )"
-            assert control.shape[0] == self._control.shape[0], f"control must have shape ({self._control.shape[0]}, )"
-            self._time.append(time)
-            self._state.append(state)
-            self._control.append(control)
+        Return a list of feasibility values at the specified index
 
-    def add_force(self, time, force):
-        idx = self.getTimeIndex(time)
-        if time > self._time[-1] or idx > len(self._forces):
-            # Add a new force value
-            self._forces.append(force)
-        else:
-            # Update the force value
-            self._forces[idx] = force
+        Arguments:
+            start_idx (int): the first index to return
+            stop_idx (int, optional): the last index to return (by default, start_index)
+        
+        Returns:
+            lst: feasibility values between [start_idx, stop_idx)
+        """
+        return self.get_at(self._feasibility, start_idx, stop_idx)
 
-    def add_dissipation(self, time, dslack):
-        idx = self.getTimeIndex(time)
-        if time > self._time[-1] or idx > len(self._slacks):
-            self._slacks.append(dslack)
-        else:
-            self._slacks[idx] = dslack
+    def get_dissipation(self, start_idx, stop_idx=None):
+        """
+        Return a list of velocity dissipation slacks at the specified index
 
-    def add_feasibility(self, time, rslack):
-        idx = self.getTimeIndex(time)
-        if time > self._time[-1] or idx > len(self._feasibility):
-            self._feasibility.append(rslack)
-        else:
-            self._feasibility[idx] = rslack
+        Arguments:
+            start_idx (int): the first index to return
+            stop_idx (int, optional): the last index to return (by default, start_index)
+        
+        Returns:
+            lst: velocity dissipation slacks between [start_idx, stop_idx)
+        """
+        return self.get_at(self._slacks, start_idx, stop_idx)
 
     @property
     def num_timesteps(self):
         return len(self._time)
 
-    @property
-    def state_dim(self):
-        if self._state is not []:
-            return self._state[0].shape[0]
-        else:
-            return None
-
-    @property
-    def control_dim(self):
-        if self._control is not []:
-            return self._control[0].shape[0]
-        else:
-            return None
-
-class ContactEstimationTrajectory(ObservationTrajectory):
-    # TODO: Integrate kernel matrices
-    def __init__(self, plant):
+class ContactEstimationTrajectory(ContactTrajectory):
+    def __init__(self, plant, initial_state):
         super(ContactEstimationTrajectory, self).__init__()
         self._plant = plant
         self._context = plant.multibody.CreateDefaultContext()
+        # Store the last state for calculating dynamics
+        self._last_state = initial_state
         # Setup the constraint parameter lists
         self._dynamics_cstr = []
         self._distance_cstr = []
@@ -127,25 +207,30 @@ class ContactEstimationTrajectory(ObservationTrajectory):
         # Store the duplication matrix
         self._D = self._plant.duplicator_matrix()
         # Store the terrain kernel matrices
+        self.contact_model = plant.terrain
+        assert isinstance(self.contact_model, SemiparametricContactModel), f"plant does not contain a semiparametric contact model"
 
-    def add_sample(self, time, state, control):
+    def append_sample(self, time, state, control):
         """
         Append a new point to the trajectory
         Also appends new parameters for the dynamics, normal distance, dissipation, and friction coefficient
         """
-        super(ContactEstimationTrajectory, self).add_sample(time, state, control)
-        self._add_dynamics()
-        self._add_distance()
-        self._add_dissipation()
-        self._add_friction()
+        # Add the dynamics constraint first, as this manipulates the context
+        self._append_dynamics(time, state, control)
+        # Reset the context, and add the contact points
+        self._plant.multibody.SetPositionsAndVelocities(self._context, state)
+        cpts = self._plant.get_contact_points(self._context)
+        self.add_contact_sample(time, np.hstack(cpts))
+        # Also add the distance, dissipation, and friction constraints
+        self._append_distance()
+        self._append_dissipation()
+        self._append_friction()
 
-    def _add_dynamics(self):
+    def _append_dynamics(self, time, state, control):
         """
         Add a set of linear system parameters to evaluate the dynamics defect 
         """
-        state = self._state[-1]
-        dt = self._time[-1] - self._time[-2]
-        control = self._control[-1]
+        dt = time - self._time[-1]
         # Get the Jacobian matrix - the "A" parameter
         self._plant.multibody.SetPositionsAndVelocities(self._context, state)
         Jn, Jt = self._plant.GetContactJacobians(self._context)
@@ -155,36 +240,35 @@ class ContactEstimationTrajectory(ObservationTrajectory):
             forces = np.zeros((A.shape[1] + self._plant.joint_limit_jacobian().shape[1], ))
         else:
             forces = np.zeros((A.shape[1], ))
-        b = cstr.BackwardEulerDynamicsConstraint.eval(self._plant, self._context, dt, self._state[-2], state, control, forces)
+        b = cstr.BackwardEulerDynamicsConstraint.eval(self._plant, self._context, dt, self._last_state, state, control, forces)
         # Append - wrap this in it's own constraint
         self._dynamics_cstr.append((A, -b))
+        # Save the state for the the next call to append_dynamics
+        self._last_state = state
 
-    def _add_distance(self):
+    def _append_distance(self):
         """
         Add a set of linear system parameters to evaluate the normal distance defect
         """
         # Get the distance vector
-        self._plant.multibody.SetPositionsAndVelocities(self._context, self._state[-1])
         b = self._plant.GetNormalDistances(self._context)
         self._distance_cstr.append(b)
 
-    def _add_dissipation(self):
+    def _append_dissipation(self):
         """
         Add a set of linear system parameters to evaluate the dissipation defect
         """
         # Get the tangent jacobian
-        self._plant.multibody.SetPositionsAndVelocities(self._context, self._state[-1])
         _, Jt = self.plant.GetContactJacobians(self._context)
-        dq = self._state[-1][self._plant.multibody.num_positions():]
-        b = Jt.dot(dq)
+        v = self.plant.multibody.GetVelocities(self._context)
+        b = Jt.dot(v)
         self._dissipation_cstr.append(b)
 
-    def _add_friction(self):
+    def _append_friction(self):
         """
         Add a set of linear system parameters to evaluate the friction cone defect
         """
         # Append the friction coefficients
-        self._plant.multibody.SetPositionsAndVelocities(self._context, self._state[-1])
         mu = self.plant.GetFrictionCoefficients(self._context)
         self._friction_cstr.append(np.atleast_1d(mu))
 
