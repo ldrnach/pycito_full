@@ -4,9 +4,8 @@ Contact model estimation
 Luke Drnach
 February 14, 2022
 """
-#TODO: Update ObservationTrajectory to be "ContactTrajectory" - store only contact points and forces
-#TODO: Get Kernel matrices from ContactEsimationTrajectory and pass to ContactModelEstimator
 #TODO: Unittesting
+#TODO: Refactor ContactModelEstimator to reuse and update the program
 #TODO: Implement 'contact model rectifier' to calculate the global contact model offline - this is a QP
 #TODO: Implement 'ambiguity set optimization' to calculate bounds on contact model - this is a LP
  
@@ -331,6 +330,12 @@ class ContactEstimationTrajectory(ContactTrajectory):
         else:
             return np.ones((1,))
 
+    def getContactKernels(self, start, stop=None):
+        # Get the contact points
+        cpts = np.concatenate(self.get_contacts(start, stop), axis=1)
+        # Calculate the surface and friction kernel matrices
+        return self.contact_model.surface_kernel(cpts), self.contact_model.friction_kernel(cpts)
+
     @property
     def num_contacts(self):
         return self._plant.num_contacts
@@ -340,7 +345,6 @@ class ContactEstimationTrajectory(ContactTrajectory):
         return self._plant.num_friction
 
 class ContactModelEstimator():
-    # TODO: Get the kernel matrices for the contact distance, friction coefficient
     def __init__(self, esttraj, horizon):
         """
         Arguments:
@@ -362,9 +366,9 @@ class ContactModelEstimator():
         for key, value in optionsdict.items():
             self.solveroptions[key] = value
 
-    def estimate_contact(self, t, u, x):
+    def estimate_contact(self, t, x, u):
         # Append new samples
-
+        self.traj.append_sample(t, x, u)
         # Create contact estimation problem 
         print(f"Creating contact estimation problem")
         self.create_estimator()
@@ -420,8 +424,8 @@ class ContactModelEstimator():
         else:
             self._startptr = N - self.maxhorizon
             self.horizon = self.maxhorizon
-        # TODO: Setup the distance and friction kernels
-        
+        # Setup the distance and friction kernels
+        self._distance_kernel, self._friction_kernel = self.traj.getContactKernels(self._startptr, self._startptr + self.horizon)
         # Add the kernel weights
         self._add_kernel_weights()
         # Add all the contact constraints
