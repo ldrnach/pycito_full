@@ -134,10 +134,8 @@ class TimeSteppingMultibodyPlant():
                                         self.collision_frames[n],
                                         self.collision_poses[n].translation(),
                                         self.multibody.world_frame())
-            # Calc nearest point on terrain in world coordinates
-            terrain_pt = self.terrain.nearest_point(collision_pt)
             # Calc normal distance to terrain   
-            terrain_frame = self.terrain.local_frame(terrain_pt)
+            terrain_frame = self.terrain.local_frame(collision_pt)
             normal, tangent = np.split(terrain_frame, [1], axis=0)
             # Discretize to the chosen level 
             Dtangent = D.dot(tangent)
