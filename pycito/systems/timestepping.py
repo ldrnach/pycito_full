@@ -507,7 +507,7 @@ class TimeSteppingMultibodyPlant():
         ff = D.dot(fT)
         return np.concatenate((fN, ff), axis=0)
 
-    def static_controller(self, qref, verbose=False):
+    def static_controller(self, qref, verbose=False, dtol=1e-4):
         """ 
         Generates a controller to maintain a static pose
         
@@ -545,9 +545,14 @@ class TimeSteppingMultibodyPlant():
         u_var = prog.NewContinuousVariables(self.multibody.num_actuators(), name="controls")
         # Ensure dynamics approximately satisfied
         prog.Add2NormSquaredCost(A = A, b = -G, vars=np.concatenate([u_var, l_var], axis=0))
-        # Enforce normal complementarity
-        prog.AddBoundingBoxConstraint(np.zeros(l_var.shape), np.full(l_var.shape, np.inf), l_var)
-        prog.AddConstraint(phi.dot(l_var) == 0)
+        # Enforce normal complementarity - check for active constraints
+        active = phi < dtol
+        if np.any(active):
+            l_active = l_var[active]
+            prog.AddBoundingBoxConstraint(np.zeros(l_active.shape), np.full(l_active.shape, np.inf), l_active)
+        if np.any(~active):
+            l_inactive = l_var[~active]
+            prog.AddBoundingBoxConstraint(np.zeros(l_inactive.shape), np.zeros(l_inactive.shape), l_inactive)
         # Solve
         result = Solve(prog)
         # Check for a solution
