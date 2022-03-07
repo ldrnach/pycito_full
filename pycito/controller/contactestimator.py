@@ -7,7 +7,7 @@ February 14, 2022
 #TODO: Unittesting
 #TODO: Refactor ContactModelEstimator to reuse and update the program
 #TODO: Implement 'contact model rectifier' to calculate the global contact model offline - this is a QP
-#TODO: Implement 'ambiguity set optimization' to calculate bounds on contact model - this is a LP
+#TODO: Implement 'ambiguity set optimization' to calculate bounds on contact model - this is an LP
  
 import numpy as np
 
@@ -66,12 +66,13 @@ class ContactTrajectory():
         Add a new time stamp to the time array
         
         Arguments:
-            time: the timestamp to append
+            time: (1,) array or float, the timestamp to append
 
         Requirements:
-            time must be a float, and time must be greater than the current value at the end of self._time - i.e. the overall sequence of timesteps must be monotonically increasing
+            time must be a float or a scalar array, and time must be greater than the current value at the end of self._time - i.e. the overall sequence of timesteps must be monotonically increasing
         """
-        assert isinstance(time, float), f'timestamp must be a float'
+        time = np.asarray(time)
+        assert time.size == 1, f'timestamp must be a scalar'
         if self._time == []:
             self._time = [time]
         else:
@@ -198,13 +199,31 @@ class ContactEstimationTrajectory(ContactTrajectory):
         super(ContactEstimationTrajectory, self).__init__()
         self._plant = plant
         self._context = plant.multibody.CreateDefaultContext()
-        # Store the last state for calculating dynamics
-        self._last_state = initial_state
         # Setup the constraint parameter lists
         self._dynamics_cstr = []
         self._distance_cstr = []
         self._dissipation_cstr = []
         self._friction_cstr = []
+        # Store the last state for calculating dynamics - assume it was static before we started moving
+        self._last_state = initial_state
+        self._plant.multibody.SetPositionsAndVelocities(self._context, initial_state)
+        cpt = self._plant.get_contact_points(self._context)
+        self.add_contact_sample(0., np.hstack(cpt))    # Add the contact point
+        u, fN = plant.static_controller(qref = initial_state[:plant.multibody.num_positions()])
+        N = plant.multibody.CalcGravityGeneralizedForces(self._context)
+        B = plant.multibody.MakeActuationMatrix()
+        Jn, Jt = plant.GetContactJacobians(self._context)
+        A = np.concatenate((Jn.T, Jt.T), axis=1)
+        self._dynamics_cstr = [(A, -N - B.dot(u))]
+        self._append_distance()
+        self._append_dissipation()
+        self._append_friction()
+        # Set the initial guesses for force, feasibility, and dissipation
+        f_guess = np.zeros((self.num_contacts + self.num_friction, ))
+        f_guess[:self.num_contacts] = fN
+        self.set_force(0, f_guess)
+        self.set_feasibility(0, np.zeros((0,)))
+        self.set_dissipation(0, np.zeros((self.num_contacts,)))
         # Store the duplication matrix
         self._D = self._plant.duplicator_matrix()
         # Store the terrain kernel matrices
@@ -216,8 +235,6 @@ class ContactEstimationTrajectory(ContactTrajectory):
         Append a new point to the trajectory
         Also appends new parameters for the dynamics, normal distance, dissipation, and friction coefficient
         """
-        # Add the dynamics constraint first, as this manipulates the context
-        self._append_dynamics(time, state, control)
         # Reset the context, and add the contact points
         self._plant.multibody.SetPositionsAndVelocities(self._context, state)
         cpts = self._plant.get_contact_points(self._context)
@@ -226,24 +243,28 @@ class ContactEstimationTrajectory(ContactTrajectory):
         self._append_distance()
         self._append_dissipation()
         self._append_friction()
+        # Add the dynamics constraint last, as this manipulates the context
+        self._append_dynamics(state, control)
 
-    def _append_dynamics(self, time, state, control):
+    def _append_dynamics(self, state, control):
         """
         Add a set of linear system parameters to evaluate the dynamics defect 
         """
-        dt = time - self._time[-1]
+        dt = self._time[-1] - self._time[-2]
         # Get the Jacobian matrix - the "A" parameter
         self._plant.multibody.SetPositionsAndVelocities(self._context, state)
         Jn, Jt = self._plant.GetContactJacobians(self._context)
-        A = dt*np.concatenate([Jn.T, Jt.T], axis=0)
+        A = dt*np.concatenate([Jn.T, Jt.T], axis=1)
         # Now get the dynamics defect
         if self._plant.has_joint_limits:
             forces = np.zeros((A.shape[1] + self._plant.joint_limit_jacobian().shape[1], ))
         else:
             forces = np.zeros((A.shape[1], ))
         b = cstr.BackwardEulerDynamicsConstraint.eval(self._plant, self._context, dt, self._last_state, state, control, forces)
+        # Take only the velocity components
+        b = b[self._plant.multibody.num_positions():]
         # Append - wrap this in it's own constraint
-        self._dynamics_cstr.append((A, -b))
+        self._dynamics_cstr.append((A, b))
         # Save the state for the the next call to append_dynamics
         self._last_state = state
 
@@ -260,8 +281,8 @@ class ContactEstimationTrajectory(ContactTrajectory):
         Add a set of linear system parameters to evaluate the dissipation defect
         """
         # Get the tangent jacobian
-        _, Jt = self.plant.GetContactJacobians(self._context)
-        v = self.plant.multibody.GetVelocities(self._context)
+        _, Jt = self._plant.GetContactJacobians(self._context)
+        v = self._plant.multibody.GetVelocities(self._context)
         b = Jt.dot(v)
         self._dissipation_cstr.append(b)
 
@@ -270,12 +291,23 @@ class ContactEstimationTrajectory(ContactTrajectory):
         Add a set of linear system parameters to evaluate the friction cone defect
         """
         # Append the friction coefficients
-        mu = self.plant.GetFrictionCoefficients(self._context)
-        self._friction_cstr.append(np.atleast_1d(mu))
+        mu = self._plant.GetFrictionCoefficients(self._context)
+        self._friction_cstr.append(mu)
 
     def getDynamicsConstraint(self, index):
         """
         Returns the dynamics constraint at the specified index
+        The dynamics constraint takes the form
+            A*x  = b
+        where A is the contact Jacobian, x is the reaction forces, and b are the net external reaction force
+
+        Arguments:
+            index (int): a scalar
+
+        Return Value:
+            (A,b) - a tuple of dynamics constraint parameters
+            A: (nV, nC + nF) array, the scaled contact Jacobian, where nV is the number of velocity variables, nC is the number of contacts, and nF is the number of friction components
+            b: (nC + nF) array, the scaled net generalized reaction force
         """
         assert index >= 0 and index < len(self._dynamics_cstr), "index out of bounds"
         return self._dynamics_cstr[index]
@@ -283,6 +315,12 @@ class ContactEstimationTrajectory(ContactTrajectory):
     def getDistanceConstraint(self, index):
         """
         Return the distance constraint at the specified index
+
+        Arguments:
+            index (int): the scalar index at which to get the normal distance
+
+        Return value:
+            d: (nC,) array, the contact distances for each of the nC contact points
         """
         assert index >= 0 and index < len(self._distance_cstr), "index out of bounds"
         return self._distance_cstr[index]
@@ -290,6 +328,14 @@ class ContactEstimationTrajectory(ContactTrajectory):
     def getDissipationConstraint(self, index):
         """
         Return the dissipation constraint at the specified index
+
+        Argument:
+            index (int): the scalar index at which to get the dissipation constraint parameters
+
+        Return values:
+            (D, g) tuple of constraint parameters
+                D: (nT, nC) array, duplication matrix duplicating the velocities of the nC contact points along the nT tangential directions
+                g: (nC,) array, the maximum tangential velocity slack variables
         """
         assert index >= 0 and index < len(self._dissipation_cstr), "index out of bounds"
         return self._D.transpose(), self._dissipation_cstr[index]
@@ -297,35 +343,61 @@ class ContactEstimationTrajectory(ContactTrajectory):
     def getFrictionConstraint(self, index):
         """
         Return the friction cone constraint at the specified index
+
+        Argument:
+            index (int): scalar index at which to get the friction coefficient
+
+        Return values:
+            (D, m) tuple of constraint parameters
+            D: (nC, nT), numpy array, the duplication matrix combining the nT tangential reaction force vectors into nC friction values
+            m: nC-list of (1,) numpy arrays, the friction coefficients for each of the nC contact points
         """
         assert index >= 0  and index < len(self._friction_cstr), "index out of bounds"
         return self._D, self._friction_cstr[index]
 
     def getForceGuess(self, index):
         """
-        Return the initial guess for the forces at the specified index
+        Return the initial guess for the reaction forces at the specified index
+
+        Arguments:
+            index (int): a scalar index
+
+        Return Value:
+            f: (nC+nF,) array, a nonnegative guess at the reaction forces at the specified index
         """
         if index < len(self._forces):
             return self._forces[index]
         else:
             A, b = self.getDynamicsConstraint(index)
-            f = np.linalg.solve(A, b)
+            f = np.linalg.lstsq(A, b)[0]
             f[f < 0] = 0
             return f
 
     def getDissipationGuess(self, index):
         """
         Return the initial guess for the dissipation slacks at the specified index
+
+        Arguments:
+            index (int): a scalar index variables
+
+        Return value:
+            v: (nF, ) array of nonnegative guesses for the tangential velocity slack variable, where nF is the number of friction forces
         """
         if index < len(self._slacks):
             return self._slacks[index]
         else:
             D, v = self.getDissipationConstraint(index)
-            return np.max(-v)*np.ones((D.shape[1], 1))
+            return np.max(-v)*np.ones((D.shape[1], ))
 
     def getFeasibilityGuess(self, index):
         """
         Return an initial guess for the feasibility relaxation variable
+
+        Argument:
+            index: (int) a nonnegative scalar
+
+        Return value:
+            f: (1,) nonnegative scalar numpy array, the guess for the solution feasibility
         """
         if index < len(self._feasibility):
             return self._feasibility[index]
@@ -333,18 +405,33 @@ class ContactEstimationTrajectory(ContactTrajectory):
             return np.ones((1,))
 
     def getContactKernels(self, start, stop=None):
+        """
+        Return the surface and friction kernel matrices between the specified indices
+
+        Arguments:
+            start (int): the time index at which to start using sample points to calculate the kernel matrix
+            stop (int, optional): the time index at which to stop using sample points to calculate the kernel matrix (default: start + 1)
+        
+        Return values:
+            surface_kernel: (N, N) array, the kernel matrix for the surface kernel
+            friction_kernel: (N, N) array, the kernel matrix for the friction kernel
+        """
+        if self.num_timesteps == 0:
+            return np.zeros((0,0)), np.zeros((0,0))
         # Get the contact points
-        cpts = np.concatenate(self.get_contacts(start, stop), axis=1)
+        cpts = np.concatenate(self.get_contacts(start, stop), axis=1)   
         # Calculate the surface and friction kernel matrices
         return self.contact_model.surface_kernel(cpts), self.contact_model.friction_kernel(cpts)
 
     @property
     def num_contacts(self):
-        return self._plant.num_contacts
+        """Returns the number of contact points in the model"""
+        return self._plant.num_contacts()
 
     @property
     def num_friction(self):
-        return self._plant.num_friction
+        """Returns the total number of friction force components in the model"""
+        return self._plant.num_friction()
 
 class ContactModelEstimator():
     def __init__(self, esttraj, horizon):

@@ -172,16 +172,17 @@ class ContactTrajectoryTest(unittest.TestCase):
 class ContactEstimationTrajectoryTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        """Setup the model and trajectory container for the class"""
+        """Setup the model for the class"""
         terrain = SemiparametricContactModel.FlatSurfaceWithRBFKernel(friction=0.5)
         cls.plant = Block(terrain = terrain)
         cls.plant.Finalize()
-        x0 = np.array([0., 0.5, 0., 0.])
-        # Create the estimation trajectory
-        cls.traj = ce.ContactEstimationTrajectory(cls.plant, x0)
+        cls.x0 = np.array([0., 0.5, 0., 0.])
 
     def setUp(self):
-        """Store the basic test example values"""
+        """Setup the test examples and estimation trajectory container fresh for each test"""
+        # Re-create the estimation trajectory fresh for each test
+        self.traj = ce.ContactEstimationTrajectory(self.plant, self.x0)
+        # Store the basic test example values
         self.x_test = np.array([0.1, 0.5, 1.0, 0.0]).T
         self.u_test = np.array([14.905])
         self.t_test = np.array([0.1])
@@ -195,13 +196,16 @@ class ContactEstimationTrajectoryTest(unittest.TestCase):
             4. Check that the contact point added is correct
         """
         self.traj.append_sample(self.t_test, self.x_test, self.u_test)
-        self.assertEqual(self.traj.num_timesteps, 1, msg='append_sample did not update time axis')
+        self.assertEqual(self.traj.num_timesteps, 2, msg='append_sample did not update time axis')
         # Just check that each list of constraints has been appropriately updated
-        self.assertEqual(len(self.traj._contactpoints), 1, msg='append_sample did not update contactpoints list')
+        self.assertEqual(len(self.traj._contactpoints), 2, msg='append_sample did not update contactpoints list')
         # Check that the last_state has been updated
         np.testing.assert_equal(self.traj._last_state, self.x_test, err_msg="append_sample did not update last_state")
         # Check that the correct contact point was added
-
+        cpt_expected = np.array([[0.1, 0.0, 0.0]]).T
+        idx = self.traj.getTimeIndex(self.t_test)
+        cpt = self.traj.get_contacts(idx)[0]
+        np.testing.assert_allclose(cpt, cpt_expected, atol=1e-8, err_msg=f"Failed to return the correct contact point")
 
     def test_get_dynamics(self):
         """
@@ -216,10 +220,10 @@ class ContactEstimationTrajectoryTest(unittest.TestCase):
         self.plant.multibody.SetPositionsAndVelocities(context, self.x_test)
         J = self.plant.GetContactJacobians(context)
         A_expected = self.t_test * np.concatenate(J, axis=0).transpose()
-        b_expected = np.array([.495, -.981])        
+        b_expected = np.array([-.4905, .9810])        
         # Append the sample
         self.traj.append_sample(self.t_test, self.x_test, self.u_test)
-        self.assertEqual(len(self.traj._dynamics_cstr), 1, msg="append_sample did not update dynamics_cstr correctly")
+        self.assertEqual(len(self.traj._dynamics_cstr), 2, msg="append_sample did not update dynamics_cstr correctly")
         # Check the validity of the dynamics
         idx = self.traj.getTimeIndex(self.t_test)
         A, b = self.traj.getDynamicsConstraint(idx)
@@ -238,7 +242,7 @@ class ContactEstimationTrajectoryTest(unittest.TestCase):
         dist_expected = np.zeros((1,))       
         # Append the sample
         self.traj.append_sample(self.t_test, self.x_test, self.u_test)
-        self.assertEqual(len(self.traj._distance_cstr), 1, msg="append_sample did not update distance constraints correctly")
+        self.assertEqual(len(self.traj._distance_cstr), 2, msg="append_sample did not update distance constraints correctly")
         # Check the validity of the dynamics
         idx = self.traj.getTimeIndex(self.t_test)
         dist = self.traj.getDistanceConstraint(idx)
@@ -253,18 +257,18 @@ class ContactEstimationTrajectoryTest(unittest.TestCase):
             3. the dissipation parameters are the expected values
         """
         # Test values
-        A_expected = np.ones((1,4))
+        A_expected = np.ones((4,1))
         context = self.plant.multibody.CreateDefaultContext()
         self.plant.multibody.SetPositionsAndVelocities(context, self.x_test)
         _, Jt = self.plant.GetContactJacobians(context)
-        b_expected = Jt.dot(self.x_test[3:])    
+        b_expected = Jt.dot(self.x_test[2:])    
         # Append the sample
         self.traj.append_sample(self.t_test, self.x_test, self.u_test)
-        self.assertEqual(len(self.traj._dissipation_cstr), 1, msg="append_sample did not update dissipation_cstr correctly")
+        self.assertEqual(len(self.traj._dissipation_cstr), 2, msg="append_sample did not update dissipation_cstr correctly")
         # Check the validity of the dynamics
         idx = self.traj.getTimeIndex(self.t_test)
         A, b = self.traj.getDissipationConstraint(idx)
-        np.testing.assert_allclose(A, A_expected, atol=1e-6, err_msg=f"incorrect duplication matrix in dynamics constraint")
+        np.testing.assert_allclose(A, A_expected, atol=1e-6, err_msg=f"incorrect duplication matrix in dissipation constraint")
         np.testing.assert_allclose(b, b_expected, atol=1e-6, err_msg=f"incorrect total tangential velocity in dissipation constraint")
 
     def test_get_friction(self):
@@ -276,29 +280,87 @@ class ContactEstimationTrajectoryTest(unittest.TestCase):
             3. the friction parameters are the expected values
         """
         # Test values
-        A_expected = np.ones((4,1))
+        A_expected = np.ones((1,4))
         b_expected = np.array([0.5])       
         # Append the sample
         self.traj.append_sample(self.t_test, self.x_test, self.u_test)
-        self.assertEqual(len(self.traj._friction_cstr), 1, msg="append_sample did not update friction_cstr correctly")
-        # Check the validity of the dynamics
+        self.assertEqual(len(self.traj._friction_cstr), 2, msg="append_sample did not update friction_cstr correctly")
+        # Check the validity of the friction constraint
         idx = self.traj.getTimeIndex(self.t_test)
         A, b = self.traj.getFrictionConstraint(idx)
-        np.testing.assert_allclose(A, A_expected, atol=1e-6, err_msg=f"incorrect duplication matrix in dynamics constraint")
-        np.testing.assert_allclose(b, b_expected, atol=1e-6, err_msg=f"incorrect total tangential velocity in dissipation constraint")
+        np.testing.assert_allclose(A, A_expected, atol=1e-6, err_msg=f"incorrect duplication matrix in friction constraint")
+        self.assertTrue(isinstance(b, list), 'returned friction coefficients should be a list')
+        np.testing.assert_allclose(b[0], b_expected, atol=1e-6, err_msg=f"incorrect friction coefficient in frictio constraint")
 
     def test_get_force_guess(self):
-        pass
+        """
+        Check that "get_force_guess" returns reasonable guesses for the reaction forces
+            1. That the reaction force guess is nonnegative and the appropriate size when no other guess is given
+            2. That the reaction force guess matches a provided guess when one is given
+        """
+        self.traj.append_sample(self.t_test, self.x_test, self.u_test)
+        # Get force guess before any is given
+        idx = self.traj.getTimeIndex(self.t_test)
+        f_guess = self.traj.getForceGuess(idx)
+        self.assertEqual(f_guess.shape, (5,), msg='default unexpected number of reaction forces in the guess')
+        self.assertTrue(np.all(f_guess >= 0), msg='default force guess returns negative values for reaction forces')
+        # Set the force guess and check that it is accurate
+        f_test = np.array([1., 2., 3., 4., 5.])
+        self.traj.set_force(idx, f_test)
+        f_guess = self.traj.getForceGuess(idx)
+        np.testing.assert_array_equal(f_guess, f_test, err_msg="force guess returned by getForceGuess does not match the value passed to set_force")
 
     def test_get_dissipation_guess(self):
-        pass
+        """
+        Check that the 'get_dissipation_guess' returns reasonable guesses for the maximum dissipation velocity slack
+            1. the dissipation slack is nonnegative and has the appropriate size
+            2. that the dissipation slack matches a provided guess after one is given
+        """
+        self.traj.append_sample(self.t_test, self.x_test, self.u_test)
+        # Get the dissipation guess before any is given
+        idx = self.traj.getTimeIndex(self.t_test)
+        d_guess = self.traj.getDissipationGuess(idx)
+        self.assertEqual(d_guess.shape, (1,), msg='getDissipationGuess returns too many values')
+        self.assertTrue(np.all(d_guess >= 0), msg='default dissipation guess is negative')
+        # Set the dissipation
+        test_val = np.array([2.])
+        self.traj.set_dissipation(idx, test_val)
+        d_guess = self.traj.getDissipationGuess(idx)
+        np.testing.assert_array_equal(d_guess, test_val, err_msg="dissipation returnd by getDissipationGuess does not match the value passed to set_dissipation")
 
     def test_get_feasibility_guess(self):
-        pass
+        """
+        Check that the 'get_feasibility_guess' returns reasonable guesses for the complementarity feasibility
+            1. the feasibility is nonnegative when no other guess is provided
+            2. the feasibility matches the provided guess when one is given
+        """
+        # Get the feasibility guess before any is given
+        idx = self.traj.getTimeIndex(self.t_test)
+        f_guess = self.traj.getFeasibilityGuess(idx)
+        self.assertEqual(f_guess.shape, (1,), msg="default feasibility guess is nonscalar")
+        self.assertTrue(f_guess.item() >= 0, msg="default feasibility guess is negative")
+        # Set a feasibility guess and check that it's been set appropriately
+        test_val = np.array([2.])
+        self.traj.set_feasibility(idx, test_val)
+        f_guess = self.traj.getFeasibilityGuess(idx)
+        np.testing.assert_array_equal(f_guess, test_val, err_msg="feasibility returned by getFeasibilityGuess does not match the value passed to set_feasibility")
 
     def test_get_contact_kernels(self):
-        pass
-
+        """
+        Check the getContactKernels method
+            1. Evaluate the output when there are no points added
+            2. Check that the two kernels have the correct shape (the number of contact points added) after add_sample is called
+        """
+        # Test before any samples are added
+        Ks, Kf = self.traj.getContactKernels(0)
+        np.testing.assert_allclose(Ks, np.eye(1), atol=1e-12, err_msg='surface kernel is the wrong value for one contact point')
+        np.testing.assert_allclose(Kf, np.eye(1), atol=1e-12, err_msg='friction kernel is the wrong value for one contact point')
+        # Test after any samples are added
+        self.traj.append_sample(self.t_test, self.x_test, self.u_test)
+        idx = self.traj.getTimeIndex(self.t_test)
+        Ks, Kf = self.traj.getContactKernels(0, idx+1)
+        self.assertEqual(Ks.shape, (2, 2), msg='surface kernel is the wrong shape after adding a second point')
+        self.assertEqual(Kf.shape, (2, 2), msg="friction kernel is the wrong shape after adding a second point")
 
 class ContactModelEstimatorTest(unittest.TestCase):
     pass
