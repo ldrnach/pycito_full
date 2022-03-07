@@ -31,8 +31,8 @@ def householderortho3D(normal):
     # Calculate the tangent and binormal vectors
     hmag = np.sum(h ** 2)
     tangent = np.array([-2 * h[0]*h[1]/hmag, 1 - 2 * h[1]**2 /hmag, -2*h[1]*h[2]/hmag])
-    binormal = np.array([-2 *h[0] * h[2]/hmag, -2 * h[1] * h[2] / hmag, 1 - 2 * h[2]**2 / hmag])
-    return tangent, binormal
+    binormal = -np.array([-2 *h[0] * h[2]/hmag, -2 * h[1] * h[2] / hmag, 1 - 2 * h[2]**2 / hmag])
+    return binormal, tangent
 
 class DifferentiableModel(abc.ABC):
     def __call__(self, x):

@@ -19,20 +19,20 @@ class OrthogonalizationTest(unittest.TestCase):
     def test_orthogonalization_xaxis(self):
         # Test with the x-axis as the normal
         t, b = cm.householderortho3D(self.x)
-        np.testing.assert_allclose(t, self.y, atol=1e-6, err_msg="Orthogonalization returns incorrect tangent vector for x-axis normal")
-        np.testing.assert_allclose(b, self.z, atol=1e-6, err_msg="Orthogonalization returns incorrect binormal vector for x-axis normal")
+        np.testing.assert_allclose(t, -self.z, atol=1e-6, err_msg="Orthogonalization returns incorrect tangent vector for x-axis normal")
+        np.testing.assert_allclose(b, self.y, atol=1e-6, err_msg="Orthogonalization returns incorrect binormal vector for x-axis normal")
 
     def test_orthogonalization_yaxis(self):
         # Test with the y-axis as the normal
         t, b = cm.householderortho3D(self.y)
-        np.testing.assert_allclose(t, -self.x, atol=1e-6, err_msg="Orthogonalization returns incorrect tangent vector for y-axis normal")
-        np.testing.assert_allclose(b, self.z, atol=1e-6, err_msg="Orthogonalization returns incorrect binormal vector for y-axis normal")
+        np.testing.assert_allclose(t, -self.z, atol=1e-6, err_msg="Orthogonalization returns incorrect tangent vector for y-axis normal")
+        np.testing.assert_allclose(b, -self.x, atol=1e-6, err_msg="Orthogonalization returns incorrect binormal vector for y-axis normal")
 
     def test_orthogonalization_zaxis(self):
         # Test with the y-axis as the normal
         t, b = cm.householderortho3D(self.z)
-        np.testing.assert_allclose(t, self.y, atol=1e-6, err_msg="Orthogonalization returns incorrect tangent vector for y-axis normal")
-        np.testing.assert_allclose(b, -self.x, atol=1e-6, err_msg="Orthogonalization returns incorrect binormal vector for y-axis normal")
+        np.testing.assert_allclose(t, self.x, atol=1e-6, err_msg="Orthogonalization returns incorrect tangent vector for y-axis normal")
+        np.testing.assert_allclose(b, self.y, atol=1e-6, err_msg="Orthogonalization returns incorrect binormal vector for y-axis normal")
 
     def test_orthogonalization_arbitrary(self):
         # Test with an arbitrary unit normal vector
@@ -49,8 +49,8 @@ class OrthogonalizationTest(unittest.TestCase):
         x_ad = ad.InitializeAutoDiff(self.x)
         t, b = cm.householderortho3D(x_ad)
         # Check that the *values* are correct. We don't need to check the value of the gradients
-        np.testing.assert_allclose(np.squeeze(ad.ExtractValue(t)), self.y, atol=1e-6, err_msg='Orthogonalization returns inaccurate tangent vector when input is autodiff type')
-        np.testing.assert_allclose(np.squeeze(ad.ExtractValue(b)), self.z, atol=1e-6, err_msg="Orthogonalization returns inaccurate binormal vector when input is autodiff type")
+        np.testing.assert_allclose(np.squeeze(ad.ExtractValue(t)), -self.z, atol=1e-6, err_msg='Orthogonalization returns inaccurate tangent vector when input is autodiff type')
+        np.testing.assert_allclose(np.squeeze(ad.ExtractValue(b)), self.y, atol=1e-6, err_msg="Orthogonalization returns inaccurate binormal vector when input is autodiff type")
 
 class ConstantModelTest(unittest.TestCase):
     def setUp(self):
@@ -140,8 +140,8 @@ class ContactModelTest(unittest.TestCase):
         self.expected_surfs = [np.array([val]) for val in [3, -3, 0, 2]]
         self.expected_friction = np.array([0.5])
         self.expected_frame = np.array([[0, 0, 1],
-                                        [0, 1, 0],
-                                        [-1, 0, 0]])
+                                        [1, 0, 0],
+                                        [0, 1, 0]])
     def test_surface_evaluation(self):
         """Test contact model surface evaluation"""
         for test, expected in zip(self.test_points, self.expected_surfs):
@@ -289,7 +289,7 @@ class SemiparametricContactModelTest(unittest.TestCase):
         """Test that we can evaluate the local frame before and after adding points to the model"""
         # Test evaluating the local frame before adding data
         R = self.model.local_frame(self.test_point)
-        R_expected = np.array([[0, 0, 1], [0, 1, 0], [-1, 0, 0]])
+        R_expected = np.array([[0, 0, 1], [1, 0, 0], [0, 1, 0]])
         np.testing.assert_allclose(R, R_expected, atol=1e-6, err_msg=f"Evaluating prior local frame fails for float types")
         # Test evaluating the local frame after adding data
         self.model.add_samples(self.data, self.weights, self.weights)
@@ -323,7 +323,7 @@ class SemiparametricContactModelTest(unittest.TestCase):
         # Test evaluating the local frame before adding data
         test_ad = ad.InitializeAutoDiff(self.test_point)
         R = self.model.local_frame(test_ad)
-        R_expected = np.array([[0, 0, 1], [0, 1, 0], [-1, 0, 0]])
+        R_expected = np.array([[0, 0, 1], [1, 0, 0], [0, 1, 0]])
         np.testing.assert_allclose(ad.ExtractValue(R), R_expected, atol=1e-6, err_msg=f"Evaluating prior local frame fails for autodiff types")
         # Test evaluating the local frame after adding data
         self.model.add_samples(self.data, self.weights, self.weights)
