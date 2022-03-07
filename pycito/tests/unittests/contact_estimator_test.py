@@ -145,7 +145,6 @@ class ContactTrajectoryTest(unittest.TestCase):
         np.testing.assert_array_equal(cpt[0], contacts[0], err_msg='get_contacts returns the wrong contact point at index 0')
         np.testing.assert_array_equal(self.traj.get_contacts(1)[0], contacts[1], err_msg='get_contacts returns the wrong contact point at index 1')
 
-
     def test_get_time_index(self):
         """
         Evaluate the getTimeIndex method of ContactTrajectory. Check that:
@@ -363,7 +362,131 @@ class ContactEstimationTrajectoryTest(unittest.TestCase):
         self.assertEqual(Kf.shape, (2, 2), msg="friction kernel is the wrong shape after adding a second point")
 
 class ContactModelEstimatorTest(unittest.TestCase):
-    pass
+    def setUp(self):
+        """
+        Common setup for estimation tests
+        """
+        # Setup the semiparametric plant
+        terrain = SemiparametricContactModel.FlatSurfaceWithRBFKernel(friction=0.5)
+        plant = Block(terrain = terrain)
+        plant.Finalize()
+        x0 = np.array([0., 0.5, 0., 0.]).T
+        # Setup the estimation trajectory
+        self.traj = ce.ContactEstimationTrajectory(plant, x0)
+        # Setup the estimator
+        self.estimator = ce.ContactModelEstimator(self.traj, horizon=3)
+        # Set some example values - example trajectory
+        self.x_data = np.array([[0.1, 0.3, 0.6],
+                                [0.5, 0.5, 0.5],
+                                [1.0, 2.0, 3.0],
+                                [0.0, 0.0, 0.0]])
+        self.u_data = np.array([[14.95, 14.95, 14.95]])
+        self.t_data = np.array([0.1, 0.2, 0.3])
+        self.fN_data = np.array([[9.81, 9.81, 9.81, 9.81]])
+        self.fT_data = np.zeros((4, 4))
+        self.fT_data[2, 1:] = 4.95
+        self.vs_data = np.array([[0., 1., 2., 3.]])
+        # Append just the first point (bring total contacts to 2)
+        self.traj.append_sample(self.t_data[0], self.x_data[:, 0], self.u_data[:, 0])
+
+    def test_number_constraints(self):
+        """
+        Test that the program creates the correct number of constraints.
+            1. When the total number of sample points is less than the desired horizon
+            2. When the total number of sample points is more than the desired horizon
+        """
+        total_cstrs = lambda k: 10 * k + 1 
+        self.estimator.create_estimator()
+        self.assertEqual(len(self.estimator._prog.GetAllConstraints()), total_cstrs(2), 'unexpected number of constraints when there are fewer sample points than the desired horizon')
+        # Add extra sample points
+        self.traj.append_sample(self.t_data[1], self.x_data[:, 1], self.u_data[:, 1])
+        self.traj.append_sample(self.t_data[2], self.x_data[:, 2], self.u_data[:, 2])
+        # Remake and test the estimator
+        self.estimator.create_estimator()
+        self.assertEqual(len(self.estimator._prog.GetAllConstraints()), total_cstrs(3), "unexpected number of constraints when there are more sample points than the desired horizon")
+
+    def test_number_costs(self): 
+        """
+        Test that the program creates the correct number of cost terms:
+            1. When the total number of sample points is less than the desired horizon
+            2. When the total number of sample points is more than the desired horizon
+        """
+        total_costs = lambda k: 4
+        self.estimator.create_estimator()
+        self.assertEqual(len(self.estimator._prog.GetAllCosts()), total_costs(2), "unexpected number of costs when there are fewer sample points than the desired horizon")
+        # Add sample points
+        self.traj.append_sample(self.t_data[1], self.x_data[:, 1], self.u_data[:, 1])
+        self.traj.append_sample(self.t_data[2], self.x_data[:, 2], self.u_data[:, 2])
+        # Check the number of costs now
+        self.estimator.create_estimator()
+        self.assertEqual(len(self.estimator._prog.GetAllCosts()), total_costs(3), "Unexpected number of costs when there are more sample points than the desired horizon")
+
+    def test_number_variables(self):
+        """
+        Test that the program creates the correct number of decision variables:
+            1. When the total number of sample points is less than the desired horizon
+            2. When the total number of sample points is more than the desired horizon
+        """
+        c = 5 * self.traj.num_contacts + 2 * self.traj.num_friction  + 1 
+        total_vars = lambda k : c * k
+        self.estimator.create_estimator()
+        self.assertEqual(self.estimator._prog.decision_variables().size, total_vars(2), 'unexpected number of decision variables when there are fewer sample points than the desired horizon')
+        # Add extra sample points
+        self.traj.append_sample(self.t_data[1], self.x_data[:, 1], self.u_data[:, 1])
+        self.traj.append_sample(self.t_data[2], self.x_data[:, 2], self.u_data[:, 2])
+        # Remake and test the estimator
+        self.estimator.create_estimator()
+        self.assertEqual(self.estimator._prog.decision_variables().size, total_vars(3), "unexpected number of decision variables when there are more sample points than the desired horizon")
+
+    def test_solve(self):
+        """
+        Test that the program can solve successfully and returns a reasonable solution (given the solution)
+        """
+        # Setup the program
+        self.estimator.create_estimator()
+        # Set the initial guess for the decision variables to their expected values
+        dweight_guess = np.zeros(self.estimator._distance_weights.shape)
+        fweight_guess = np.zeros(self.estimator._friction_weights.shape)
+        f_guess = np.vstack([self.fN_data[:, :2], self.fT_data[:, :2]])
+        sV_guess = self.vs_data[:, :2]
+        r_guess = np.zeros((1,2))   
+        self.estimator._prog.SetInitialGuess(self.estimator._distance_weights, dweight_guess)
+        self.estimator._prog.SetInitialGuess(self.estimator._friction_weights, fweight_guess)
+        self.estimator._prog.SetInitialGuess(self.estimator.forces, f_guess)
+        self.estimator._prog.SetInitialGuess(self.estimator.velocities, sV_guess)
+        self.estimator._prog.SetInitialGuess(self.estimator.feasibilities, r_guess)
+        # Solve the program
+        self.estimator.setSolverOptions({'Major feasibility tolerance': 1e-8,
+                                        'Major optimality tolerance': 1e-8})
+        result = self.estimator.solve()
+        self.assertTrue(result.is_success(), "Failed to solve the estimation problem successfully")
+        # Check the answers against the initial guesses
+        with self.subTest(msg='Distance Solution'):
+            np.testing.assert_allclose(result.GetSolution(self.estimator._distance_weights), dweight_guess, atol=1e-6, err_msg=f'Distance weight solution inaccurate')
+        with self.subTest(msg='Friction Solution'):
+            np.testing.assert_allclose(result.GetSolution(self.estimator._friction_weights), 
+            fweight_guess, atol=1e-6, err_msg=f'Friction weight solution inaccurate')
+        with self.subTest(msg='Force Solution'):
+            np.testing.assert_allclose(result.GetSolution(self.estimator.forces),
+            f_guess, atol=1e-6, err_msg=f"Force solution inaccurate")
+        with self.subTest(msg='Velocity solution'):
+            np.testing.assert_allclose(result.GetSolution(self.estimator.velocities), sV_guess, atol=1e-6, err_msg="Velocity slack solution inaccurate")
+        with self.subTest(msg='Feasibility Solution'):        
+            np.testing.assert_allclose(result.GetSolution(self.estimator.feasibilities), r_guess, atol=1e-6, err_msg=f"Feasibility solution inaccurate")
+
+    def test_estimate(self):
+        """
+        Test that the wrapper method, estimate_contact, successfully solves the problem and stores the solution in the "guesses" of the contactestimationtrajectory.
+        """
+        # Run estimation
+        model = self.estimator.estimate_contact(self.t_data[1], self.x_data[:, 1], self.u_data[:, 1])
+        # Check that the returned model is a Semiparametric Contact Model
+        self.assertTrue(isinstance(model, SemiparametricContactModel), msg=f"Returned value is not a SemiparametricContactModel")
+        # Check that contact trajectory has been appropriately updated
+        idx = self.traj.getTimeIndex(self.t_data[1])
+        self.assertEqual(len(self.traj._forces), idx+1, 'calling estimate_contact results in an unexpected number of stored reaction forces')
+        self.assertEqual(len(self.traj._slacks), idx+1, 'calling estimate_contact results in an unexpected number of stored velocity slacks')
+        self.assertEqual(len(self.traj._feasibility), idx+1, 'calling estimate_conact results in an unexpected number of feasibility variables')
 
 
 if __name__ == '__main__':
