@@ -488,6 +488,96 @@ class ContactModelEstimatorTest(unittest.TestCase):
         self.assertEqual(len(self.traj._slacks), idx+1, 'calling estimate_contact results in an unexpected number of stored velocity slacks')
         self.assertEqual(len(self.traj._feasibility), idx+1, 'calling estimate_conact results in an unexpected number of feasibility variables')
 
+class ContactModelRectifierTest(unittest.TestCase):
+    def setUp(self):
+        """
+        Common setup for estimation tests
+        """
+        # Setup the semiparametric plant
+        terrain = SemiparametricContactModel.FlatSurfaceWithRBFKernel(friction=0.5)
+        plant = Block(terrain = terrain)
+        plant.Finalize()
+        x0 = np.array([0., 0.5, 0., 0.]).T
+        # Setup the estimation trajectory
+        self.traj = ce.ContactEstimationTrajectory(plant, x0)
+        # Set some example values - example trajectory
+        self.x_data = np.array([[0.1, 0.3, 0.6],
+                                [0.5, 0.5, 0.5],
+                                [1.0, 2.0, 3.0],
+                                [0.0, 0.0, 0.0]])
+        self.u_data = np.array([[14.95, 14.95, 14.95]])
+        self.t_data = np.array([0.1, 0.2, 0.3])
+        self.fN_data = np.array([[9.81, 9.81, 9.81, 9.81]])
+        self.fT_data = np.zeros((4, 4))
+        self.fT_data[2, 1:] = 4.95
+        self.vs_data = np.array([[0., 1., 2., 3.]])
+        f = np.concatenate([self.fN_data, self.fT_data], axis=0)
+        # Append just the first point (bring total contacts to 2)
+        for n in range(3):
+            self.traj.append_sample(self.t_data[n], self.x_data[:, n], self.u_data[:, n])
+            # Add force variables
+            self.traj.set_force(n,f[:, n])
+            # Add velocity slacks
+            self.traj.set_dissipation(n, self.vs_data[:, n])
+            # Add feasibility variables
+            self.traj.set_feasibility(n, np.zeros((1, )))
+        # Insert forces and feasibilities for the last sample
+        self.traj.set_force(3, f[:, 3])
+        self.traj.set_dissipation(3, self.vs_data[:, 3])
+        self.traj.set_feasibility(3, np.zeros((1,)))
+        # Setup the estimator
+        self.estimator = ce.EstimatedContactModelRectifier(self.traj)
+        # Guesses / solutions
+        N = self.traj.num_timesteps * self.traj.num_contacts
+        self.dweights = np.zeros((N,))
+        self.fweights = np.zeros((N,))
+        self.relax = np.zeros((self.traj.num_timesteps, ))
+        self.estimator.prog.SetInitialGuess(self.estimator.dweights, self.dweights)
+        self.estimator.prog.SetInitialGuess(self.estimator.fweights, self.fweights)
+        self.estimator.prog.SetInitialGuess(self.estimator.relax, self.relax)
+
+    def test_number_constraints(self):
+        """Test the number of constraints in each optimization problem"""
+        self.assertEqual(len(self.estimator.prog.GetAllConstraints()), 6, msg="Unexpected number of constraints in feasibility program")
+
+    def test_number_variables(self):
+        """Check that we have the correct number of decision variables"""
+        nC = self.traj.num_contacts
+        total_vars = lambda N: (2*nC + 1) * N
+        self.assertEqual(self.estimator.prog.decision_variables().size, total_vars(self.traj.num_timesteps), msg='Unexpected number of decision variables')
+
+    def test_number_costs(self):
+        """Check the number of costs in each optimization subproblem"""
+        self.assertEqual(len(self.estimator.prog.GetAllCosts()), 0, msg='unexpected number of costs in feasibility program')
+        self.estimator._add_linear_cost()
+        self.assertEqual(len(self.estimator.prog.GetAllCosts()), 2, msg='Unexpected number of costs in linear program')
+        self.estimator._clear_costs()
+        self.assertEqual(len(self.estimator.prog.GetAllCosts()), 0, msg='Unexpected number of costs after calling clear_costs')
+        self.estimator._add_quadratic_cost()
+        self.assertEqual(len(self.estimator.prog.GetAllCosts()), 2, msg='Unexpected number of costs in quadratic program')
+
+    def test_ambiguity_optimization(self):
+        """Check that the ambiguity optimization solution method works"""
+        result = self.estimator.solve_ambiguity()
+        self.assertTrue(result.is_success(), msg='Ambiguity optimization failed to solve successfully')
+        with self.subTest('Distance Solution'):
+            np.testing.assert_allclose(result.GetSolution(self.estimator.dweights), self.dweights, atol=1e-5, err_msg='Distance weights solution not sufficiently close to zero')
+        with self.subTest('Friction Solution'):
+            np.testing.assert_allclose(result.GetSolution(self.estimator.fweights), self.fweights, atol=1e-5, err_msg='Friction weight solution not sufficiently close to zero')
+        with self.subTest('Feasibility Solution'):
+            np.testing.assert_allclose(result.GetSolution(self.estimator.relax), self.relax, atol=1e-5, err_msg='Feasibility solution not sufficiently close to zero')
+
+
+    def test_global_optimization(self):
+        """Check that the global contact model optimization method works"""
+        result = self.estimator.solve_global_model()
+        self.assertTrue(result.is_success(), msg='Global Model optimization failed to solve successfully')
+        with self.subTest('Distance Solution'):
+            np.testing.assert_allclose(result.GetSolution(self.estimator.dweights), self.dweights, atol=1e-5, err_msg='Distance weights solution not sufficiently close to zero')
+        with self.subTest('Friction Solution'):
+            np.testing.assert_allclose(result.GetSolution(self.estimator.fweights), self.fweights, atol=1e-5, err_msg='Friction weight solution not sufficiently close to zero')
+        with self.subTest('Feasibility Solution'):
+            np.testing.assert_allclose(result.GetSolution(self.estimator.relax), self.relax, atol=1e-5, err_msg='Feasibility solution not sufficiently close to zero')
 
 if __name__ == '__main__':
     unittest.main()

@@ -5,12 +5,10 @@ Luke Drnach
 February 14, 2022
 """
 #TODO: Refactor ContactModelEstimator to reuse and update the program
-#TODO: Implement 'contact model rectifier' to calculate the global contact model offline - this is a QP
-#TODO: Implement 'ambiguity set optimization' to calculate bounds on contact model - this is an LP
- 
+
 import numpy as np
 import copy
-from pydrake.all import MathematicalProgram, SnoptSolver
+from pydrake.all import MathematicalProgram, SnoptSolver, Solve
 
 import pycito.trajopt.constraints as cstr
 import pycito.trajopt.complementarity as cp
@@ -748,15 +746,16 @@ class EstimatedContactModelRectifier():
         """Set up the optimization program"""
         # Store the kernel matrices for the entire problem
         self.Kd, self.Kf = self.traj.getContactKernels(0, self.traj.num_timesteps)
+        # Create the contact duplication matrix
+        d = np.ones((self.traj.num_contacts,1))
+        self.D = np.kron(np.eye(self.traj.num_timesteps, dtype=int), d)  
         # Setup the optimization program - just the constraints
         self.prog = MathematicalProgram()
         self._add_variables()
         self._add_distance_constraints()
         self._add_friction_constraints()
+        self._add_relaxation_constraint()
         self.costs = []
-        # Create the contact duplication matrix
-        d = np.ones((self.traj.num_contacts,1))
-        self.D = np.kron(np.eye(self.traj.num_timesteps, dtype=int), d)  
 
     def _add_variables(self):
         """Add decision variables to the optimization problem"""
@@ -817,7 +816,9 @@ class EstimatedContactModelRectifier():
     def _add_relaxation_constraint(self):
         """Add the bounding box constraint on the relaxation variables"""
         f = np.concatenate(self.traj._feasibility, axis=0)
-        self.prog.AddBoundingBoxConstraint(self.relax, np.zeros(f.shape), f).evaluator().set_description('Feasibility Limits')
+        f = np.expand_dims(f, axis=1)
+        relax = np.expand_dims(self.relax, axis=1)
+        self.prog.AddBoundingBoxConstraint(np.zeros(f.shape), f, relax).evaluator().set_description('Feasibility Limits')
 
     def _add_quadratic_cost(self):
         """Add the quadratic cost terms used in global model optimization"""
@@ -831,13 +832,9 @@ class EstimatedContactModelRectifier():
 
     def _add_linear_cost(self):
         """Add the linear cost terms used in ambiguity set optimization"""
-        # Cost weights
-        e = np.ones((1, self.dweights.shape[0]))
-        Ld = e.dot(self.Kd)
-        Lf = e.dot(self.Kf)
         # Create the costs
-        distance_cost = self.prog.AddLinearCost(Ld, self.dweights)
-        friction_cost = self.prog.AddLinearCost(Lf, self.fweights)
+        distance_cost = self.prog.AddLinearCost(np.sum(self.Kd, axis=0), self.dweights)
+        friction_cost = self.prog.AddLinearCost(np.sum(self.Kf, axis=0), self.fweights)
         distance_cost.evaluator().set_description('Linear Distance Cost')
         friction_cost.evaluator().set_description('Linear Friction Cost')
         # Keep the bindings in case we need to remove them later
@@ -848,26 +845,22 @@ class EstimatedContactModelRectifier():
         for cost in self.costs:
             self.prog.RemoveCost(cost)
 
-    def ambiguity_optimization(self):
+    def solve(self):
+        """Solve the optimization problem"""
+        return Solve(self.prog)
+
+    def solve_ambiguity(self):
         """Solve the ambiguity set optimization"""
         #TODO - Determine whether the upper or lower limits for distance, friction are always infinite
         self._clear_costs()
         self._add_linear_cost()
-        result = self.solve()
-        dlimit = result.GetSolution(self.dweights)
-        flimit = result.GetSolution(self.fweights)
-        #TODO: Return upper and lower limits
-        return dlimit, flimit
+        return self.solve()
 
-    def global_model_optimization(self):
+    def solve_global_model(self):
         """Solve the global model optimization problem"""
         self._clear_costs()
         self._add_quadratic_cost()
-        result = self.solve()
-        dweight = result.GetSolution(self.dweights)
-        fweight = result.GetSolution(self.fweights)
-        #TODO: Return a semiparametric contact model
-        return dweight, fweight
+        return self.solve()
 
 if __name__ == '__main__':
     print("Hello from contactestimator!")
