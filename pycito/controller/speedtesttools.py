@@ -1,8 +1,11 @@
 """
-    Tools for running speed tests on model predictive control
+    Tools for running speed tests on model predictive control and contact model estimation
 
     Luke Drnach
     February 11, 2022
+    
+    Updated March 8, 2022
+        Added speedtests for contact model estimation
 """
 
 import numpy as np
@@ -12,6 +15,7 @@ import matplotlib.pyplot as plt
 from pydrake.all import OsqpSolver, SnoptSolver
 
 import pycito.controller.mpc as mpc
+import pycito.controller.contactestimator as ce
 import pycito.utilities as utils
 import pycito.decorators as deco
 
@@ -31,6 +35,16 @@ def get_constraint_violation(prog, result):
         violation += sum(abs(lb_viol)) + sum(abs(ub_viol))
     return violation
 
+def get_solve_info(result):
+    details = result.get_solver_details()
+    id = result.get_solver_id()
+    if id == 'SNOPT/fortran':
+        return details.info()
+    elif id == 'OSQP':
+        return details.status_val()
+    else:
+        return np.NAN
+
 class SpeedTestResult():
     def __init__(self, max_horizon, num_samples):
         # Create arrays to store the speedtest data
@@ -39,6 +53,7 @@ class SpeedTestResult():
         self.successful_solves = np.zeros((num_samples, max_horizon), dtype=bool)
         self.cost_vals = np.zeros((num_samples, max_horizon))
         self.cstr_vals = np.zeros((num_samples, max_horizon))
+        self.solve_info = np.zeros((num_samples, max_horizon))
 
     @staticmethod
     def load(filename):
@@ -71,11 +86,12 @@ class SpeedTestResult():
         self.startup_times[sample_number, horizon-1] = startup
         self.solve_times[sample_number, horizon-1] = solve
 
-    def record_results(self, success, cost, cstr, sample_number, horizon):
-        """Record the MPC results for the speedtest"""
-        self.successful_solves[sample_number, horizon-1] = success
-        self.cost_vals[sample_number, horizon-1] = cost
-        self.cstr_vals[sample_number, horizon-1] = cstr
+    def record_results(self, result, prog, sample_number, horizon):
+        """Record the program results for the speedtest"""
+        self.successful_solves[sample_number, horizon-1] = result.is_success()
+        self.cost_vals[sample_number, horizon-1] = result.get_optimal_cost()
+        self.cstr_vals[sample_number, horizon-1] = get_constraint_violation(prog, result)
+        self.solve_info[sample_number, horizon-1] = get_solve_info(result)
 
     def plot(self, show=False, savename=None):
         fig1, axs1 = self.plot_times(show=show, savename=utils.append_filename(savename, 'times'))
@@ -145,8 +161,6 @@ class SpeedTestResult():
         if show:
             plt.show()
 
-
-
 class MPCSpeedTest():
     def __init__(self, reftraj, max_horizon=None):
         self.reftraj = reftraj
@@ -188,8 +202,44 @@ class MPCSpeedTest():
                 solve_time = time.perf_counter() - start
                 # Record results
                 speedResult.record_times(create_time, solve_time, sampleidx, horizon)
-                cstr = get_constraint_violation(controller.prog, result)
-                speedResult.record_results(result.is_success(), result.get_optimal_cost(), cstr, sampleidx, horizon)
+                speedResult.record_results(result, controller.prog, sampleidx, horizon)
             print(f"\t{sum(speedResult.successful_solves[:, horizon-1])} of {state_samples.shape[1]} solved successfully")
         
+        return speedResult
+
+class ContactEstimatorSpeedTest():
+    def __init__(self, esttraj, maxhorizon):
+        assert isinstance(esttraj, ce.ContactEstimationTrajectory), "trajectory must be a ContactEstimationTrajectory"
+        self.reftraj = esttraj
+        if maxhorizon is None:
+            self.max_horizon = self.reftraj.num_timesteps
+        else:
+            self.max_horizon = maxhorizon
+
+    def run_speedtests(self, nstarts):
+        """Run speedtests for contact estimation"""
+        speedResult = SpeedTestResult(self.max_horizon, nstarts)
+        assert nstarts + self.max_horizon <= self.reftraj.num_timesteps, "The sum of the starting point and the maximum horizon must be less than the total number of samples in the reference trajectory"
+
+        start = self.reftraj.num_timesteps - nstarts
+        for n in range(start, self.reftraj.num_timesteps):
+            subtraj = self.reftraj.subset(0, n)
+            # Inner loop - horizon
+            for horizon in range(1, self.max_horizon + 1):
+                # Get the subtrajectory
+                print(f"Running Contact Estimation with horizon {horizon}")
+                estimator = ce.ContactModelEstimator(subtraj, horizon)
+                # Create the estimator
+                start = time.perf_counter()
+                estimator.create_estimator()
+                create_time = time.perf_counter() - start
+                # Solve the estimation problem
+                start = time.perf_counter()
+                result = estimator.solve()
+                solve_time = time.perf_counter() - start
+                # Record the times
+                speedResult.record_times(create_time, solve_time, start - n, horizon)
+                # Record the results
+                speedResult.record_results(result, estimator._prog, start-n, horizon)
+            print(f"\t{sum(speedResult.successful_solves[:, horizon-1])} of {speedResult.successful_solves.shape[0]} solved successfully")
         return speedResult
