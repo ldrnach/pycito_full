@@ -4,8 +4,6 @@ Contact model estimation
 Luke Drnach
 February 14, 2022
 """
-#TODO: Unittesting
-#TODO: Name distance and dissipation constraints
 #TODO: Refactor ContactModelEstimator to reuse and update the program
 #TODO: Implement 'contact model rectifier' to calculate the global contact model offline - this is a QP
 #TODO: Implement 'ambiguity set optimization' to calculate bounds on contact model - this is an LP
@@ -18,6 +16,67 @@ import pycito.trajopt.constraints as cstr
 import pycito.trajopt.complementarity as cp
 import pycito.controller.mlcp as mlcp
 from pycito.systems.contactmodel import SemiparametricContactModel
+
+class SemiparametricFrictionConeConstraint():
+    def __init__(self, friccoeff, kernel, duplicator):
+        assert friccoeff.shape[0] == kernel.shape[0], 'Friction coefficient and kernel matrix must have the same number of rows'
+        assert duplicator.shape[0] == friccoeff.shape[0], 'The duplication matrix must have as many rows as there are friction coefficients'
+        self.friccoeff = friccoeff
+        self.kernel = kernel            # The kernel matrix
+        self.duplicator = duplicator    # Friction force duplication/coupling matrix
+        self._ncp_cstr = None
+
+    def addToProgram(self, prog, xvars, zvars, rvars=None):
+        self._ncp_cstr = cp.NonlinearVariableSlackComplementarity(self.eval_frictioncone, xdim = xvars.shape[0], zdim = zvars.shape[0])
+        self._ncp_cstr.set_description('SemiparametricFrictionCone')
+        # Add the nonlinear complementarity constraint to the program
+        self._ncp_cstr.addToProgram(prog, xvars, zvars, rvars=rvars)
+        # Add the nonnegativity constraint to the program - linear constraint
+        weights = xvars[:self.num_weights]
+        prog.AddLinearConstraint(A = self.kernel, lb = -self.friccoeff, ub = np.full(self.friccoeff.shape, np.inf), vars=weights).evaluator().set_description('friction_coeff_nonnegativity')
+
+    def eval_frictioncone(self, dvals):
+        # Separate out the components of the constraint
+        weights, normal_force, friction_force = np.split(dvals, np.cumsum([self.num_weights, self.num_normals]))
+        # Calculate the "updated" friction cone
+        mu = np.diag(self.eval_friction_coeff(weights))
+        # Friction cone error 
+        return mu.dot(normal_force) - self.duplicator.dot(friction_force)
+
+    def eval_friction_coeff(self, weights):
+        """Return the semiparametric friction coefficient"""
+        return self.friccoeff + self.kernel.dot(weights)
+
+    @property
+    def num_normals(self):
+        return self.friccoeff.size
+
+    @property
+    def num_weights(self):
+        return self.kernel.shape[1]
+
+    @property
+    def num_friction(self):
+        return self.duplicator.shape[1]
+
+    @property
+    def relax(self):
+        if self._ncp_cstr is not None:
+            return self._ncp_cstr.var_slack
+        else:
+            return None
+
+    @property
+    def cost_weight(self):
+        if self._ncp_cstr is not None:
+            return self._ncp_cstr.cost_weight
+        else:
+            return None
+
+    @cost_weight.setter
+    def cost_weight(self, val):
+        if self._ncp_cstr is not None:
+            self._ncp_cstr.cost_weight = val
 
 class ContactTrajectory():
     """
@@ -679,66 +738,136 @@ class ContactModelEstimator():
         else:
             return None
 
-class SemiparametricFrictionConeConstraint():
-    def __init__(self, friccoeff, kernel, duplicator):
-        assert friccoeff.shape[0] == kernel.shape[0], 'Friction coefficient and kernel matrix must have the same number of rows'
-        assert duplicator.shape[0] == friccoeff.shape[0], 'The duplication matrix must have as many rows as there are friction coefficients'
-        self.friccoeff = friccoeff
-        self.kernel = kernel            # The kernel matrix
-        self.duplicator = duplicator    # Friction force duplication/coupling matrix
-        self._ncp_cstr = None
+class EstimatedContactModelRectifier():
+    def __init__(self, esttraj):
+        assert isinstance(esttraj, ContactEstimationTrajectory), "EstimatedContactModelRectifier must be initialized with a ContactEstimationTrajectory object"
+        self.traj = esttraj
+        self._setup()
 
-    def addToProgram(self, prog, xvars, zvars, rvars=None):
-        self._ncp_cstr = cp.NonlinearVariableSlackComplementarity(self.eval_frictioncone, xdim = xvars.shape[0], zdim = zvars.shape[0])
-        self._ncp_cstr.set_description('SemiparametricFrictionCone')
-        # Add the nonlinear complementarity constraint to the program
-        self._ncp_cstr.addToProgram(prog, xvars, zvars, rvars=rvars)
-        # Add the nonnegativity constraint to the program - linear constraint
-        weights = xvars[:self.num_weights]
-        prog.AddLinearConstraint(A = self.kernel, lb = -self.friccoeff, ub = np.full(self.friccoeff.shape, np.inf), vars=weights).evaluator().set_description('friction_coeff_nonnegativity')
+    def _setup(self):
+        """Set up the optimization program"""
+        # Store the kernel matrices for the entire problem
+        self.Kd, self.Kf = self.traj.getContactKernels(0, self.traj.num_timesteps)
+        # Setup the optimization program - just the constraints
+        self.prog = MathematicalProgram()
+        self._add_variables()
+        self._add_distance_constraints()
+        self._add_friction_constraints()
+        self.costs = []
+        # Create the contact duplication matrix
+        d = np.ones((self.traj.num_contacts,1))
+        self.D = np.kron(np.eye(self.traj.num_timesteps, dtype=int), d)  
 
-    def eval_frictioncone(self, dvals):
-        # Separate out the components of the constraint
-        weights, normal_force, friction_force = np.split(dvals, np.cumsum([self.num_weights, self.num_normals]))
-        # Calculate the "updated" friction cone
-        mu = np.diag(self.eval_friction_coeff(weights))
-        # Friction cone error 
-        return mu.dot(normal_force) - self.duplicator.dot(friction_force)
+    def _add_variables(self):
+        """Add decision variables to the optimization problem"""
+        self.dweights = self.prog.NewContinuousVariables(rows = self.Kd.shape[1], name='distance_weights')
+        self.fweights = self.prog.NewContinuousVariables(rows = self.Kf.shape[1], name='friction_weights')
+        self.relax = self.prog.NewContinuousVariables(rows = self.traj.num_timesteps, name='feasibilities')
 
-    def eval_friction_coeff(self, weights):
-        """Return the semiparametric friction coefficient"""
-        return self.friccoeff + self.kernel.dot(weights)
+    def _add_distance_constraints(self):
+        """Add two linear constraints for the normal distance errors"""
+        # Get the distance and the forces
+        dist0 = np.concatenate(self.traj._distance_cstr, axis=0)
+        fN = np.concatenate([force[:self.traj.num_contacts] for force in self.traj._forces], axis=0)
+        # Add the distance nonnegativity constraint
+        self.prog.AddLinearConstraint(A = self.Kd, 
+                                    lb = dist0, 
+                                    ub = np.full(dist0.shape, np.inf), 
+                                    vars = self.dweights).evaluator().set_description('Distance Nonnegativity')
+        # Add the orthogonality constraint
+        A = np.concatenate([fN * self.Kd, -self.D], axis=1)
+        b = fN * dist0
+        self.prog.AddLinearConstraint(A = A, 
+                                    lb = -np.full(dist0.shape[0], np.inf), 
+                                    ub = -b, 
+                                    vars=np.concatenate([self.dweights, self.relax], axis=0)).evaluator().set_description('Distance Orthogonality')
+        
+    def _add_friction_constraints(self):
+        """Add to linear constraints for the friction cone error"""
+        # Get the friction coefficients and friction cone defects
+        e = self.traj._D
+        b = []
+        fN_all = []
+        all_mu = []
+        for mu, forces in zip(self.traj._friction_cstr, self.traj._forces):
+            fN, fT = np.split(forces, [self.traj.num_contacts])
+            mu = np.concatenate(mu, axis=0)
+            b.append(mu * fN - e.dot(fT))
+            fN_all.append(fN)
+            all_mu.append(mu)
+        # Setup the nonnegativity constraint
+        b = np.concatenate(b, axis=0)
+        fN = np.concatenate(fN_all, axis=0)
+        self.prog.AddLinearConstraint(A = fN * self.Kf, 
+                                    lb = -b, 
+                                    ub = np.full(b.shape[0], np.inf),
+                                    vars = self.fweights).evaluator().set_description('Friction Cone Nonnegativity')
+        # Setup the orthogonality constraint
+        sV = np.concatenate(self.traj._slacks, axis=0)
+        A = np.concatenate([sV * fN * self.Kf, -self.D], axis=1)
+        b = sV * b
+        self.prog.AddLinearConstraint(A = A,
+                                    lb = -np.full(b.shape[0], np.inf),
+                                    ub = -b,
+                                    vars = np.concatenate([self.fweights, self.relax], axis=0)).evaluator().set_description('Friction Cone Orthogonality')
+        # Add the constraint on the friction coefficient
+        mu = np.concatenate(all_mu, axis=0)
+        self.prog.AddLinearConstraint(A = self.Kf, lb = -mu, ub = np.full(mu.shape[0], np.inf), vars=self.fweights).evaluator().set_description('Friction Coefficient Nonnegativity')
 
-    @property
-    def num_normals(self):
-        return self.friccoeff.size
+    def _add_relaxation_constraint(self):
+        """Add the bounding box constraint on the relaxation variables"""
+        f = np.concatenate(self.traj._feasibility, axis=0)
+        self.prog.AddBoundingBoxConstraint(self.relax, np.zeros(f.shape), f).evaluator().set_description('Feasibility Limits')
 
-    @property
-    def num_weights(self):
-        return self.kernel.shape[1]
+    def _add_quadratic_cost(self):
+        """Add the quadratic cost terms used in global model optimization"""
+        # Create the costs
+        distance_cost = self.prog.AddQuadraticErrorCost(self.Kd, np.zeros(self.dweights.shape), self.dweights)
+        distance_cost.evaluator().set_description('Quadratic Distance Cost')
+        friction_cost = self.prog.AddQuadraticErrorCost(self.Kf, np.zeros(self.fweights.shape), self.fweights)
+        friction_cost.evaluator().set_description('Quadratic Friction Cost')
+        # Store the cost terms in case we need to remove them later
+        self.costs.extend([distance_cost, friction_cost])
 
-    @property
-    def num_friction(self):
-        return self.duplicator.shape[1]
+    def _add_linear_cost(self):
+        """Add the linear cost terms used in ambiguity set optimization"""
+        # Cost weights
+        e = np.ones((1, self.dweights.shape[0]))
+        Ld = e.dot(self.Kd)
+        Lf = e.dot(self.Kf)
+        # Create the costs
+        distance_cost = self.prog.AddLinearCost(Ld, self.dweights)
+        friction_cost = self.prog.AddLinearCost(Lf, self.fweights)
+        distance_cost.evaluator().set_description('Linear Distance Cost')
+        friction_cost.evaluator().set_description('Linear Friction Cost')
+        # Keep the bindings in case we need to remove them later
+        self.costs.extend([distance_cost, friction_cost])
 
-    @property
-    def relax(self):
-        if self._ncp_cstr is not None:
-            return self._ncp_cstr.var_slack
-        else:
-            return None
+    def _clear_costs(self):
+        """Remove all cost terms from the optimization problem"""
+        for cost in self.costs:
+            self.prog.RemoveCost(cost)
 
-    @property
-    def cost_weight(self):
-        if self._ncp_cstr is not None:
-            return self._ncp_cstr.cost_weight
-        else:
-            return None
+    def ambiguity_optimization(self):
+        """Solve the ambiguity set optimization"""
+        #TODO - Determine whether the upper or lower limits for distance, friction are always infinite
+        self._clear_costs()
+        self._add_linear_cost()
+        result = self.solve()
+        dlimit = result.GetSolution(self.dweights)
+        flimit = result.GetSolution(self.fweights)
+        #TODO: Return upper and lower limits
+        return dlimit, flimit
 
-    @cost_weight.setter
-    def cost_weight(self, val):
-        if self._ncp_cstr is not None:
-            self._ncp_cstr.cost_weight = val
+    def global_model_optimization(self):
+        """Solve the global model optimization problem"""
+        self._clear_costs()
+        self._add_quadratic_cost()
+        result = self.solve()
+        dweight = result.GetSolution(self.dweights)
+        fweight = result.GetSolution(self.fweights)
+        #TODO: Return a semiparametric contact model
+        return dweight, fweight
 
 if __name__ == '__main__':
     print("Hello from contactestimator!")
