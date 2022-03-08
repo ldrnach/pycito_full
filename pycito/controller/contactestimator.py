@@ -88,6 +88,16 @@ class ContactTrajectory():
         self._slacks = []
         self._feasibility = []
 
+    def subset(self, start, stop):
+        """Return a subset of the original contact trajectory"""
+        new = self.__class__()
+        new._time = self._time[start:stop]
+        new._contactpoints = self._contactpoints[start:stop]
+        new._forces = self._forces[start:stop]
+        new._slacks = self._slacks[start:stop]
+        new._feasibility = self._feasibility[start:stop]
+        return new
+
     def set_at(self, lst, idx, x, default=None):
         """
         Set the value of a list at the given index, extending the list if necessary
@@ -287,6 +297,22 @@ class ContactEstimationTrajectory(ContactTrajectory):
         # Store the terrain kernel matrices
         self.contact_model = plant.terrain
         assert isinstance(self.contact_model, SemiparametricContactModel), f"plant does not contain a semiparametric contact model"
+
+    def subset(self, start, stop):
+        """Get a subset of the estimation trajectory"""
+        new = super(ContactEstimationTrajectory, self).subset(start, stop)
+        # Slice the model parameters
+        new._dynamics_cstr = self._dynamics_cstr[start:stop]
+        new._distance_cstr = self._distance_cstr[start:stop]
+        new._dissipation_cstr = self._dissipation_cstr[start:stop]
+        new._friction_cstr = self._friction_cstr[start:stop]
+        # Copy over the additional feature data
+        new._plant = self._plant
+        new._context = self._context
+        new._last_state = self._last_state
+        new._D = self._D
+        new.contact_model = self.contact_model
+        return new
 
     def append_sample(self, time, state, control):
         """

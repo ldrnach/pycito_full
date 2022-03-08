@@ -12,6 +12,7 @@ from pydrake.all import MathematicalProgram, Solve
 import pycito.controller.contactestimator as ce 
 from pycito.systems.contactmodel import SemiparametricContactModel
 from pycito.systems.block.block import Block
+
 class SemiparametricFrictionConstraintTest(unittest.TestCase):
     def setUp(self):
         mu = np.array([1, .1])
@@ -167,6 +168,31 @@ class ContactTrajectoryTest(unittest.TestCase):
         self.assertEqual(self.traj.getTimeIndex(0.5), 2, msg='getTimeIndex fails to return the last index with the exact time is given')
         # Check for a time outside the last time
         self.assertEqual(self.traj.getTimeIndex(0.6), 3, msg='getTimeIndex fails to return the length of the array when the query is greater than the maximum time')
+
+    def test_subset(self):
+        """Test the subset ability of ContactTrajectory"""
+        # Add contact samples
+        times = [0.2, 0.5, 0.8]
+        contacts = [np.array([[0.1, 0.2, 0.3], [0.1, 0.4, 0.3]]).T, np.array([[0.2, 0.3, 0.5], [0.4, 0.6, 0.8]]).T, np.array([[-0.2, 0.0, 0.1], [-0.1, 1.0, 0.5]]).T]
+        for time, contact in zip(times, contacts):
+            self.traj.add_contact_sample(time, contact)
+        # Add contact forces, slacks, and feasibilities
+        forces = [np.array([2.0, 2.1]), np.array([5.1, 0.1]), np.array([3.0, -1.2])]
+        slacks = [np.array([0.2]), np.array([0.4]), np.array([1.0])]
+        feas = [np.array([0.1]), np.array([0.3]), np.array([0.5])]
+        for n,  (force, slack, fea) in enumerate(zip(forces, slacks, feas)):
+            self.traj.set_force(n, force)
+            self.traj.set_dissipation(n, slack)
+            self.traj.set_feasibility(n, fea)
+        # Get the subset trajectory
+        subtraj = self.traj.subset(1,3)
+        # Test the values
+        for n in range(0, 2):
+            np.testing.assert_equal(subtraj.get_contacts(n)[0], contacts[n+1], err_msg=f'subtraj has wrong contact at index {n}')
+            np.testing.assert_equal(subtraj.get_forces(n)[0], forces[n+1], err_msg=f"subtraj has incorrect forces at index {n}")
+            np.testing.assert_equal(subtraj.get_dissipation(n)[0], slacks[n+1], err_msg=f"subtraj has incorrect dissipation slack at index {n}")
+            np.testing.assert_equal(subtraj.get_feasibility(n)[0], feas[n+1], err_msg=f"subtraj has incorrect feasibility at index {n}" )
+
 
 class ContactEstimationTrajectoryTest(unittest.TestCase):
     @classmethod
@@ -360,6 +386,9 @@ class ContactEstimationTrajectoryTest(unittest.TestCase):
         Ks, Kf = self.traj.getContactKernels(0, idx+1)
         self.assertEqual(Ks.shape, (2, 2), msg='surface kernel is the wrong shape after adding a second point')
         self.assertEqual(Kf.shape, (2, 2), msg="friction kernel is the wrong shape after adding a second point")
+
+    def test_subset(self):
+        pass
 
 class ContactModelEstimatorTest(unittest.TestCase):
     def setUp(self):
