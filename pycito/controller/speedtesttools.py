@@ -20,6 +20,27 @@ import pycito.controller.contactestimator as ce
 import pycito.utilities as utils
 import pycito.decorators as deco
 
+def stacked_bar_chart(axs, dataset):
+    """Create a stacked bar chart"""
+    # Organize the data
+    dataset = dataset.astype(int)
+    uniquevals = np.unique(dataset)
+    countset = np.zeros((uniquevals.size, dataset.shape[1]))
+    for n, data in enumerate(dataset.T):
+        counts = Counter(data)
+        for k, val in enumerate(uniquevals):
+            if val in counts.keys():
+                countset[k, n] = counts[val]
+    # Make the plot
+    bottoms = np.zeros((countset.shape[1]))
+    x_label = np.arange(1, dataset.shape[1]+1)
+    for counts, status in zip(countset, uniquevals):
+        axs.bar(x_label, counts, width=0.8, bottom = bottoms, label=str(status))
+        bottoms += counts
+    axs.set_ylabel('Frequency')
+    axs.legend()  
+    return axs
+
 def get_constraint_violation(prog, result):
     violation = 0
     for cstr in prog.GetAllConstraints():
@@ -153,17 +174,8 @@ class SpeedTestResult():
         axs[0].set_ylabel('# successful \n solves')
         axs[0].set_xlabel('Problem Horizon (samples)')
         # Plot the solver status report as a bar chart
-        info = self.solve_info.flatten()
-        info = info[~np.isnan(info)].tolist()
-        counts = Counter(info)
-        status = counts.keys()
-        vals = [counts[stat] for stat in status]
-        x_pos = np.arange(len(status))
-        labels = [str(int(key)) for key in status]
-        axs[1].bar(x_pos, vals, align='center', alpha=0.4)
-        axs[1].set_xticks(x_pos)
-        axs[1].set_xticklabels(labels)
-        axs[1].set_xlabel('Exit Code')
+        stacked_bar_chart(axs[1], self.solve_info)
+        axs[1].set_xlabel('Problem Horizon (samples)')
         axs[1].set_ylabel('Frequency')
         plt.tight_layout()
         return fig, axs
