@@ -104,8 +104,45 @@ class CollocationTest(unittest.TestCase):
         # Check the initial condition
         np.testing.assert_allclose(soln_x0, val0.flatten(), rtol=0, atol=1e-6, err_msg='Solved initial condition is incorrect')
 
+class RelaxedLinearConstraintTest(unittest.TestCase):
+    def setUp(self):
+        # Set up the constraint and program
+        A = np.array([[2, 0], [0, 3]])
+        b = np.array([4, -9])
+        self.lin_cstr = cstr.RelaxedLinearConstraint(A, b)
+        self.x_expected = np.array([2, -3])
+        # Set up the program
+        self.prog = MathematicalProgram()
+        self.x = self.prog.NewContinuousVariables(rows=2, name='x')
+        self.lin_cstr.addToProgram(self.prog, self.x)
 
+    def test_num_constraints(self):
+        """Assert the correct number of constraints has been added"""
+        self.assertEqual(len(self.prog.GetAllConstraints()), 3, msg='Unexpected number of constraints')
+    
+    def test_num_costs(self):
+        """Assert the correct number of costs has been added"""
+        self.assertEqual(len(self.prog.GetAllCosts()), 1, msg="Unexpected number of costs added")
 
+    def test_solve(self):
+        """Solve the program"""
+        self.prog.SetInitialGuess(self.x, self.x_expected)
+        self.prog.SetInitialGuess(self.lin_cstr.relax, np.zeros((1,)))
+        result = Solve(self.prog)
+        # Check that the problem is solved accurately
+        self.assertTrue(result.is_success(), f'Failed to solve mathematical program with solver {result.get_solver_id().name()}')
+        # Check the result
+        np.testing.assert_allclose(result.GetSolution(self.x), self.x_expected, atol=1e-6, err_msg="Solution to the program is inaccurate")
+
+    def test_cost_weight(self):
+        """Test updating the cost weight"""
+        testval = np.ones((1, ))
+        cost = self.lin_cstr._cost.evaluator().Eval(testval)
+        np.testing.assert_allclose(cost, np.ones((1,)), atol=1e-6, err_msg="Cost before changing weight inaccurate")
+        self.lin_cstr.cost_weight=10
+        cost = self.lin_cstr._cost.evaluator().Eval(testval)
+        np.testing.assert_allclose(cost, 10*np.ones((1,)), atol=1e-6, err_msg="Cost after updating cost weight inaccurate")
+        
 
 if __name__ == '__main__':
     unittest.main()

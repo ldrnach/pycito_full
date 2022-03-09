@@ -5,7 +5,7 @@ January 26, 2022
 Luke Drnach
 """
 #TODO: Double check implementation of joint limit linearization in the dynamics
-
+#TODO: Test getTimeIndex when the time is the final value
 import numpy as np
 import abc
 

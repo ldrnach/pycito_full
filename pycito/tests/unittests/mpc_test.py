@@ -514,7 +514,7 @@ class LinearMPCVerificationTest(unittest.TestCase):
             self.assertTrue(np.all(val >= lb), msg=f"{cstr.evaluator().get_description()} violates it's lower bounds at index {k}")
             # Assert that the upper bound is not violated
             ub = cstr.evaluator().upper_bound()
-            self.assertTrue(np.all(val <= lb), msg=f"{cstr.evaluator().get_description()} violates it's upper bounds at index {k}")
+            self.assertTrue(np.all(val <= ub), msg=f"{cstr.evaluator().get_description()} violates it's upper bounds at index {k}")
 
     def check_solution(self, result):
         """

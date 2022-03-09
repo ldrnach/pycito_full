@@ -2,15 +2,18 @@
 terrain.py: package for specifying arbitrary terrain geometries for use with TimeSteppingMultibodyPlant.py
 Luke Drnach
 October 12, 2020
+
+Update: February 28, 2022
+File updated to subclass contact model for backwards compatibility and for use with updated timestepping
 """
 import numpy as np
 from abc import ABC, abstractmethod 
 import pycito.systems.gaussianprocess as gp
+from pycito.systems.contactmodel import _ContactModel
 from pydrake.autodiffutils import initializeAutoDiff, AutoDiffXd
 
 #TODO: Check output of local_frame. Make sure the frame matrix is normalized and the vectors are COLS and not ROWS
-
-class Terrain(ABC):
+class Terrain(_ContactModel):
     """
     Abstract class outlining methods required for specifying a terrain geometry that can be used with TimeSteppingMultibodyPlant
     """
@@ -25,17 +28,6 @@ class Terrain(ABC):
             y: the point on the terrain which is nearest to x
         """
 
-    @abstractmethod 
-    def local_frame(self, x):
-        """
-        Returns the local coordinate frame of the terrain at the supplied point x
-
-        Arguments:
-            x: a point on the terrain
-        Return values:
-            R: an array. The first row is the terrain normal vector, the remaining rows are the terrain tangential vectors
-        """
-
     @abstractmethod
     def get_friction(self, x):
         """
@@ -47,8 +39,38 @@ class Terrain(ABC):
             fric_coeff: a scalar friction coefficients
         """
 
-    def str(self):
-        return f"{type(self).__name__}"
+    def eval_surface(self, pt):
+        """
+        Returns the value of the level sets of the surface geometry at the supplied point
+
+        If eval_surface(pt) > 0, then the point is not in contact with the surface
+        If eval_surface(pt) = 0, then the point is on the surface 
+        If eval_surface(pt) < 0, then the point is inside the surface
+        
+        Arguments:
+            pt: a (3,) numpy array, specifying a point in world coordinates
+        
+        Return Values
+            out: a (1,) numpy array, the surface evaluation (roughly the 'distance')
+        """
+        pt = np.ravel(pt)
+        terrain_pt = self.nearest_point(pt)
+        normal = self.local_frame(pt)[0, :]
+        return np.atleast_1d(normal.dot(pt - terrain_pt))
+
+    def eval_friction(self, pt):
+        """
+        Returns the value of the level sets of the surface friction at the supplied point. Note that the values of friction returned by eval_friction may only be considered accurate when eval_surface(pt) = 0
+        
+        Arguments:
+            pt: a (3,) numpy array, specifying a point in world coordinates
+        
+        Return Values
+            out: a (1,) numpy array, the friction coefficient evaluation
+        """
+        pt = np.ravel(pt)
+        terrain_pt = self.nearest_point(pt)
+        return np.atleast_1d(self.get_friction(terrain_pt))
 
 class FlatTerrain2D(Terrain):
     """

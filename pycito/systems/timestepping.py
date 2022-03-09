@@ -17,7 +17,8 @@ from pydrake.geometry import Role, Sphere
 from pydrake.multibody.parsing import Parser
 from pycito.systems.terrain import FlatTerrain
 from pycito.utilities import FindResource, printProgramReport
-#TODO: Implemet toAutoDiffXd method to convert to autodiff class
+import pycito.systems.contactmodel as cm
+#TODO: Implement toAutoDiffXd method to convert to autodiff class
 
 class TimeSteppingMultibodyPlant():
     """
@@ -29,6 +30,7 @@ class TimeSteppingMultibodyPlant():
         self.builder = DiagramBuilder()
         self.multibody, self.scene_graph = AddMultibodyPlantSceneGraph(self.builder, 0.001)
         # Store the terrain
+        assert issubclass(type(terrain), cm._ContactModel), "Terrain must be a subclass of ContactModel"
         self.terrain = terrain
         self._dlevel = dlevel
         # Build the MultibodyPlant from the file, if one exists
@@ -69,7 +71,7 @@ class TimeSteppingMultibodyPlant():
                 self.model_index.append(Parser(self.multibody).AddModelFromFile(FindResource(urdf_file), model_name=name))
             else:
                 self.model_index.append(Parser(self.multibody).AddModelFromFile(FindResource(urdf_file)))
-            self.file.append(urdf_file)
+            self.files.append(urdf_file)
     
     def Finalize(self):
         """
@@ -107,13 +109,7 @@ class TimeSteppingMultibodyPlant():
                                         self.collision_poses[n].translation(),
                                         self.multibody.world_frame()) 
             # Squeeze collision point (necessary for AutoDiff plants)
-            collision_pt = np.squeeze(collision_pt)
-            # Calc nearest point on terrain in world coordinates
-            terrain_pt = self.terrain.nearest_point(collision_pt)
-            # Calc normal distance to terrain   
-            terrain_frame = self.terrain.local_frame(terrain_pt)  
-            normal = terrain_frame[0,:]
-            distances[n] = normal.dot(collision_pt - terrain_pt) - self.collision_radius[n]
+            distances[n] = self.terrain.eval_surface(collision_pt) - self.collision_radius[n]
         # Return the distances as a single array
         return distances
 
@@ -138,10 +134,8 @@ class TimeSteppingMultibodyPlant():
                                         self.collision_frames[n],
                                         self.collision_poses[n].translation(),
                                         self.multibody.world_frame())
-            # Calc nearest point on terrain in world coordinates
-            terrain_pt = self.terrain.nearest_point(collision_pt)
             # Calc normal distance to terrain   
-            terrain_frame = self.terrain.local_frame(terrain_pt)
+            terrain_frame = self.terrain.local_frame(collision_pt)
             normal, tangent = np.split(terrain_frame, [1], axis=0)
             # Discretize to the chosen level 
             Dtangent = D.dot(tangent)
@@ -172,8 +166,7 @@ class TimeSteppingMultibodyPlant():
             # Transform collision frames to world coordinates
             collision_pt = self.multibody.CalcPointsPositions(context, frame, pose.translation(), self.multibody.world_frame())
             # Calc nearest point on terrain in world coordiantes
-            terrain_pt = self.terrain.nearest_point(collision_pt)
-            friction_coeff.append(self.terrain.get_friction(terrain_pt))
+            friction_coeff.append(self.terrain.eval_friction(collision_pt))
         # Return list of friction coefficients
         return friction_coeff
 
@@ -512,7 +505,7 @@ class TimeSteppingMultibodyPlant():
         ff = D.dot(fT)
         return np.concatenate((fN, ff), axis=0)
 
-    def static_controller(self, qref, verbose=False):
+    def static_controller(self, qref, verbose=False, dtol=1e-4):
         """ 
         Generates a controller to maintain a static pose
         
@@ -550,9 +543,14 @@ class TimeSteppingMultibodyPlant():
         u_var = prog.NewContinuousVariables(self.multibody.num_actuators(), name="controls")
         # Ensure dynamics approximately satisfied
         prog.Add2NormSquaredCost(A = A, b = -G, vars=np.concatenate([u_var, l_var], axis=0))
-        # Enforce normal complementarity
-        prog.AddBoundingBoxConstraint(np.zeros(l_var.shape), np.full(l_var.shape, np.inf), l_var)
-        prog.AddConstraint(phi.dot(l_var) == 0)
+        # Enforce normal complementarity - check for active constraints
+        active = phi < dtol
+        if np.any(active):
+            l_active = l_var[active]
+            prog.AddBoundingBoxConstraint(np.zeros(l_active.shape), np.full(l_active.shape, np.inf), l_active)
+        if np.any(~active):
+            l_inactive = l_var[~active]
+            prog.AddBoundingBoxConstraint(np.zeros(l_inactive.shape), np.zeros(l_inactive.shape), l_inactive)
         # Solve
         result = Solve(prog)
         # Check for a solution
