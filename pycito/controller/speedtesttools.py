@@ -11,6 +11,7 @@
 import numpy as np
 import time
 import matplotlib.pyplot as plt
+from collections import Counter
 
 from pydrake.all import OsqpSolver, SnoptSolver
 
@@ -37,11 +38,11 @@ def get_constraint_violation(prog, result):
 
 def get_solve_info(result):
     details = result.get_solver_details()
-    id = result.get_solver_id()
+    id = result.get_solver_id().name()
     if id == 'SNOPT/fortran':
-        return details.info()
+        return details.info
     elif id == 'OSQP':
-        return details.status_val()
+        return details.status_val
     else:
         return np.NAN
 
@@ -96,7 +97,8 @@ class SpeedTestResult():
     def plot(self, show=False, savename=None):
         fig1, axs1 = self.plot_times(show=show, savename=utils.append_filename(savename, 'times'))
         fig2, axs2 = self.plot_results(show=show, savename=utils.append_filename(savename,'solverresults'))
-        return [fig1, fig2], [axs1, axs2]
+        fig3, axs3 = self.plot_success(show=show, savename=utils.append_filename(savename, 'success'))
+        return [fig1, fig2, fig3], [axs1, axs2, axs3]
 
     @deco.showable_fig
     @deco.saveable_fig
@@ -109,9 +111,9 @@ class SpeedTestResult():
             fig = plt.gcf()
         self._plot_statistics(axs[0], self.startup_times, self.successful_solves, label)
         self._plot_statistics(axs[1], self.solve_times, self.successful_solves, label)
-        axs[0].set_ylabel('MPC Creation time (s)')
-        axs[1].set_ylabel('MPC Solve time (s)')
-        axs[1].set_xlabel('MPC Horizon (samples)')
+        axs[0].set_ylabel('Problem Creation time (s)')
+        axs[1].set_ylabel('Problem Solve time (s)')
+        axs[1].set_xlabel('Problem Horizon (samples)')
         axs[0].set_yscale('log')
         axs[1].set_yscale('log')
         axs[0].grid()
@@ -122,7 +124,24 @@ class SpeedTestResult():
     @deco.saveable_fig
     def plot_results(self, axs=None, label=None):
         if axs is None:
-            fig, axs = plt.subplots(3, 1)
+            fig, axs = plt.subplots(2, 1)
+        else:
+            plt.sca(axs[0])
+            fig = plt.gcf()
+        # Plot the costs and constraints
+        self._plot_statistics(axs[0], self.cost_vals, self.successful_solves, label=label, normalize=True)
+        self._plot_statistics(axs[1], self.cstr_vals, self.successful_solves, label=label, normalize=True)
+        axs[0].set_ylabel('Normalized \n cost')
+        axs[1].set_ylabel('Normalized \n constraints')
+        axs[1].set_xlabel('Problem Horizon (samples)')
+        plt.tight_layout()
+        return fig, axs
+
+    @deco.showable_fig
+    @deco.saveable_fig
+    def plot_success(self, axs=None, label=None):
+        if axs is None:
+            fig, axs = plt.subplots(2,1)
         else:
             plt.sca(axs[0])
             fig = plt.gcf()
@@ -130,13 +149,21 @@ class SpeedTestResult():
         xrange = np.arange(1, self.successful_solves.shape[1]+1)
         successes = np.sum(self.successful_solves, axis=0)
         axs[0].plot(xrange, successes, linewidth=1.5, label=label)
-        # Plot the costs and constraints
-        self._plot_statistics(axs[1], self.cost_vals, self.successful_solves, label=label, normalize=True)
-        self._plot_statistics(axs[2], self.cstr_vals, self.successful_solves, label=label, normalize=True)
         axs[0].set_ylabel('# successful \n solves')
-        axs[1].set_ylabel('Normalized \n cost')
-        axs[2].set_ylabel('Normalized \n constraints')
-        axs[2].set_xlabel('MPC Horizon (samples)')
+        axs[0].set_xlabel('Problem Horizon (samples)')
+        # Plot the solver status report as a bar chart
+        info = self.solve_info.flatten()
+        info = info[~np.isnan(info)].tolist()
+        counts = Counter(info)
+        status = counts.keys()
+        vals = [counts[stat] for stat in status]
+        x_pos = np.arange(len(status))
+        labels = [str(int(key)) for key in status]
+        axs[1].bar(x_pos, vals, align='center', alpha=0.4)
+        axs[1].set_xticks(x_pos)
+        axs[1].set_xticklabels(labels)
+        axs[1].set_xlabel('Exit Code')
+        axs[1].set_ylabel('Frequency')
         plt.tight_layout()
         return fig, axs
 
@@ -221,13 +248,15 @@ class ContactEstimatorSpeedTest():
         speedResult = SpeedTestResult(self.max_horizon, nstarts)
         assert nstarts + self.max_horizon <= self.reftraj.num_timesteps, "The sum of the starting point and the maximum horizon must be less than the total number of samples in the reference trajectory"
 
-        start = self.reftraj.num_timesteps - nstarts
-        for n in range(start, self.reftraj.num_timesteps):
-            subtraj = self.reftraj.subset(0, n)
+        start_ptr = self.reftraj.num_timesteps - nstarts
+        for n in range(0, nstarts):
+            subtraj = self.reftraj.subset(0, start_ptr + n)
+            print(f"Running contact estimation sample {n} of {nstarts}")
+            print(f"\tHorizon: ", end='', flush=True)
             # Inner loop - horizon
             for horizon in range(1, self.max_horizon + 1):
                 # Get the subtrajectory
-                print(f"Running Contact Estimation with horizon {horizon}")
+                print(f"{horizon}, ", end='', flush=True)
                 estimator = ce.ContactModelEstimator(subtraj, horizon)
                 # Create the estimator
                 start = time.perf_counter()
@@ -238,8 +267,8 @@ class ContactEstimatorSpeedTest():
                 result = estimator.solve()
                 solve_time = time.perf_counter() - start
                 # Record the times
-                speedResult.record_times(create_time, solve_time, start - n, horizon)
+                speedResult.record_times(create_time, solve_time, n, horizon)
                 # Record the results
-                speedResult.record_results(result, estimator._prog, start-n, horizon)
-            print(f"\t{sum(speedResult.successful_solves[:, horizon-1])} of {speedResult.successful_solves.shape[0]} solved successfully")
+                speedResult.record_results(result, estimator._prog, n, horizon)
+            print(f"\n\t{sum(speedResult.successful_solves[n, :])} of {speedResult.successful_solves.shape[1]} solved successfully")
         return speedResult
