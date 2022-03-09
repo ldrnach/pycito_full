@@ -696,7 +696,6 @@ class ContactModelEstimator():
         kstart, kstop = self.kernelslice(index)
         #Store the friction cone constraints to set the weights accordingly
         D, mu = self.traj.getFrictionConstraint(self._startptr + index)
-        mu = np.concatenate(mu, axis=0)
         fc_cstr = SemiparametricFrictionConeConstraint(mu, self._friction_kernel[kstart:kstop, :], D)
         xvars = np.concatenate([self._friction_weights, self._normal_forces[-1], self._friction_forces[-1]], axis=0)
         zvars = self._velocity_slacks[-1]
@@ -810,7 +809,6 @@ class EstimatedContactModelRectifier():
         all_mu = []
         for mu, forces in zip(self.traj._friction_cstr, self.traj._forces):
             fN, fT = np.split(forces, [self.traj.num_contacts])
-            mu = np.concatenate(mu, axis=0)
             b.append(mu * fN - e.dot(fT))
             fN_all.append(fN)
             all_mu.append(mu)

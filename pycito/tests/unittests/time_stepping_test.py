@@ -93,7 +93,7 @@ class TestTimeStepping(unittest.TestCase):
         # Get friction coefficients
         friction_coeff = self._model.GetFrictionCoefficients(self.context)
         # Check that the friction coefficient is correct
-        self.assertListEqual(friction_coeff, [0.5], msg="wrong number of friction coefficients")
+        np.testing.assert_allclose(friction_coeff, np.array([0.5]), atol=1e-12, err_msg="wrong number of friction coefficients")
 
     def test_autodiff_finalized(self):
         """
@@ -270,7 +270,7 @@ class MultiContactTest(unittest.TestCase):
         # Get friction coefficients
         friction_coeff = self.model.GetFrictionCoefficients(self.context)
         # Check that the friction coefficient is correct
-        self.assertListEqual(friction_coeff, [0.5, 0.5, 0.5], msg="wrong number of friction coefficients")
+        np.testing.assert_allclose(friction_coeff, np.array([0.5, 0.5, 0.5]), atol=1e-12, err_msg="wrong number of friction coefficients")
 
     def test_duplicator_matrix(self):
         """ 

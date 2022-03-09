@@ -101,7 +101,7 @@ class TimeSteppingMultibodyPlant():
         """
         qtype = self.multibody.GetPositions(context).dtype
         nCollisions = len(self.collision_frames)
-        distances = np.zeros((nCollisions,), dtype=qtype)
+        distances = []
         for n in range(0, nCollisions):
             # Transform collision frames to world coordinates
             collision_pt = self.multibody.CalcPointsPositions(context, 
@@ -109,9 +109,9 @@ class TimeSteppingMultibodyPlant():
                                         self.collision_poses[n].translation(),
                                         self.multibody.world_frame()) 
             # Squeeze collision point (necessary for AutoDiff plants)
-            distances[n] = self.terrain.eval_surface(collision_pt) - self.collision_radius[n]
+            distances.append(self.terrain.eval_surface(collision_pt) - self.collision_radius[n])
         # Return the distances as a single array
-        return distances
+        return np.concatenate(distances, axis=0)
 
     def GetContactJacobians(self, context):
         """
@@ -168,7 +168,7 @@ class TimeSteppingMultibodyPlant():
             # Calc nearest point on terrain in world coordiantes
             friction_coeff.append(self.terrain.eval_friction(collision_pt))
         # Return list of friction coefficients
-        return friction_coeff
+        return np.concatenate(friction_coeff, axis=0)
 
     def getTerrainPointsAndFrames(self, context):
         """

@@ -314,8 +314,7 @@ class ContactEstimationTrajectoryTest(unittest.TestCase):
         idx = self.traj.getTimeIndex(self.t_test)
         A, b = self.traj.getFrictionConstraint(idx)
         np.testing.assert_allclose(A, A_expected, atol=1e-6, err_msg=f"incorrect duplication matrix in friction constraint")
-        self.assertTrue(isinstance(b, list), 'returned friction coefficients should be a list')
-        np.testing.assert_allclose(b[0], b_expected, atol=1e-6, err_msg=f"incorrect friction coefficient in frictio constraint")
+        np.testing.assert_allclose(b, b_expected, atol=1e-6, err_msg=f"incorrect friction coefficient in frictio constraint")
 
     def test_get_force_guess(self):
         """

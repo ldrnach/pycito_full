@@ -215,6 +215,7 @@ class VariableRelaxedPseudoLinearComplementarityConstraint(PseudoLinearComplemen
         # Check the dimensions
         assert xvar.shape[0] == self.num_free, f"xvar must be a ({self.num_free}, ) array"
         assert zvar.shape[0] == self.dim, f"zvar must be a ({self.dim},) array"
+        self._prog = prog
         if rvar is None:
             self._relax = prog.NewContinuousVariables(rows = 1, name = f'{self.name}_relax')
             # If a relaxation variable was not provided, add relaxation constraints
@@ -225,7 +226,6 @@ class VariableRelaxedPseudoLinearComplementarityConstraint(PseudoLinearComplemen
         # Create and store the slack variables
         self._slack = prog.NewContinuousVariables(rows = self.dim, name=f'{self.name}_slack')
         # Enforce the constraints
-        self._prog = prog
         prog = self._add_equality_constraint(prog, xvar, self._slack)
         prog = self._add_nonnegativity_constraint(prog, zvar, self._slack)
         prog = self._add_orthogonality_constraint(prog, zvar, np.hstack([self._slack, self._relax]))
@@ -375,6 +375,7 @@ class VariableRelaxedMixedLinearComplementarityConstraint(MixedLinearComplementa
         # Check the dimensions
         assert xvar.shape[0] == self.num_free, f"xvar must be a ({self.num_free}, ) array"
         assert zvar.shape[0] == self.dim, f"zvar must be a ({self.dim},) array"
+        self._prog = prog
         # Create and store relaxation variables
         if rvar is None:
             self._relax = prog.NewContinuousVariables(rows=1, name=f'{self.name}_relax')
@@ -385,7 +386,6 @@ class VariableRelaxedMixedLinearComplementarityConstraint(MixedLinearComplementa
         # Create and store the slack variables
         self._slack = prog.NewContinuousVariables(rows = self.dim, name=f'{self.name}_slack')
         # Enforce the constraints
-        self._prog = prog
         prog = self._add_equality_constraint(prog, xvar, zvar, self._slack)
         prog = self._add_nonnegativity_constraint(prog, zvar, self._slack)
         prog = self._add_orthogonality_constraint(prog, zvar, np.hstack([self._slack, self._relax]))
