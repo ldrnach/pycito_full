@@ -88,9 +88,9 @@ class ContactTrajectory():
         self._slacks = []
         self._feasibility = []
 
-    def subset(self, start, stop):
+    def subset(self, start, stop, *args):
         """Return a subset of the original contact trajectory"""
-        new = self.__class__()
+        new = self.__class__(*args)
         new._time = self._time[start:stop]
         new._contactpoints = self._contactpoints[start:stop]
         new._forces = self._forces[start:stop]
@@ -300,18 +300,12 @@ class ContactEstimationTrajectory(ContactTrajectory):
 
     def subset(self, start, stop):
         """Get a subset of the estimation trajectory"""
-        new = super(ContactEstimationTrajectory, self).subset(start, stop)
+        new = super(ContactEstimationTrajectory, self).subset(start, stop, self._plant, self._last_state)
         # Slice the model parameters
         new._dynamics_cstr = self._dynamics_cstr[start:stop]
         new._distance_cstr = self._distance_cstr[start:stop]
         new._dissipation_cstr = self._dissipation_cstr[start:stop]
         new._friction_cstr = self._friction_cstr[start:stop]
-        # Copy over the additional feature data
-        new._plant = self._plant
-        new._context = self._context
-        new._last_state = self._last_state
-        new._D = self._D
-        new.contact_model = self.contact_model
         return new
 
     def append_sample(self, time, state, control):

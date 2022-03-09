@@ -388,7 +388,34 @@ class ContactEstimationTrajectoryTest(unittest.TestCase):
         self.assertEqual(Kf.shape, (2, 2), msg="friction kernel is the wrong shape after adding a second point")
 
     def test_subset(self):
-        pass
+        """Check that we can get a subset of the contact trajectory"""
+        # Set some example values - example trajectory
+        self.x_data = np.array([[0.1, 0.3, 0.6],
+                                [0.5, 0.5, 0.5],
+                                [1.0, 2.0, 3.0],
+                                [0.0, 0.0, 0.0]])
+        self.u_data = np.array([[14.95, 14.95, 14.95]])
+        self.t_data = np.array([0.1, 0.2, 0.3])
+        self.fN_data = np.array([[9.81, 9.81, 9.81, 9.81]])
+        self.fT_data = np.zeros((4, 4))
+        self.fT_data[2, 1:] = 4.95
+        self.vs_data = np.array([[0., 1., 2., 3.]])
+        for n, (t, x, u) in enumerate(zip(self.t_data, self.x_data.T, self.u_data.T)):
+            self.traj.append_sample(t, x, u)
+            self.traj.set_force(n+1, np.concatenate([self.fN_data[:, n], self.fT_data[:, n]], axis=0))
+            self.traj.set_dissipation(n+1, self.vs_data[:, n])
+            self.traj.set_feasibility(n+1, np.zeros((1,)))
+        # Get the trajectory subsample
+        subtraj = self.traj.subset(1, 3)
+        # Check the lengths of all properties in the subtrajectory
+        self.assertEqual(len(subtraj._contactpoints), 2, "unexpected number of contact points in subtrajectory")
+        self.assertEqual(len(subtraj._forces), 2, 'unexpected number of forces in subtrajectory')
+        self.assertEqual(len(subtraj._slacks), 2, 'unexpected number of velocity slacks in subtrajectory')
+        self.assertEqual(len(subtraj._feasibility), 2, 'unexpected number of feasibilities in subtrajectory')
+        self.assertEqual(len(subtraj._dynamics_cstr), 2, 'unexpected number of dynamics constraints in subtrajectory')
+        self.assertEqual(len(subtraj._distance_cstr), 2, 'unexpected number of distance constraints in subtrajectory')
+        self.assertEqual(len(subtraj._friction_cstr), 2, 'unexpected number of friction constraints in subtrajectory')
+        self.assertEqual(len(subtraj._dissipation_cstr), 2, 'unexpected number of dissipation constraints in subtrajectory')
 
 class ContactModelEstimatorTest(unittest.TestCase):
     def setUp(self):
