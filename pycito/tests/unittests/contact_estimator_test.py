@@ -450,7 +450,7 @@ class ContactModelEstimatorTest(unittest.TestCase):
             1. When the total number of sample points is less than the desired horizon
             2. When the total number of sample points is more than the desired horizon
         """
-        total_cstrs = lambda k: 10 * k + 1 
+        total_cstrs = lambda k: 12 * k + 1 
         self.estimator.create_estimator()
         self.assertEqual(len(self.estimator._prog.GetAllConstraints()), total_cstrs(2), 'unexpected number of constraints when there are fewer sample points than the desired horizon')
         # Add extra sample points
@@ -482,7 +482,7 @@ class ContactModelEstimatorTest(unittest.TestCase):
             1. When the total number of sample points is less than the desired horizon
             2. When the total number of sample points is more than the desired horizon
         """
-        c = 5 * self.traj.num_contacts + 2 * self.traj.num_friction  + 1 
+        c = 6 * self.traj.num_contacts + 2 * self.traj.num_friction  + 1 
         total_vars = lambda k : c * k
         self.estimator.create_estimator()
         self.assertEqual(self.estimator._prog.decision_variables().size, total_vars(2), 'unexpected number of decision variables when there are fewer sample points than the desired horizon')

@@ -694,12 +694,21 @@ class ContactModelEstimator():
         """Add and initialize the friction cone constraints"""
         # Get the appropriate kernel slice
         kstart, kstop = self.kernelslice(index)
-        #Store the friction cone constraints to set the weights accordingly
-        D, mu = self.traj.getFrictionConstraint(self._startptr + index)
-        fc_cstr = SemiparametricFrictionConeConstraint(mu, self._friction_kernel[kstart:kstop, :], D)
-        xvars = np.concatenate([self._friction_weights, self._normal_forces[-1], self._friction_forces[-1]], axis=0)
+        # Get the friction cone constraints
+        D, mu = self.traj.getFrictionConstraint(self._startptr+index)
+        A = np.concatenate([np.diag(mu), -D, self._friction_kernel[kstart:kstop, :]], axis=1)
+        fric_cstr = mlcp.VariableRelaxedPseudoLinearComplementarityConstraint(A, np.zeros((A.shape[0], )))
+        fric_cstr.set_description('friction_cone')
+        xvars = np.concatenate([self._normal_forces[-1], self._friction_forces[-1], self._friction_weights], axis=0)
         zvars = self._velocity_slacks[-1]
-        fc_cstr.addToProgram(self._prog, xvars, zvars, rvars=self._relaxation_vars[-1])    
+        fric_cstr.addToProgram(self._prog, xvars, zvars, rvar=self._relaxation_vars[-1])
+        # Add a linear constraint to enforce the friction coefficient be nonnegative
+        B = np.concatenate([np.diag(mu), self._friction_kernel[kstart:kstop,:]], axis=1) 
+        cstr = self._prog.AddLinearConstraint(B, 
+                                    lb=np.zeros((self.traj.num_contacts, )), 
+                                    ub=np.full((self.traj.num_contacts,), np.inf), 
+                                    vars=np.concatenate([self._normal_forces[-1], self._friction_weights], axis=0))
+        cstr.evaluator().set_description('friction_coeff_nonnegativity')
 
     def kernelslice(self, index):
         """Map the current index to start and stop indices for the kernel matrices"""
