@@ -447,7 +447,7 @@ class ContactEstimationTrajectory(ContactTrajectory):
             return self._forces[index]
         else:
             A, b = self.getDynamicsConstraint(index)
-            f = np.linalg.lstsq(A, b)[0]
+            f = np.linalg.lstsq(A, b, rcond=None)[0]
             f[f < 0] = 0
             return f
 
@@ -625,7 +625,7 @@ class ContactModelEstimator():
         # Initialize the kernel weights
         self._prog.SetInitialGuess(self._friction_weights, np.zeros(self._friction_weights.shape))
         distances = np.concatenate(self.traj._distance_cstr[self._startptr:self._startptr + self.horizon], axis=0)
-        guess = np.linalg.lstsq(self._distance_kernel, -distances)[0]
+        guess = np.linalg.lstsq(self._distance_kernel, -distances, rcond=None)[0]
         self._prog.SetInitialGuess(self._distance_weights, guess)
 
     def _add_force_variables(self):
