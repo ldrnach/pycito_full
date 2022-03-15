@@ -52,7 +52,7 @@ def run_simulation(plant, controller, initial_state, duration, savedir=None):
     # Create and run the simulation
     sim = Simulator(plant, controller)
     tsim, xsim, usim, fsim, status = sim.simulate(initial_state, duration)
-    if ~status:
+    if not status:
         print(f"Simulation faied at timestep {tsim[-1]}")
     # Save the results
     plot_sim_results(plant, tsim, xsim, usim, fsim, savedir=savedir, vis=False)
@@ -197,9 +197,9 @@ def steppedterrain_sim():
     run_simulation(block, controller, x0, duration = 1.5, savedir = os.path.join(SAVEDIR, 'steppedterrain','mpc'))
 
 if __name__ == '__main__':
-    #flatterrain_sim()
+    flatterrain_sim()
     lowfriction_sim()
-    #highfriction_sim()
-    #steppedterrain_sim()
+    highfriction_sim()
+    steppedterrain_sim()
     lowfriction_special()
 
