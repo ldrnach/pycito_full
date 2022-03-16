@@ -193,7 +193,6 @@ class ContactTrajectoryTest(unittest.TestCase):
             np.testing.assert_equal(subtraj.get_dissipation(n)[0], slacks[n+1], err_msg=f"subtraj has incorrect dissipation slack at index {n}")
             np.testing.assert_equal(subtraj.get_feasibility(n)[0], feas[n+1], err_msg=f"subtraj has incorrect feasibility at index {n}" )
 
-
 class ContactEstimationTrajectoryTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -248,12 +247,17 @@ class ContactEstimationTrajectoryTest(unittest.TestCase):
         b_expected = np.array([-.4905, .9810])        
         # Append the sample
         self.traj.append_sample(self.t_test, self.x_test, self.u_test)
-        self.assertEqual(len(self.traj._dynamics_cstr), 2, msg="append_sample did not update dynamics_cstr correctly")
+        N = self.traj.num_timesteps
+        self.assertEqual(len(self.traj._dynamics_cstr), N, msg="append_sample did not update dynamics_cstr correctly")
         # Check the validity of the dynamics
         idx = self.traj.getTimeIndex(self.t_test)
         A, b = self.traj.getDynamicsConstraint(idx)
         np.testing.assert_allclose(A, A_expected, atol=1e-6, err_msg=f"incorrect contact jacobian in dynamics constraint")
         np.testing.assert_allclose(b, b_expected, atol=1e-6, err_msg=f"incorrect total contact force in dynamics constraint")
+        # Check that adding the sample added a force guess and a feasibility guess
+        self.assertEqual(len(self.traj._forces), N, msg='append_sample did not correctly update the number of contact forces')
+        self.assertEqual(len(self.traj._feasibility), N, msg='append_sample did not correctly update the number of feasibility guesses')
+        self.assertEqual(self.traj.get_feasibility(idx)[0].shape, (1,), 'added feasibility is not a scalar')
 
     def test_get_distance(self):
         """
@@ -267,11 +271,16 @@ class ContactEstimationTrajectoryTest(unittest.TestCase):
         dist_expected = np.zeros((1,))       
         # Append the sample
         self.traj.append_sample(self.t_test, self.x_test, self.u_test)
-        self.assertEqual(len(self.traj._distance_cstr), 2, msg="append_sample did not update distance constraints correctly")
+        N = self.traj.num_timesteps
+        self.assertEqual(len(self.traj._distance_cstr), N, msg="append_sample did not update distance constraints correctly")
         # Check the validity of the dynamics
         idx = self.traj.getTimeIndex(self.t_test)
         dist = self.traj.getDistanceConstraint(idx)
         np.testing.assert_allclose(dist, dist_expected, atol=1e-6, err_msg=f"incorrect distance constraint value")
+        # Check that we have the correct number of distance error guesses
+        self.assertEqual(len(self.traj._distance_error), N, msg='append_sample did not add the correct number of distance error guesses')
+        d_err = self.traj.get_distance_error(idx)[0]
+        self.assertEqual(dist.shape, d_err.shape, 'distance and distance_error do not have the same shape')
 
     def test_get_dissipation(self):
         """
@@ -289,12 +298,16 @@ class ContactEstimationTrajectoryTest(unittest.TestCase):
         b_expected = Jt.dot(self.x_test[2:])    
         # Append the sample
         self.traj.append_sample(self.t_test, self.x_test, self.u_test)
-        self.assertEqual(len(self.traj._dissipation_cstr), 2, msg="append_sample did not update dissipation_cstr correctly")
+        N = self.traj.num_timesteps
+        self.assertEqual(len(self.traj._dissipation_cstr), N, msg="append_sample did not update dissipation_cstr correctly")
         # Check the validity of the dynamics
         idx = self.traj.getTimeIndex(self.t_test)
         A, b = self.traj.getDissipationConstraint(idx)
         np.testing.assert_allclose(A, A_expected, atol=1e-6, err_msg=f"incorrect duplication matrix in dissipation constraint")
         np.testing.assert_allclose(b, b_expected, atol=1e-6, err_msg=f"incorrect total tangential velocity in dissipation constraint")
+        # Check for the dissipation guesses
+        self.assertEqual(len(self.traj._slacks), N, msg='append_sample added an incorrect number of velocity slacks')
+        self.assertEqual(self.traj.get_dissipation(idx)[0].shape, (self.traj.num_contacts,), msg='Added dissipation slack has the wrong shape')
 
     def test_get_friction(self):
         """
@@ -309,12 +322,16 @@ class ContactEstimationTrajectoryTest(unittest.TestCase):
         b_expected = np.array([0.5])       
         # Append the sample
         self.traj.append_sample(self.t_test, self.x_test, self.u_test)
-        self.assertEqual(len(self.traj._friction_cstr), 2, msg="append_sample did not update friction_cstr correctly")
+        N = self.traj.num_timesteps
+        self.assertEqual(len(self.traj._friction_cstr), N, msg="append_sample did not update friction_cstr correctly")
         # Check the validity of the friction constraint
         idx = self.traj.getTimeIndex(self.t_test)
         A, b = self.traj.getFrictionConstraint(idx)
         np.testing.assert_allclose(A, A_expected, atol=1e-6, err_msg=f"incorrect duplication matrix in friction constraint")
         np.testing.assert_allclose(b, b_expected, atol=1e-6, err_msg=f"incorrect friction coefficient in frictio constraint")
+        # Check that the friction errors have been added
+        self.assertEqual(len(self.traj._friction_error), N, msg='append_sample added an incorrect number of friction error guesses')
+        self.assertEqual(self.traj.get_friction_error(idx)[0].shape, (self.traj.num_contacts, ), msg='added friction errors have the wrong shape')
 
     def test_get_force_guess(self):
         """
@@ -369,6 +386,7 @@ class ContactEstimationTrajectoryTest(unittest.TestCase):
         f_guess = self.traj.getFeasibilityGuess(idx)
         np.testing.assert_array_equal(f_guess, test_val, err_msg="feasibility returned by getFeasibilityGuess does not match the value passed to set_feasibility")
 
+
     def test_get_contact_kernels(self):
         """
         Check the getContactKernels method
@@ -415,6 +433,8 @@ class ContactEstimationTrajectoryTest(unittest.TestCase):
         self.assertEqual(len(subtraj._distance_cstr), 2, 'unexpected number of distance constraints in subtrajectory')
         self.assertEqual(len(subtraj._friction_cstr), 2, 'unexpected number of friction constraints in subtrajectory')
         self.assertEqual(len(subtraj._dissipation_cstr), 2, 'unexpected number of dissipation constraints in subtrajectory')
+        self.assertEqual(len(subtraj._distance_error), 2, 'unexpected number of distance errors in subtrajectory')
+        self.assertEqual(len(subtraj._friction_error), 2, 'unexpected number of friction coefficient errors in subtrajectory')
 
 class ContactModelEstimatorTest(unittest.TestCase):
     def setUp(self):
@@ -538,10 +558,10 @@ class ContactModelEstimatorTest(unittest.TestCase):
         # Check that the returned model is a Semiparametric Contact Model
         self.assertTrue(isinstance(model, SemiparametricContactModel), msg=f"Returned value is not a SemiparametricContactModel")
         # Check that contact trajectory has been appropriately updated
-        idx = self.traj.getTimeIndex(self.t_data[1])
-        self.assertEqual(len(self.traj._forces), idx+1, 'calling estimate_contact results in an unexpected number of stored reaction forces')
-        self.assertEqual(len(self.traj._slacks), idx+1, 'calling estimate_contact results in an unexpected number of stored velocity slacks')
-        self.assertEqual(len(self.traj._feasibility), idx+1, 'calling estimate_conact results in an unexpected number of feasibility variables')
+        N = len(self.traj._time)
+        self.assertEqual(len(self.traj._forces), N, 'calling estimate_contact results in an unexpected number of stored reaction forces')
+        self.assertEqual(len(self.traj._slacks), N, 'calling estimate_contact results in an unexpected number of stored velocity slacks')
+        self.assertEqual(len(self.traj._feasibility), N, 'calling estimate_conact results in an unexpected number of feasibility variables')
 
 class ContactModelRectifierTest(unittest.TestCase):
     def setUp(self):

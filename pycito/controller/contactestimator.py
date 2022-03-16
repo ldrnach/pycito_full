@@ -267,6 +267,11 @@ class ContactEstimationTrajectory(ContactTrajectory):
         super(ContactEstimationTrajectory, self).__init__()
         self._plant = plant
         self._context = plant.multibody.CreateDefaultContext()
+        # Store the duplication matrix
+        self._D = self._plant.duplicator_matrix()
+        # Store the terrain kernel matrices
+        self.contact_model = plant.terrain
+        assert isinstance(self.contact_model, SemiparametricContactModel), f"plant does not contain a semiparametric contact model"
         # Setup the constraint parameter lists
         self._dynamics_cstr = []
         self._distance_cstr = []
@@ -285,20 +290,16 @@ class ContactEstimationTrajectory(ContactTrajectory):
         Jn, Jt = plant.GetContactJacobians(self._context)
         A = np.concatenate((Jn.T, Jt.T), axis=1)
         self._dynamics_cstr = [(A, -N - B.dot(u))]
-        self._append_distance()
-        self._append_dissipation()
-        self._append_friction()
-        # Set the initial guesses for force, feasibility, and dissipation
+        # Set the initial guesses for force and feasibility
         f_guess = np.zeros((self.num_contacts + self.num_friction, ))
         f_guess[:self.num_contacts] = fN
         self.set_force(0, f_guess)
-        self.set_feasibility(0, np.zeros((1,)))
-        self.set_dissipation(0, np.zeros((self.num_contacts,)))
-        # Store the duplication matrix
-        self._D = self._plant.duplicator_matrix()
-        # Store the terrain kernel matrices
-        self.contact_model = plant.terrain
-        assert isinstance(self.contact_model, SemiparametricContactModel), f"plant does not contain a semiparametric contact model"
+        err = A.dot(f_guess) + (N + B.dot(u))
+        self.set_feasibility(0, np.ones(1,)*err.max())
+        # Add the contact constraints
+        self._append_distance()
+        self._append_dissipation()
+        self._append_friction()
 
     def subset(self, start, stop):
         """Get a subset of the estimation trajectory"""
@@ -353,6 +354,9 @@ class ContactEstimationTrajectory(ContactTrajectory):
         f = np.linalg.lstsq(A, b, rcond=None)[0]
         f[f < 0] = 0
         self._forces.append(f)
+        # Add the feasibility guess
+        err = A.dot(f) - b
+        self._feasibility.append(np.ones(1,)*err.max())
 
     def _append_distance(self):
         """
@@ -387,8 +391,11 @@ class ContactEstimationTrajectory(ContactTrajectory):
         mu = self._plant.GetFrictionCoefficients(self._context)
         self._friction_cstr.append(mu)
         # Use the most recent value of the forces to calculate the friction cone defecit
-        f = self._forces[-1]
-
+        fN, fT = np.split(self._forces[-1], [self.num_contacts])
+        fc = np.diag(mu).dot(fN) - self._D.dot(fT)
+        mu_err = np.zeros_like(mu)
+        mu_err[fc < 0 and fN > 0] = -fc[fc < 0 and fN > 0]/fN[fc < 0 and fN > 0]
+        self._friction_error.append(mu_err)
 
     def getDynamicsConstraint(self, index):
         """
@@ -616,11 +623,20 @@ class ContactModelEstimator():
         # Get the distance and friction weights
         dweights = result.GetSolution(self._distance_weights)
         fweights = result.GetSolution(self._friction_weights)
+        # Calculate and update the distance errors
+        derr = self._distance_kernel.dot(dweights).reshape((self.traj.num_contacts, self.horizon))
+        self.traj.set_distance_error(idx, derr[:, -1])
+        # Calculate and update the friction errors
+        fN = forces[:self.traj.num_contacts,:].reshape(-1)
+        fc_weights = np.zeros_like(fweights)
+        fc_weights[fN > 0] = fweights[fN > 0]/fN[fN > 0]
+        fc_err = self._friction_kernel.dot(fc_weights).reshape((self.traj.num_contacts, self.horizon))
+        self.traj.set_friction_error(idx, fc_err)
         # Return an updated contact model
         model = copy.deepcopy(self.traj.contact_model)
         cpts = self.traj.get_contacts(self._startptr, self._startptr + self.horizon)
         cpts = np.concatenate(cpts, axis=1)
-        model.add_samples(cpts, dweights, fweights)        
+        model.add_samples(cpts, dweights, fc_weights)        
         return model
 
     def solve(self):
@@ -664,6 +680,7 @@ class ContactModelEstimator():
         self._distance_kernel, self._friction_kernel = self.traj.getContactKernels(self._startptr, self._startptr + self.horizon)
         # Add the kernel weights
         self._add_kernel_weights()
+        self._initialize_weights()
         # Add all the contact constraints
         for index in range(self.horizon):
             self._add_force_variables()
@@ -686,11 +703,19 @@ class ContactModelEstimator():
         # Add the quadratic costs
         self._prog.AddQuadraticCost(self._distance_kernel, np.zeros((dvars,)), self._distance_weights).evaluator().set_description('Distance Error Cost')
         self._prog.AddQuadraticCost(self._friction_kernel, np.zeros((fvars,)), self._friction_weights).evaluator().set_description('Friction Error Cost')
-        # Initialize the kernel weights
-        self._prog.SetInitialGuess(self._friction_weights, np.zeros(self._friction_weights.shape))
-        distances = np.concatenate(self.traj._distance_cstr[self._startptr:self._startptr + self.horizon], axis=0)
-        guess = np.linalg.lstsq(self._distance_kernel, -distances, rcond=None)[0]
-        self._prog.SetInitialGuess(self._distance_weights, guess)
+
+    def _initialize_weights(self):
+        """Set the initial guess for the kernel weights"""
+        # Initialize the distance kernel weights
+        derr = np.concatenate(self.traj.get_distance_error(self._startptr, self._startptr + self.horizon), axis=0)
+        dweights = np.linalg.lstsq(self._distance_kernel, derr, rcond=None)[0]
+        self._prog.SetInitialGuess(self._distance_weights, dweights)
+        # Initialize the friction kernel weights
+        ferr = np.concatenate(self.traj.get_friction_error(self._startptr, self._startptr + self.horizon), axis=0)
+        force = np.column_stack(self.traj.get_forces(self._startptr, self._startptr + self.horizon))
+        fN = force[:self.traj.num_contacts, :].reshape(-1)
+        fweights = np.linalg.lstsq(self._friction_kernel, ferr * fN, rcond = None)[0]
+        self._prog.SetInitialGuess(self._friction_weights, fweights)
 
     def _add_force_variables(self):
         """
