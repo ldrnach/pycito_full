@@ -272,6 +272,8 @@ class ContactEstimationTrajectory(ContactTrajectory):
         self._distance_cstr = []
         self._dissipation_cstr = []
         self._friction_cstr = []
+        self._distance_error = []
+        self._friction_error = []
         # Store the last state for calculating dynamics - assume it was static before we started moving
         self._last_state = initial_state
         self._plant.multibody.SetPositionsAndVelocities(self._context, initial_state)
@@ -306,6 +308,8 @@ class ContactEstimationTrajectory(ContactTrajectory):
         new._distance_cstr = self._distance_cstr[start:stop]
         new._dissipation_cstr = self._dissipation_cstr[start:stop]
         new._friction_cstr = self._friction_cstr[start:stop]
+        new._distance_error = self._distance_error[start:stop]
+        new._friction_error = self._friction_error[start:stop]
         return new
 
     def append_sample(self, time, state, control):
@@ -345,6 +349,10 @@ class ContactEstimationTrajectory(ContactTrajectory):
         self._dynamics_cstr.append((A, b))
         # Save the state for the the next call to append_dynamics
         self._last_state = state
+        # Add a guess to the reaction forces
+        f = np.linalg.lstsq(A, b, rcond=None)[0]
+        f[f < 0] = 0
+        self._forces.append(f)
 
     def _append_distance(self):
         """
@@ -353,6 +361,10 @@ class ContactEstimationTrajectory(ContactTrajectory):
         # Get the distance vector
         b = self._plant.GetNormalDistances(self._context)
         self._distance_cstr.append(b)
+        # Add an element to the distance error 
+        d_err = np.zeros_like(b)
+        d_err[b < 0.] = -b[b < 0.]
+        self._distance_error.append(d_err)
 
     def _append_dissipation(self):
         """
@@ -363,6 +375,9 @@ class ContactEstimationTrajectory(ContactTrajectory):
         v = self._plant.multibody.GetVelocities(self._context)
         b = Jt.dot(v)
         self._dissipation_cstr.append(b)
+        # Append to the dissipation slacks
+        vs = np.max(-b) * np.ones((self._D.shape[0],))
+        self._slacks.append(vs)
 
     def _append_friction(self):
         """
@@ -371,6 +386,9 @@ class ContactEstimationTrajectory(ContactTrajectory):
         # Append the friction coefficients
         mu = self._plant.GetFrictionCoefficients(self._context)
         self._friction_cstr.append(mu)
+        # Use the most recent value of the forces to calculate the friction cone defecit
+        f = self._forces[-1]
+
 
     def getDynamicsConstraint(self, index):
         """
@@ -501,6 +519,52 @@ class ContactEstimationTrajectory(ContactTrajectory):
         # Calculate the surface and friction kernel matrices
         return self.contact_model.surface_kernel(cpts), self.contact_model.friction_kernel(cpts)
 
+    def get_distance_error(self, start_idx, stop_idx=None):
+        """
+        Return a list of signed distance errors at the specified index
+
+        Arguments:
+            start_idx (int): the first index to return
+            stop_idx (int, optional): the last index to return (by default, start_index)
+        
+        Returns:
+            lst: signed distance errors between [start_idx, stop_idx)
+        """
+        return self.get_at(self._distance_error, start_idx, stop_idx)
+
+    def get_friction_error(self, start_idx, stop_idx=None):
+        """
+        Return a list of friction coefficient errors at the specified index
+
+        Arguments:
+            start_idx (int): the first index to return
+            stop_idx (int, optional): the last index to return (by default, start_index)
+        
+        Returns:
+            lst: friction coefficient errors between [start_idx, stop_idx)
+        """
+        return self.get_at(self._friction_error, start_idx, stop_idx)
+
+    def set_distance_error(self, index, derr):
+        """
+        set distance error values and the specified index
+        
+        Arguments:
+            index: (int) the index at which to set the value 
+            derr: the distance error value to set
+        """
+        self.set_at(self._distance_error, index, derr)
+
+    def set_friction_error(self, index, ferr):
+        """
+        set friction error values and the specified index
+        
+        Arguments:
+            index: (int) the index at which to set the value 
+            ferr: the distance error value to set
+        """
+        self.set_at(self._friction_error, index, ferr)
+    
     @property
     def num_contacts(self):
         """Returns the number of contact points in the model"""
