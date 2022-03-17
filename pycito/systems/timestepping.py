@@ -446,10 +446,11 @@ class TimeSteppingMultibodyPlant():
         for n in range(0, self.num_contacts()):
             force_list.append(forces[[n, self.num_contacts() + 2*n, self.num_contacts()+2*n + 1]])
         # Transform the forces into world coordinates using the terrain frames
-        _, frames = self.getTerrainPointsAndFrames(context)
         world_forces = []
-        for force, frame in zip(force_list, frames):
-            world_forces.append(frame.transpose().dot(force))
+        for force, frame, pose in zip(force_list, self.collision_frames, self.collision_poses):
+            collision_pt = self.multibody.CalcPointsPositions(context, frame, pose.translation(), self.multibody.world_frame())
+            terrain_frame = self.terrain.local_frame(collision_pt)
+            world_forces.append(terrain_frame.transpose().dot(force))
         # Return a list of forces in world coordinates
         return np.concatenate(world_forces, axis=1)
 
