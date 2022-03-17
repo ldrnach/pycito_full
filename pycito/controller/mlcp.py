@@ -93,7 +93,7 @@ class PseudoLinearComplementarityConstraint():
         zval, sval = np.split(dval, 2)
         return sval * zval
 
-    def addToProgram(self, prog, xvar, zvar):
+    def addToProgram(self, prog, xvar, zvar, rvar=None):
         """
         Add the constraint to a mathematical program 
         """
@@ -355,7 +355,6 @@ class MixedLinearComplementarityConstraint(PseudoLinearComplementarityConstraint
     @property
     def slack(self):
         return self._slack
-
 class VariableRelaxedMixedLinearComplementarityConstraint(MixedLinearComplementarityConstraint):
     """
         Recasts the mixed linear complementarity constraint using an relaxation method. The constraint is implemented as:
