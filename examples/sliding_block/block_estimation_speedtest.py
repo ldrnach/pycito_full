@@ -14,7 +14,7 @@ import pycito.controller.speedtesttools as speedtesttools
 
 import pycito.utilities as utils
 
-SAVEDIR = os.path.join('examples','sliding_block','estimator_speedtests')
+SAVEDIR = os.path.join('examples','sliding_block','estimator_speedtests_linear')
 FILENAME = 'speedtestresults.pkl'
 FIGURENAME = 'SpeedTest.png'
 
@@ -86,6 +86,6 @@ def low_friction_speedtests():
 
 if __name__ == '__main__':
     #replot_speedtest_results('flatterrain')
-    #flat_terrain_speedtests()
-    step_terrain_speedtests()
-    low_friction_speedtests()
+    flat_terrain_speedtests()
+    #step_terrain_speedtests()
+    #low_friction_speedtests()

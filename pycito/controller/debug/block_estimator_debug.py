@@ -8,7 +8,7 @@ from pycito.controller.speedtesttools import SpeedTestResult
 from pycito.systems.block.block import Block
 from pycito.systems.contactmodel import SemiparametricContactModel
 
-TESTDATASOURCE = os.path.join('examples','sliding_block','estimator_speedtests')
+TESTDATASOURCE = os.path.join('examples','sliding_block','estimator_speedtests_linear')
 TESTDATANAME = 'speedtestresults.pkl'
 SIMSOURCE = os.path.join('examples','sliding_block','simulations')
 SIMNAME = os.path.join('openloop','simdata.pkl')
@@ -22,7 +22,7 @@ def create_reference_trajectory(sourcepart):
     # Convert to estimation trajectory
     block = Block()
     block.Finalize()
-    block.terrain = SemiparametricContactModel.FlatSurfaceWithRBFKernel()
+    block.terrain = SemiparametricContactModel.FlatSurfaceWithRBFKernel(friction=1.0)
     traj = ce.ContactEstimationTrajectory(block, data['state'][:, 0])
     for t, x, u in zip(data['time'][1:], data['state'][:, 1:].T, data['control'][:, 1:].T):
         traj.append_sample(t, x, u)
@@ -30,11 +30,15 @@ def create_reference_trajectory(sourcepart):
 
 def rerun_test(traj, sample_number, horizon_number):
     nstarts = 30
+    print(f"\nRerunning sample {sample_number} with horizon {horizon_number}")
     N = traj.num_timesteps
     start_ptr = N - nstarts
     subtraj = traj.subset(0, start_ptr + sample_number)
     estimator = ce.ContactModelEstimator(subtraj, horizon_number)
+    estimator.forcecost = 10
     estimator.create_estimator()
+    print_initial_guess(estimator)
+    utils.printProgramInitialGuessReport(estimator._prog, terminal=True)
     print(f"Re-solving contact estimation")
     result = estimator.solve()
     return estimator, result
@@ -62,6 +66,26 @@ def print_result(estimator, result):
             dvals = result.GetSolution(dvars)
             out = cstr.evaluator().Eval(dvals)
             print(f"SemiparametricFrictionConeConstraint = {out}")
+        if cstr.evaluator().get_description() == "dissipation_nonnegativity":
+            dvars = cstr.variables()
+            dvals = result.GetSolution(dvars)
+            print(f"Sliding Velocity Nonnegativity (Variables):\n {dvals.reshape((2, -1)).T}")
+
+    # Print out the dissipation slacks
+
+
+def print_initial_guess(estimator):
+    alpha = estimator._prog.GetInitialGuess(estimator._distance_weights)
+    beta = estimator._prog.GetInitialGuess(estimator._friction_weights)
+    force = estimator._prog.GetInitialGuess(estimator.forces)
+    vel = estimator._prog.GetInitialGuess(estimator.velocities)
+    feas = estimator._prog.GetInitialGuess(estimator.feasibilities)
+    print("Initial Guesses:")
+    print(f"\tDistance Weights = {alpha}")
+    print(f"\tFriction Weights = {beta}")
+    print(f"\tReaction forces  = {force}")
+    print(f"\tTangential Velocities = {vel}")
+    print(f"\tFeasibilities = {feas}")
 
 def check_infeasible_runs(traj, starts, horizon):
     all_infeas = []
@@ -83,7 +107,7 @@ def debug_main():
     # Load the speed test data
     source = os.path.join(TESTDATASOURCE, sourcepart, TESTDATANAME)
     result = SpeedTestResult.load(source)
-    horizon = 3
+    horizon = 4
     infos = result.solve_info[:, horizon-1].astype(int)
     success = np.where(infos == 1)[0]
     fails = np.where(infos == 13)[0]
@@ -95,8 +119,7 @@ def debug_main():
     # Check the successful case
     estimator, new_result = rerun_test(reftraj, success[0], horizon)
     print_result(estimator, new_result)
-    check_infeasible_runs(reftraj, fails, horizon)
-
+    #check_infeasible_runs(reftraj, fails, horizon)
 
 if __name__ == '__main__':
     debug_main()
