@@ -385,6 +385,22 @@ def printProgramReport(result, prog=None, terminal=True, filename=None, verbose=
     #Return the report as a text string
     return report
 
+def printProgramInitialGuessReport(prog, terminal=True):
+    printer = MathProgIterationPrinter(prog)
+    all_vars = prog.GetInitialGuess(prog.decision_variables())
+    costs = printer.calc_costs(all_vars)
+    cstrs = printer.calc_constraints(all_vars)
+    report = f"\n Initial Guess Report\n"
+    report += "Individual Costs: \n"
+    for key in costs:
+        report += f"{key}: \t {costs[key]:.4E}\n"
+    report += "\nConstraint Violations: \n"
+    for key in cstrs:
+        report += f"{key}: \t {cstrs[key]:.4E}\n"
+    if terminal:
+        print(report)
+    return report
+
 def quat2rpy(quat):
     """
     Convert a quaternion to Roll-Pitch-Yaw
