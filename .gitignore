@@ -13,5 +13,6 @@ __init__.pyc
 *.gif
 *.zip
 *.mp4
+*.pyc
 # Other
 PKG-INFO
