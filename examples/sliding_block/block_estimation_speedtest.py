@@ -47,7 +47,27 @@ def replot_speedtest_results(source):
     target = os.path.join(SAVEDIR, source, FIGURENAME)
     result.plot(show=False, savename=target)
 
-def run_speedtests(source):
+def osqp_runner(test, target):
+    test.useOsqpSolver()
+    target = os.path.join(target, 'osqp')
+    return test, target
+
+def snopt_runner(test, target):
+    test.useSnoptSolver()
+    target = os.path.join(target, 'snopt')
+    return test, target
+
+def ipopt_runner(test, target):
+    test.useIpoptSolver()
+    target = os.path.join(target, 'ipopt')
+    return test, target
+
+def gurobi_runner(test, target):
+    test.useGurobiSolver()
+    target = os.path.join(target, 'gurobi')
+    return test, target
+
+def run_speedtests(source, method = snopt_runner):
     """Main script for running estimation speedtests"""
     print(f"Running contact estimation speedtests for {source}")
     # Create the estimation trajectory from the source data
@@ -61,28 +81,29 @@ def run_speedtests(source):
     maxhorizon = 50
     # Make the speedtest
     speedtest = speedtesttools.ContactEstimatorSpeedTest(traj, maxhorizon)
+    speedtest, target = method(speedtest, SAVEDIR)
     result = speedtest.run_speedtests(numstarts)
     # Save the results
-    target = os.path.join(SAVEDIR, source)
+    target = os.path.join(target, source)
     if not os.path.exists(target):
         os.makedirs(target)
     result.save(os.path.join(target, FILENAME))
     result.plot(show=False, savename=os.path.join(target, FIGURENAME))
 
-def flat_terrain_speedtests():
+def flat_terrain_speedtests(method = snopt_runner):
     """Run estimation speedtests on flat terrain data"""
     source = 'flatterrain'
-    run_speedtests(source)
+    run_speedtests(source, method)
 
-def step_terrain_speedtests():
+def step_terrain_speedtests(method = snopt_runner):
     """Run estimation speedtests on stepped terrain data"""
     source = 'steppedterrain'
-    run_speedtests(source)
+    run_speedtests(source, method)
 
-def low_friction_speedtests():
+def low_friction_speedtests(method = snopt_runner):
     """Run estimation speedtests on terrain with a step change in friction"""
     source='lowfriction'
-    run_speedtests(source)
+    run_speedtests(source, method)
 
 if __name__ == '__main__':
     #replot_speedtest_results('flatterrain')

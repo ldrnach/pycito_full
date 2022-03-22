@@ -271,7 +271,27 @@ class ContactEstimatorSpeedTest():
             self.max_horizon = self.reftraj.num_timesteps
         else:
             self.max_horizon = maxhorizon
+    
+    def useOsqpSolver(self):
+        self.solver = OsqpSolver()
+        self.solveroptions = {'eps_abs':1e-6,
+                            'eps_rel':1e-6}
 
+    def useSnoptSolver(self):
+        self.solver = SnoptSolver()
+        self.solveroptions = {'Major feasibility tolerance': 1e-6,
+                            'Major optimality tolerance': 1e-6}
+
+    def useGurobiSolver(self):
+        self.solver = GurobiSolver()
+        self.solveroptions = {'FeasibilityTol': 1e-6,
+                            'OptimalityTole': 1e-6}
+
+    def useIpoptSolver(self):
+        self.solver = IpoptSolver()
+        self.solveroptions = {'tol': 1e-6,
+                            'constr_viol_tol': 1e-6}
+    
     def run_speedtests(self, nstarts):
         """Run speedtests for contact estimation"""
         speedResult = SpeedTestResult(self.max_horizon, nstarts)
@@ -287,6 +307,8 @@ class ContactEstimatorSpeedTest():
                 # Get the subtrajectory
                 print(f"{horizon}, ", end='', flush=True)
                 estimator = ce.ContactModelEstimator(subtraj, horizon)
+                estimator._solver = self.solver
+                estimator.setSolverOptions(self.solveroptions)
                 # Create the estimator
                 start = time.perf_counter()
                 estimator.create_estimator()
