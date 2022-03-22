@@ -15,9 +15,11 @@ from pydrake.all import PiecewisePolynomial as pp
 import pycito.utilities as utils
 import pycito.trajopt.constraints as cstr
 import pycito.controller.mlcp as mlcp
+from pycito.controller.optimization import OptimizationMixin
 
 class _ControllerBase(abc.ABC):
     def __init__(self, plant):
+        super().__init__()
         self._plant = plant
 
     @abc.abstractmethod
@@ -253,17 +255,17 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
         index = min(max(0, index), len(self.joint_limit_cstr)-1)
         return self.joint_limit_cstr[index]
 
-class LinearContactMPC(_ControllerBase):
+class LinearContactMPC(_ControllerBase, OptimizationMixin):
     def __init__(self, linear_traj, horizon):
         """
         Plant: a TimesteppingMultibodyPlant instance
         Traj: a LinearizedContactTrajectory
         """
-        super(LinearContactMPC, self).__init__(linear_traj.plant)
+        super().__init__(linear_traj.plant)
         self.lintraj = linear_traj
         self.horizon = horizon
         # Internal variables
-        self.prog = None
+        self._prog = None
         self._dx = []   # States
         self._du = []   # Controls
         self._dl = []   # Forces
@@ -331,7 +333,7 @@ class LinearContactMPC(_ControllerBase):
         """
         Initialize the MPC for the current state
         """
-        self.prog = MathematicalProgram()
+        self._prog = MathematicalProgram()
         # Create the initial state and constrain it
         self._dx = [self.prog.NewContinuousVariables(rows = self.state_dim, name='state')]
         state0 = self.lintraj.getState(index)
@@ -411,25 +413,7 @@ class LinearContactMPC(_ControllerBase):
         # Add a cost for joint limits
         if self.jlimit_dim > 0:
             self.prog.AddQuadraticErrorCost(self._jlimit_weight, self.lintraj.getJointLimit(index+1), vars=self._djl[-1]).evaluator().set_description('joint_limit_cost')
-
-    def solve(self):
-        """Solves the created MPC problem"""
-        #Update the solver options
-        for key, value in self.solveroptions.items():
-            self.prog.SetSolverOption(self._solver.solver_id(), key, value)
-        # Solve the MPC problem
-        return self._solver.Solve(self.prog)
-
-    def useOsqpSolver(self):
-        self._solver = OsqpSolver()
-
-    def useSnoptSolver(self):
-        self._solver = SnoptSolver()
-
-    def setSolverOptions(self, options_dict={}):
-        for key in options_dict.keys():
-            self.solveroptions[key] = options_dict[key]
-            
+        
 
     @property
     def state_dim(self):

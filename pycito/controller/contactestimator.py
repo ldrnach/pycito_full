@@ -16,6 +16,7 @@ import pycito.trajopt.constraints as cstr
 import pycito.trajopt.complementarity as cp
 import pycito.controller.mlcp as mlcp
 from pycito.systems.contactmodel import SemiparametricContactModel
+from pycito.controller.optimization import OptimizationMixin
 
 class SemiparametricFrictionConeConstraint():
     def __init__(self, friccoeff, kernel, duplicator):
@@ -591,13 +592,14 @@ class ContactEstimationTrajectory(ContactTrajectory):
         """Returns the total number of friction force components in the model"""
         return self._plant.num_friction()
 
-class ContactModelEstimator():
+class ContactModelEstimator(OptimizationMixin):
     def __init__(self, esttraj, horizon, lcp = mlcp.VariableRelaxedPseudoLinearComplementarityConstraint):
         """
         Arguments:
             esttraj: a ContactEstimationTrajectory object
             horizon: a scalar indicating the reverse horizon to use for estimation
         """
+        super(ContactModelEstimator, self).__init__()
         self.traj = esttraj
         self.maxhorizon = horizon
         self.lcp = lcp
@@ -606,14 +608,7 @@ class ContactModelEstimator():
         self._relax_cost_weight = 1.
         self._force_cost_weight = 1.
         self._force_ortho_weight = 1.
-        # Solver details
-        self.solveroptions = {}
         self._solver = SnoptSolver()
-
-    def setSolverOptions(self, optionsdict = {}):
-        # Store the solver options
-        for key, value in optionsdict.items():
-            self.solveroptions[key] = value
 
     def estimate_contact(self, t, x, u):
         # Append new samples
@@ -649,14 +644,6 @@ class ContactModelEstimator():
         cpts = np.concatenate(cpts, axis=1)
         model.add_samples(cpts, dweights, fc_weights)        
         return model
-
-    def solve(self):
-        """Solves the Contact Model Estimation program"""
-        # Update solver options
-        for key, value in self.solveroptions.items():
-            self._prog.SetSolverOption(self._solver.solver_id(), key, value)
-        # Solve the estimation problem
-        return self._solver.Solve(self._prog)
 
     def _clear_program(self):
         """Clears the pointers to the mathematical program and it's decision variables"""
@@ -775,8 +762,6 @@ class ContactModelEstimator():
         self._relax_cost.evaluator().set_description('Relaxation Cost')
         # Bounding box constraint on the relaxations
         self._prog.AddBoundingBoxConstraint(r_ref, np.full(r_ref.shape, np.inf), all_relax).evaluator().set_description("Relaxation Nonnegativity")
-
-
 
     def _add_dynamics_constraints(self, index):
         """Add and initialize the linear dynamics constraints for force estimation"""
@@ -905,7 +890,7 @@ class ContactModelEstimator():
         else:
             return None
 
-class EstimatedContactModelRectifier():
+class EstimatedContactModelRectifier(OptimizationMixin):
     def __init__(self, esttraj):
         assert isinstance(esttraj, ContactEstimationTrajectory), "EstimatedContactModelRectifier must be initialized with a ContactEstimationTrajectory object"
         self.traj = esttraj
@@ -1012,10 +997,6 @@ class EstimatedContactModelRectifier():
         """Remove all cost terms from the optimization problem"""
         for cost in self.costs:
             self.prog.RemoveCost(cost)
-
-    def solve(self):
-        """Solve the optimization problem"""
-        return Solve(self.prog)
 
     def solve_ambiguity(self):
         """Solve the ambiguity set optimization"""
