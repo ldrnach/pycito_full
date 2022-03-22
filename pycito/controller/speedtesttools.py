@@ -13,7 +13,7 @@ import time
 import matplotlib.pyplot as plt
 from collections import Counter
 
-from pydrake.all import OsqpSolver, SnoptSolver
+from pydrake.all import OsqpSolver, SnoptSolver, GurobiSolver, IpoptSolver
 
 import pycito.controller.mpc as mpc
 import pycito.controller.contactestimator as ce
@@ -58,12 +58,16 @@ def get_constraint_violation(prog, result):
     return violation
 
 def get_solve_info(result):
-    details = result.get_solver_details()
     id = result.get_solver_id().name()
     if id == 'SNOPT/fortran':
-        return details.info
+        return result.get_solver_details().info
     elif id == 'OSQP':
-        return details.status_val
+        return result.get_solver_details().status_val
+    elif id =='IPOPT':
+        return 0.
+        #return result.get_solver_details().status
+    elif id =='Gurobi':
+        return result.get_solver_details().optimization_status
     else:
         return np.NAN
 
@@ -224,6 +228,16 @@ class MPCSpeedTest():
         self.solver = SnoptSolver()
         self.solveroptions = {'Major feasibility tolerance': 1e-6,
                             'Major optimality tolerance': 1e-6}
+
+    def useGurobiSolver(self):
+        self.solver = GurobiSolver()
+        self.solveroptions = {'FeasibilityTol': 1e-6,
+                            'OptimalityTole': 1e-6}
+
+    def useIpoptSolver(self):
+        self.solver = IpoptSolver()
+        self.solveroptions = {'tol': 1e-6,
+                            'constr_viol_tol': 1e-6}
 
     def run_speedtests(self, state_samples):
         speedResult = SpeedTestResult(self.max_horizon, state_samples.shape[1])

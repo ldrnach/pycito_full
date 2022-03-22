@@ -31,7 +31,27 @@ def generate_initial_conditions(N = 30):
     x_initial[1, x_initial[1,:] < 0] = 0
     return x_initial
 
-def run_speedtests():
+def osqp_runner(test, target):
+    test.useOsqpSolver()
+    target = os.path.join(target, 'osqp')
+    return test, target
+
+def snopt_runner(test, target):
+    test.useSnoptSolver()
+    target = os.path.join(target, 'snopt')
+    return test, target
+
+def ipopt_runner(test, target):
+    test.useIpoptSolver()
+    target = os.path.join(target, 'ipopt')
+    return test, target
+
+def gurobi_runner(test, target):
+    test.useGurobiSolver()
+    target = os.path.join(target, 'gurobi')
+    return test, target
+
+def run_speedtests(runner = osqp_runner):
     block = create_block()
     # Load the reference trajectory
     file = os.path.join('data','slidingblock','block_trajopt.pkl')
@@ -43,23 +63,15 @@ def run_speedtests():
     # Create the target directory
     targetbase = SAVEDIR
     utils.save(os.path.join(targetbase, 'initialconditions.pkl'), x_initial)
-    # Run the OSQP speedtests
+    # Run the speedtests
     test = speedtesttools.MPCSpeedTest(reftraj)
-    test.useOsqpSolver()
+    test, target = runner(test, targetbase)
     testResult = test.run_speedtests(x_initial)
-    target = os.path.join(targetbase, 'osqp')
     if not os.path.exists(target):
         os.makedirs(target)
     testResult.save(os.path.join(target, FILENAME))
     testResult.plot(show=False, savename=os.path.join(target, FIGURENAME))
-    # Run the SNOPT speedtests
-    test.useSnoptSolver()
-    testResult = test.run_speedtests(x_initial)
-    target = os.path.join(targetbase, 'snopt')
-    if not os.path.exists(target):
-        os.makedirs(target)
-    testResult.save(os.path.join(target, FILENAME))
-    testResult.plot(show=False, savename=os.path.join(target, FIGURENAME))
+
 
 def replot_speedtest_results():
     """Helper function for perfecting speedtest result plots without re-running speedtests"""
@@ -80,6 +92,7 @@ def compare_speedtests():
     print(f"Saved comparison figures to {SAVEDIR}")
 
 if __name__ == '__main__':
-    #run_speedtests()
-    compare_speedtests()
-    replot_speedtest_results()
+    #run_speedtests(runner = ipopt_runner)
+    run_speedtests(runner = gurobi_runner)
+    #compare_speedtests()
+    #replot_speedtest_results()
