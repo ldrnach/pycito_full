@@ -8,6 +8,8 @@ February 14, 2022
 
 import numpy as np
 import copy
+from scipy.linalg import block_diag
+
 from pydrake.all import MathematicalProgram, SnoptSolver, Solve
 
 import pycito.trajopt.constraints as cstr
@@ -588,6 +590,7 @@ class ContactEstimationTrajectory(ContactTrajectory):
     def num_friction(self):
         """Returns the total number of friction force components in the model"""
         return self._plant.num_friction()
+
 class ContactModelEstimator():
     def __init__(self, esttraj, horizon, lcp = mlcp.VariableRelaxedPseudoLinearComplementarityConstraint):
         """
@@ -602,6 +605,7 @@ class ContactModelEstimator():
         # Cost weights
         self._relax_cost_weight = 1.
         self._force_cost_weight = 1.
+        self._force_ortho_weight = 1.
         # Solver details
         self.solveroptions = {}
         self._solver = SnoptSolver()
@@ -675,6 +679,7 @@ class ContactModelEstimator():
         self._fric_cstr = []
         self._dyns_cstr = []
         self._fric_pos = []
+        self._force_ortho_cost = []
 
     def create_estimator(self):
         """
@@ -756,6 +761,12 @@ class ContactModelEstimator():
         weight = self._force_cost_weight * np.ones(all_forces.shape)
         self._force_cost = self._prog.AddLinearCost(weight, all_forces)
         self._force_cost.evaluator().set_description('Force Cost')
+        # Friction force orthogonalization cost
+        # W = self._make_force_ortho_weight()
+        # for fT in self._friction_forces:
+        #     self._force_ortho_cost.append(self._prog.AddQuadraticErrorCost(W, np.zeros((self.traj.num_friction,)), vars=fT))
+        #     self._force_ortho_cost[-1].evaluator().set_description('FrictionRegularizationCost')
+
         # Relaxation cost 
         all_relax = np.concatenate(self._relaxation_vars, axis=0)
         r_weights = self._relax_cost_weight * np.eye(all_relax.shape[0])
@@ -764,7 +775,9 @@ class ContactModelEstimator():
         self._relax_cost.evaluator().set_description('Relaxation Cost')
         # Bounding box constraint on the relaxations
         self._prog.AddBoundingBoxConstraint(r_ref, np.full(r_ref.shape, np.inf), all_relax).evaluator().set_description("Relaxation Nonnegativity")
-    
+
+
+
     def _add_dynamics_constraints(self, index):
         """Add and initialize the linear dynamics constraints for force estimation"""
         A, b = self.traj.getDynamicsConstraint(self._startptr + index)
@@ -836,6 +849,13 @@ class ContactModelEstimator():
             nrelax = len(self._relaxation_vars)
             self._relax_cost.evaluator().UpdateCoefficients(val*np.eye(nrelax), np.zeros((nrelax,)))
 
+    def _make_force_ortho_weight(self):
+        A = np.diag([1] * (self.traj.num_friction//2), self.traj.num_friction//2)
+        A = [A] * self.traj.num_contacts
+        W = block_diag(*A)
+        W = W + W.T
+        return self._force_ortho_weight / 2 * W
+
     @property
     def forcecost(self):
         return self._force_cost_weight
@@ -848,6 +868,19 @@ class ContactModelEstimator():
         if self._force_cost is not None:
             allforceshape = np.ravel(self.forces).shape
             self._force_cost.evaluator().UpdateCoefficients(val * np.ones(allforceshape))
+
+    @property
+    def forceregweight(self):
+        return self._force_ortho_weight
+
+    @forceregweight.setter
+    def forceregweight(self, val):
+        assert isinstance(val, (int, float)) and val >=0, "val must be a nonnegativity float or nonnegative int"
+        self._force_ortho_weight = val
+        if self._force_ortho_cost is not None:
+            W = self._make_force_ortho_weight()
+            for cost in self._force_ortho_cost:
+                cost.evaluator().UpdateCoefficients(W, np.zeros((self.traj.num_friction,)))
 
     @property
     def forces(self):
