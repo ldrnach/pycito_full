@@ -440,8 +440,8 @@ class RelaxedLinearConstraint():
         else:
             assert relax.shape == (1,), f"RelaxedLinearConstraint expects a scalar relaxation variable"
             self._relax = relax
-        A_minus = np.column_stack([self.A, np.ones_like(self.b)])
-        A_plus = np.column_stack([self.A, -np.ones_like(self.b)])
+        A_minus = np.column_stack([self.A, -np.ones_like(self.b)])
+        A_plus = np.column_stack([self.A, np.ones_like(self.b)])
         dvars = np.concatenate([dvars, self._relax], axis=0)
         # Add the linear constraints
         prog.AddLinearConstraint(A = A_minus, lb = np.full(self.b.shape, -np.inf), ub = self.b, vars = dvars).evaluator().set_description(f"{self.name}")
