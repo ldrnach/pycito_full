@@ -148,6 +148,7 @@ class PseudoLinearComplementarityConstraint():
     @cost_weight.setter
     def cost_weight(self, val):
         warnings.warn(f"{type(self).__name__} does not have an associated cost. The value is ignored.")
+
 class CostRelaxedPseudoLinearComplementarityConstraint(PseudoLinearComplementarityConstraint):
     """
         Recasts the pseudo linear complementarity constraint using an exact penalty method. The constraint is implemented as:
@@ -193,6 +194,7 @@ class CostRelaxedPseudoLinearComplementarityConstraint(PseudoLinearComplementari
                 self._cost.evaluator().UpdateCoefficients(new_Q = self.cost_matrix, new_b = np.zeros((2*self.dim)))
         else:
             raise ValueError("cost_weight must be a nonnegative numeric value")
+
 class VariableRelaxedPseudoLinearComplementarityConstraint(PseudoLinearComplementarityConstraint):
     """
         Recasts the pseudo linear complementarity constraint using an relaxation method. The constraint is implemented as:
@@ -251,6 +253,18 @@ class VariableRelaxedPseudoLinearComplementarityConstraint(PseudoLinearComplemen
     def _eval_orthogonality(self, dvals):
         zval, sval, rval = np.split(dvals, [self.dim, 2*self.dim])
         return rval - zval * sval
+
+    def _add_orthogonality_constraint(self, prog, zvar, svar):
+        """
+        Imposes the constraint
+            r - z*s >= 0
+        """
+        prog.AddConstraint(self._eval_orthogonality, 
+            lb = np.zeros((self.dim, )),
+            ub = np.full((self.dim, ), np.inf),
+            vars = np.concatenate([zvar, svar], axis=0),
+            description=f"{self.name}_orthogonality")
+        return prog
 
     @property
     def slack(self):
@@ -355,6 +369,7 @@ class MixedLinearComplementarityConstraint(PseudoLinearComplementarityConstraint
     @property
     def slack(self):
         return self._slack
+
 class VariableRelaxedMixedLinearComplementarityConstraint(MixedLinearComplementarityConstraint):
     """
         Recasts the mixed linear complementarity constraint using an relaxation method. The constraint is implemented as:
@@ -409,6 +424,18 @@ class VariableRelaxedMixedLinearComplementarityConstraint(MixedLinearComplementa
         """
         zval, sval, rval = np.split(dvals, [self.dim, 2*self.dim])
         return rval - zval * sval
+
+    def _add_orthogonality_constraint(self, prog, zvar, svar):
+        """
+        Imposes the constraint
+            r - z*s >= 0
+        """
+        prog.AddConstraint(self._eval_orthogonality, 
+            lb = np.zeros((self.dim, )),
+            ub = np.full((self.dim, ), np.inf),
+            vars = np.concatenate([zvar, svar], axis=0),
+            description=f"{self.name}_orthogonality")
+        return prog
 
     def initializeRelaxation(self, val = 0.):
         """Set the initial guess for the relaxation parameter"""
