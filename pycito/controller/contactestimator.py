@@ -333,7 +333,6 @@ class ContactEstimationTrajectory(ContactTrajectory):
         self._append_dissipation()
         self._append_friction()
 
-
     def _append_dynamics(self, state, control):
         """
         Add a set of linear system parameters to evaluate the dynamics defect 
@@ -379,6 +378,10 @@ class ContactEstimationTrajectory(ContactTrajectory):
         d_err = np.zeros_like(b)
         d_err[b < 0.] = -b[b < 0.]
         self._distance_error.append(d_err)
+        # Increase the feasibility, if necessary (guarantee that all constraints are trivially satisfied at the initial point)
+        fN = self._forces[-1][:self.num_contacts]
+        w = b * fN
+        self._feasibility[-1] += np.max(np.abs(w))
 
     def _append_dissipation(self):
         """
@@ -389,9 +392,13 @@ class ContactEstimationTrajectory(ContactTrajectory):
         v = self._plant.multibody.GetVelocities(self._context)
         b = Jt.dot(v)
         self._dissipation_cstr.append(b)
-        # Append to the dissipation slacks
+        # Append to the dissipation slacks - TODO: Update how the slack is determined for multiple contacts
         vs = np.max(-b) * np.ones((self._D.shape[0],))
         self._slacks.append(vs)
+        # Increase the feasibility to ensure the constraint is trivially satisfied
+        fT = self._forces[-1][self.num_contacts:]
+        w = (self._D.T.dot(vs) + b) * fT
+        self._feasibility[-1] += np.max(np.abs(w))
 
     def _append_friction(self):
         """
@@ -406,6 +413,10 @@ class ContactEstimationTrajectory(ContactTrajectory):
         mu_err = np.zeros_like(mu)
         mu_err[fc < 0 and fN > 0] = -fc[fc < 0 and fN > 0]/fN[fc < 0 and fN > 0]
         self._friction_error.append(mu_err)
+        # Update the feasibility to ensure the nonlinear constraint is trivially satisfied
+        g = self._slacks[-1]
+        w = (mu * fN - self._D.dot(fT)) * g
+        self._feasibility[-1] += np.max(np.abs(w))
 
     def getDynamicsConstraint(self, index):
         """
@@ -772,7 +783,7 @@ class ContactModelEstimator(OptimizationMixin):
         # Set the initial guess
         self._prog.SetInitialGuess(force, self.traj.getForceGuess(self._startptr + index))
         # Set the initial guess for the relaxation variables
-        self._prog.SetInitialGuess(self._relaxation_vars[-1], self.traj.getFeasibilityGuess(self._startptr + index))
+        self._prog.SetInitialGuess(self._relaxation_vars[-1], 2*self.traj.getFeasibilityGuess(self._startptr + index))
 
     def _add_distance_constraints(self, index):
         """Add and initialize the semiparametric distance constraints"""
