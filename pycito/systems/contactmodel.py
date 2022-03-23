@@ -341,6 +341,25 @@ class SemiparametricContactModel(ContactModel):
     
         return cls(surf, fric)
 
+    @classmethod
+    def RBFSurfaceWithHuberFriction(cls, height=0., friction=1., height_length = 0.1, friction_length=0.1, delta=0.1):
+        """
+        Factory method for constructing a semiparametric contact model
+        Assumes the prior is a flat surface with constant friction
+        Uses a RBF kernel for the surface model and a pseudo-huber kernel for the friction model
+
+        Arguments:
+            height (float): the height of the flat surface prior
+            friction (float): the value of the constant friction prior
+            height_length (float): the length scale value for the surface RBF kernel
+            friction_length (float): the length scale value for the friction PseudoHuber kernel
+            delta (float): the delta value for the friction PseudoHuber kernel
+        """
+        surf = SemiparametricModel.FlatModelWithRBFKernel(location = height, length_scale = height_length)
+        fric = SemiparametricModel.ConstantPriorWithHuberKernel(const = friction, length_scale = friction_length, delta = delta)
+        return cls(surf, fric)
+
+
     def add_samples(self, sample_points, surface_weights, friction_weights):
         """
         Add samples to the semiparametric model
