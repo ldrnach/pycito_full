@@ -62,7 +62,7 @@ class NormalDistanceTest(unittest.TestCase):
         """Check that we can evaluate the constraint using autodiff types"""
         x_ad = ad.InitializeAutoDiff(self.x1)
         dist_ad = self.cstr_fcn(x_ad)
-        dist_val = np.squeeze(ad.autoDiffToValueMatrix(dist_ad))
+        dist_val = np.squeeze(ad.ExtractValue(dist_ad))
         np.testing.assert_allclose(dist_val, self.expected_dist, atol=1e-7, err_msg=f"Evaluating NormalDistance with autodiff types produces incorrect results")
 
     def test_linearization(self):
@@ -134,7 +134,7 @@ class DissipationTest(unittest.TestCase):
         dvals = np.concatenate([self.x1, self.s1], axis=0)
         advals = ad.InitializeAutoDiff(dvals)
         diss_ad = self.cstr_fcn(advals)
-        diss_vals = np.squeeze(ad.autoDiffToValueMatrix(diss_ad))
+        diss_vals = np.squeeze(ad.ExtractValue(diss_ad))
         np.testing.assert_allclose(diss_vals, self.expected_diss, atol=1e-7, err_msg=f"Evaluating MaximumDissipationConstraint with autodiff type produces inaccurate resutls")
 
     def test_linearization(self):
@@ -192,7 +192,7 @@ class FrictionConeTest(unittest.TestCase):
         dvals_ad = ad.InitializeAutoDiff(dvals)
         friccone_ad = self.cstr_fcn(dvals_ad)
         # Get the values
-        friccone_vals = np.squeeze(ad.autoDiffToValueMatrix(friccone_ad))
+        friccone_vals = np.squeeze(ad.ExtractValue(friccone_ad))
         # Check the values
         np.testing.assert_allclose(friccone_vals, self.friccone_expected, atol=1e-7, err_msg=f"Evalutaing FricconeConstraint with autodiff type produces inaccurate results")
 

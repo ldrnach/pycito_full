@@ -886,6 +886,7 @@ class ContactModelEstimator(OptimizationMixin):
 
 class EstimatedContactModelRectifier(OptimizationMixin):
     def __init__(self, esttraj):
+        super().__init__()
         assert isinstance(esttraj, ContactEstimationTrajectory), "EstimatedContactModelRectifier must be initialized with a ContactEstimationTrajectory object"
         self.traj = esttraj
         self._setup()
@@ -898,7 +899,7 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         d = np.ones((self.traj.num_contacts,1))
         self.D = np.kron(np.eye(self.traj.num_timesteps, dtype=int), d)  
         # Setup the optimization program - just the constraints
-        self.prog = MathematicalProgram()
+        self._prog = MathematicalProgram()
         self._add_variables()
         self._add_distance_constraints()
         self._add_friction_constraints()

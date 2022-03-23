@@ -464,14 +464,6 @@ class ContactModelEstimatorTest(unittest.TestCase):
         # Append just the first point (bring total contacts to 2)
         self.traj.append_sample(self.t_data[0], self.x_data[:, 0], self.u_data[:, 0])
 
-    def test_force_regularization(self):
-        A = np.zeros((4,4))
-        A[[0, 1], [2, 3]] = 1/2
-        A += A.T
-        W = self.estimator._make_force_ortho_weight()
-        np.testing.assert_array_equal(W, A, err_msg = 'Force regularization matrix is not correct')
-
-
     def test_number_constraints(self):
         """
         Test that the program creates the correct number of constraints.
@@ -494,7 +486,7 @@ class ContactModelEstimatorTest(unittest.TestCase):
             1. When the total number of sample points is less than the desired horizon
             2. When the total number of sample points is more than the desired horizon
         """
-        total_costs = lambda k: 4 + k
+        total_costs = lambda k: 4
         self.estimator.create_estimator()
         self.assertEqual(len(self.estimator._prog.GetAllCosts()), total_costs(2), "unexpected number of costs when there are fewer sample points than the desired horizon")
         # Add sample points
