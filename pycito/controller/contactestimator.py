@@ -618,7 +618,6 @@ class ContactModelEstimator(OptimizationMixin):
         # Cost weights
         self._relax_cost_weight = 1.
         self._force_cost_weight = 1.
-        self._force_ortho_weight = 1.
         self._solver = SnoptSolver()
 
     def estimate_contact(self, t, x, u):
@@ -677,7 +676,6 @@ class ContactModelEstimator(OptimizationMixin):
         self._fric_cstr = []
         self._dyns_cstr = []
         self._fric_pos = []
-        self._force_ortho_cost = []
 
     def create_estimator(self):
         """
@@ -759,12 +757,6 @@ class ContactModelEstimator(OptimizationMixin):
         weight = self._force_cost_weight * np.ones(all_forces.shape)
         self._force_cost = self._prog.AddLinearCost(weight, all_forces)
         self._force_cost.evaluator().set_description('Force Cost')
-        # Friction force orthogonalization cost
-        # W = self._make_force_ortho_weight()
-        # for fT in self._friction_forces:
-        #     self._force_ortho_cost.append(self._prog.AddQuadraticErrorCost(W, np.zeros((self.traj.num_friction,)), vars=fT))
-        #     self._force_ortho_cost[-1].evaluator().set_description('FrictionRegularizationCost')
-
         # Relaxation cost 
         all_relax = np.concatenate(self._relaxation_vars, axis=0)
         r_weights = self._relax_cost_weight * np.eye(all_relax.shape[0])
@@ -868,15 +860,6 @@ class ContactModelEstimator(OptimizationMixin):
     @property
     def forceregweight(self):
         return self._force_ortho_weight
-
-    @forceregweight.setter
-    def forceregweight(self, val):
-        assert isinstance(val, (int, float)) and val >=0, "val must be a nonnegativity float or nonnegative int"
-        self._force_ortho_weight = val
-        if self._force_ortho_cost is not None:
-            W = self._make_force_ortho_weight()
-            for cost in self._force_ortho_cost:
-                cost.evaluator().UpdateCoefficients(W, np.zeros((self.traj.num_friction,)))
 
     @property
     def forces(self):
