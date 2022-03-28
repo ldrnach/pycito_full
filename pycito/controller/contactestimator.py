@@ -4,19 +4,27 @@ Contact model estimation
 Luke Drnach
 February 14, 2022
 """
+#TODO: Develop plotting utility for contact estimation trajectory - basic done
+#TODO: Update EstimatedContactModelRectifier
 #TODO: Refactor ContactModelEstimator to reuse and update the program
+#TODO: Make logging utility for contactmodelestimator
+
 
 import numpy as np
 import copy
 from scipy.linalg import block_diag
+import matplotlib.pyplot as plt
 
 from pydrake.all import MathematicalProgram, SnoptSolver, Solve
+from pydrake.all import PiecewisePolynomial as pp
 
 import pycito.trajopt.constraints as cstr
 import pycito.trajopt.complementarity as cp
 import pycito.controller.mlcp as mlcp
 from pycito.systems.contactmodel import SemiparametricContactModel
 from pycito.controller.optimization import OptimizationMixin
+import pycito.decorators as deco
+import pycito.utilities as utils
 
 class SemiparametricFrictionConeConstraint():
     def __init__(self, friccoeff, kernel, duplicator):
@@ -824,6 +832,16 @@ class ContactModelEstimator(OptimizationMixin):
         nc = self.traj.num_contacts
         return nc * index, nc * (index + 1)
 
+    def result_to_dict(self, result):
+        return {'distance_weights': result.GetSolution(self._distance_weights),
+                'friction_weights': result.GetSolution(self._friction_weights),
+                'forces': result.GetSolution(self.forces),
+                'velocities': result.GetSolution(self.velocities),
+                'feasibility': result.GetSolution(self.feasibilities),
+                'slacks': result.GetSolution(self.slacks),
+                'success': result.is_success()
+                }
+
     @property
     def relaxedcost(self):
         return self._relax_cost_weight
@@ -883,6 +901,10 @@ class ContactModelEstimator(OptimizationMixin):
             return np.column_stack(self._relaxation_vars)
         else:
             return None
+
+    @property
+    def slacks(self):
+        pass
 
 class EstimatedContactModelRectifier(OptimizationMixin):
     def __init__(self, esttraj):
@@ -1005,6 +1027,102 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         self._clear_costs()
         self._add_quadratic_cost()
         return self.solve()
+
+
+class ContactEstimationPlotter():
+    def __init__(self, traj):
+        assert isinstance(traj, ContactEstimationTrajectory), 'ContactEstimationPlotter requires a ContactEstimationTrajectory object'
+        self.traj = traj
+
+    def plot(self, show=True, savename=None):
+        self.plot_forces()
+        # Plot the velocities and feasibilities in one graph
+        _, axs1 = plt.subplots(2, 1)
+        self.plot_velocities(axs1[0], show=False, savename=None)
+        self.plot_feasibilities(axs1[1], show=show, savename=utils.append_filename(savename, '_feasibility'))
+        # Plot the surface errors and friction errors in another graph
+        _, axs2 = plt.subplots(2, 1)
+        self.plot_surface_errors(axs2[0], show=False, savename=None)
+        self.plot_friction_errors(axs2[1], show=show, savename=utils.append_filename(savename, '_errors'))
+
+
+    def plot_forces(self, show=False, savename=None):
+        """
+        Plot the force trajectories in ContactEstimationTrajectory
+        """
+        t = np.column_stack(self.traj._time)
+        f = np.column_stack(self.traj._forces)
+        ftraj = pp.ZeroOrderHold(t, f)
+        # Use the plant's native plot_forces command for this one
+        return self.traj._plant.plot_force_trajectory(ftraj, show=show, savename=utils.append_filename(savename, '_reactions'))
+
+    @deco.showable_fig
+    @deco.saveable_fig
+    def plot_feasibilities(self, axs=None):
+        if axs is None:
+            fig, axs = plt.subplots(1,1)
+        else:
+            # Get the figure from the current axis
+            plt.sca(axs[0])
+            fig = plt.gcf()
+        t = np.column_stack(self.traj._time)
+        f = np.column_stack(self.traj._feasibility)
+        axs.plot(t, f, linewidth=1.5, linecolor = 'k')
+        axs.set_xlabel('Time (s)')
+        axs.set_ylabel('Feasibility')
+        return fig, axs
+
+    @deco.showable_fig
+    @deco.saveable_fig
+    def plot_velocities(self, axs=None):
+        """
+        Plot the maximum tangential sliding velocity variables
+        """
+        if axs is None:
+            fig, axs = plt.subplots(1, 1)
+        else:
+            # Get the figure from the current axis
+            plt.sca(axs[0])
+            fig = plt.gcf()
+        t = np.column_stack(self.traj._time)
+        v = np.column_stack(self.traj._slacks)
+        for n in range(self.traj.num_contacts):
+            axs.plot(t, v[n,:], linewidth=1.5)
+        axs.set_xlabel('Time (s)')
+        axs.set_ylabel('Maximum sliding velocity')
+        return fig, axs
+
+    @deco.showable_fig
+    @deco.saveable_fig
+    def plot_surface_errors(self, axs=None):
+        if axs is None:
+            fig, axs = plt.subplots(1,1)
+        else:
+            plt.sca(axs[0])
+            fig = plt.gcf()
+        s_err = np.column_stack(self.traj._distance_error)
+        t = np.column_stack(self.traj._time)
+        for n in range(self.traj.num_contacts):
+            axs.plot(t, s_err[n,:], linewidth=1.5)
+        axs.set_xlabel('Time (s)')
+        axs.set_ylabel('Distance Error')
+        return fig, axs
+
+    @deco.showable_fig
+    @deco.saveable_fig
+    def plot_friction_errors(self, axs=None):
+        if axs is None:
+            fig, axs = plt.subplots(1,1)
+        else:
+            plt.sca(axs[0])
+            fig = plt.gcf()
+        f_err = np.column_stack(self.traj._friction_error)
+        t = np.column_stack(self.traj._time)
+        for n in range(self.traj.num_contacts):
+            axs.plot(t, f_err[n,:], linewidth=1.5)
+        axs.set_xlabel('Time (s)')
+        axs.set_ylabel('Friction error')
+        return fig, axs
 
 if __name__ == '__main__':
     print("Hello from contactestimator!")
