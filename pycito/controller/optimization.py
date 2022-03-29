@@ -75,6 +75,9 @@ class OptimizationMixin():
             soln[key] = result.GetSolution(value)
         # Store the final, optimal cost
         soln['total_cost'] = result.get_optimal_cost()
+        # Add cost and constraint meta-data
+        soln['costs'] = self.get_costs(result)
+        soln['constraints'] = self.get_constraints(result)
         # Store solution meta-data
         soln['success'] = result.is_success()
         soln['solver'] = result.solver_id().name()
@@ -89,6 +92,33 @@ class OptimizationMixin():
         else:
             soln['exitcode'] = np.NaN
         return soln
+
+    def get_costs(self, result):
+        """Get all the cost function values"""
+        costs = defaultdict(0)
+        for cost in self.prog.GetAllCosts():
+            dvars = cost.variables()
+            val = cost.evaluator().Eval(result.GetSolution(dvars))
+            name = cost.evaluator().get_description()
+            costs[name] += val
+        return costs
+
+    def get_constraints(self, result):
+        """Get all the constraint violations"""
+        cstrs = defaultdict(0)
+        for cstr in self.prog.GetAllConstraints():
+            name = cstr.evaluator().get_description()
+            # Constraint violation
+            val = cstr.evaluator().Eval(result.GetSolution(cstr.variables()))
+            lb = cstr.evaluator().lower_bound()
+            ub = cstr.evaluator().upper_bound()
+            lb_viol = np.minimum(val - lb, np.zeros(lb.shape))
+            lb_viol[np.isinf(lb)] = 0.
+            ub_viol = np.maximum(val - ub, np.zeros(ub.shape))
+            ub_viol[np.isinf(ub)] = 0.
+            viol = sum(abs(lb_viol)) + sum(abs(ub_viol))
+            cstrs[name] += viol
+        return cstrs
 
     @property
     def solver(self):
