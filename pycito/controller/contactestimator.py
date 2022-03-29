@@ -855,13 +855,6 @@ class ContactModelEstimator(OptimizationMixin):
             nrelax = len(self._relaxation_vars)
             self._relax_cost.evaluator().UpdateCoefficients(val*np.eye(nrelax), np.zeros((nrelax,)))
 
-    def _make_force_ortho_weight(self):
-        A = np.diag([1] * (self.traj.num_friction//2), self.traj.num_friction//2)
-        A = [A] * self.traj.num_contacts
-        W = block_diag(*A)
-        W = W + W.T
-        return self._force_ortho_weight / 2 * W
-
     @property
     def forcecost(self):
         return self._force_cost_weight
@@ -1039,20 +1032,21 @@ class ContactEstimationPlotter():
         # Plot the velocities and feasibilities in one graph
         _, axs1 = plt.subplots(2, 1)
         self.plot_velocities(axs1[0], show=False, savename=None)
-        self.plot_feasibilities(axs1[1], show=show, savename=utils.append_filename(savename, '_feasibility'))
+        self.plot_feasibilities(axs1[1], show=False, savename=utils.append_filename(savename, '_feasibility'))
         # Plot the surface errors and friction errors in another graph
         _, axs2 = plt.subplots(2, 1)
         self.plot_surface_errors(axs2[0], show=False, savename=None)
-        self.plot_friction_errors(axs2[1], show=show, savename=utils.append_filename(savename, '_errors'))
+        self.plot_friction_errors(axs2[1], show=False, savename=utils.append_filename(savename, '_errors'))
+        if show:
+            plt.show()
 
 
     def plot_forces(self, show=False, savename=None):
         """
         Plot the force trajectories in ContactEstimationTrajectory
         """
-        t = np.column_stack(self.traj._time)
         f = np.column_stack(self.traj._forces)
-        ftraj = pp.ZeroOrderHold(t, f)
+        ftraj = pp.ZeroOrderHold(self.traj._time, f)
         # Use the plant's native plot_forces command for this one
         return self.traj._plant.plot_force_trajectory(ftraj, show=show, savename=utils.append_filename(savename, '_reactions'))
 
@@ -1063,11 +1057,11 @@ class ContactEstimationPlotter():
             fig, axs = plt.subplots(1,1)
         else:
             # Get the figure from the current axis
-            plt.sca(axs[0])
+            plt.sca(axs)
             fig = plt.gcf()
-        t = np.column_stack(self.traj._time)
-        f = np.column_stack(self.traj._feasibility)
-        axs.plot(t, f, linewidth=1.5, linecolor = 'k')
+        t = np.row_stack(self.traj._time)
+        f = np.row_stack(self.traj._feasibility)
+        axs.plot(t, f, linewidth=1.5, color='black')
         axs.set_xlabel('Time (s)')
         axs.set_ylabel('Feasibility')
         return fig, axs
@@ -1082,9 +1076,9 @@ class ContactEstimationPlotter():
             fig, axs = plt.subplots(1, 1)
         else:
             # Get the figure from the current axis
-            plt.sca(axs[0])
+            plt.sca(axs)
             fig = plt.gcf()
-        t = np.column_stack(self.traj._time)
+        t = np.row_stack(self.traj._time)
         v = np.column_stack(self.traj._slacks)
         for n in range(self.traj.num_contacts):
             axs.plot(t, v[n,:], linewidth=1.5)
@@ -1098,10 +1092,10 @@ class ContactEstimationPlotter():
         if axs is None:
             fig, axs = plt.subplots(1,1)
         else:
-            plt.sca(axs[0])
+            plt.sca(axs)
             fig = plt.gcf()
         s_err = np.column_stack(self.traj._distance_error)
-        t = np.column_stack(self.traj._time)
+        t = np.row_stack(self.traj._time)
         for n in range(self.traj.num_contacts):
             axs.plot(t, s_err[n,:], linewidth=1.5)
         axs.set_xlabel('Time (s)')
@@ -1114,10 +1108,10 @@ class ContactEstimationPlotter():
         if axs is None:
             fig, axs = plt.subplots(1,1)
         else:
-            plt.sca(axs[0])
+            plt.sca(axs)
             fig = plt.gcf()
         f_err = np.column_stack(self.traj._friction_error)
-        t = np.column_stack(self.traj._time)
+        t = np.row_stack(self.traj._time)
         for n in range(self.traj.num_contacts):
             axs.plot(t, f_err[n,:], linewidth=1.5)
         axs.set_xlabel('Time (s)')

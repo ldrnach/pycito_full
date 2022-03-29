@@ -39,6 +39,14 @@ def run_estimation(filepart):
         estimator.create_estimator()
         result = estimator.solve()
 
+def check_plotter(filepart):
+    data = get_data(filepart)
+    block = make_block()
+    traj = ce.ContactEstimationTrajectory(block, data['state'][:, 0])
+    for t, x, u in zip(data['time'][1:], data['state'][:, 1:].T, data['control'][:, 1:].T):
+        traj.append_sample(t, x, u)
+    plotter = ce.ContactEstimationPlotter(traj)
+    plotter.plot(show=True)
 
 
 def check_program_variables(estimator):
@@ -50,5 +58,6 @@ def check_program_variables(estimator):
 
 
 if __name__ == '__main__':
-    estimator = make_estimator('flatterrain')
-    check_program_variables(estimator)
+    check_plotter('flatterrain')
+    #estimator = make_estimator('flatterrain')
+    #check_program_variables(estimator)
