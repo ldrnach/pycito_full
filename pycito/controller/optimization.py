@@ -1,7 +1,12 @@
 import numpy as np
-from pydrake.all import MathematicalProgram, SnoptSolver, OsqpSolver, GurobiSolver, IpoptSolver, ChooseBestSolver, MakeSolver
 from collections import defaultdict
 import re
+import matplotlib.pyplot as plt
+
+from pydrake.all import MathematicalProgram, SnoptSolver, OsqpSolver, GurobiSolver, IpoptSolver, ChooseBestSolver, MakeSolver
+
+from pycito.utilities import save, load, FindResource
+import pycito.decorators as deco
 
 class OptimizationMixin():
     def __init__(self):
@@ -134,6 +139,104 @@ class OptimizationMixin():
     @property
     def prog(self):
         return self._prog
+
+class OptimizationLogger():
+    def __init__(self, problem):
+        assert issubclass(type(problem), OptimizationMixin), 'problem must inherit from OptimizationMixin'
+        self.problem = problem
+        self.logs = []
+
+    def save(self, filename):
+        """
+            Save the logs to a file
+            NOTE: Save only saves the logs, not the pointer to the original optimization problem
+        """
+        save(filename, self.logs)
+
+    @classmethod
+    def load(self, filename):
+        """
+            Load the logs from a file
+            NOTE: load does not restore the original optimization problem, only the result logs. In it's place, we put an empty OptimizationMixin object
+        """
+        logger = OptimizationLogger(OptimizationMixin())
+        logger.logs = load(FindResource(filename))
+        return logger
+
+    def log(self, results):
+        """Log the results of calling the optimization program"""
+        self.logs.append(self.problem.result_to_dict(results))
+
+    @deco.showable_fig
+    @deco.saveable_fig
+    def plot(self):
+        """
+            Plots the exit code, costs, and constraints of the logged optimization problems
+        """
+        fig, axs = plt.subplots(3,1)
+        self.plot_status(axs[0], show=False, savename=None)
+        self.plot_costs(axs[1], show=False, savename=None)
+        self.plot_constraints(axs[2], show=False, savename=None)
+        plt.tight_layout()
+        return fig, axs
+
+    @deco.showable_fig
+    @deco.saveable_fig
+    @deco.return_fig(shape=(1,1))
+    def plot_status(self, axs=None):
+        """
+            Plot the exit status code on the given axis
+        """
+        code = [log['exitcode'] for log in self.logs]
+        x = np.arange(len(code))
+        axs.scatter(x, code)
+        axs.set_ylabel('Exit Code')
+        axs.set_xlabel('Problem number')
+        return axs
+
+    @deco.showable_fig
+    @deco.saveable_fig
+    @deco.return_fig(shape=(1,1))
+    def plot_constraints(self, axs=None):
+        """
+            Plot the constraint values on the given axis
+        """
+        for key, value in self.cost_log_array():
+            x = np.arange(value.shape[0])
+            axs.plot(x, value, linewidth=1.5, label=key)
+        axs.set_ylabel('Cost')
+        axs.set_xlabel('Problem Number')
+        axs.legend()
+        return axs
+
+    @deco.showable_fig
+    @deco.saveable_fig
+    @deco.return_fig(shape=(1,1))
+    def plot_costs(self, axs=None):
+        """Plot the cost values on the given axis"""
+        for key, value in self.constraint_log_array():
+            x = np.arange(value.shape[0])
+            axs.plot(x, value, linewidth=1.5, label=key)
+        axs.set_ylabel('Violation')
+        axs.set_xlabel('Problem Number')
+        axs.legend()
+        return axs
+
+    def cost_log_array(self):
+        """Return all the costs as a dictionary of arrays"""
+        costs = defaultdict(np.zeros((len(self.logs,))))
+        for k, log in enumerate(self.logs):
+            for key, value in log['costs']:
+                costs[key][k] = value
+        return costs
+
+    def constraint_log_array(self):
+        """Return all the constraint violations as a dictionary of arrays"""
+        cstrs = defaultdict(np.zeros((len(self.logs,))))
+        for k, log in enumerate(self.logs):
+            for key, value in log['constraints']:
+                cstrs[key][k] = np.sum(np.abs(value))
+        return cstrs
 
 if __name__ == '__main__':
     print('Hello from optimization!')
