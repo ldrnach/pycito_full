@@ -67,6 +67,8 @@ def return_fig(shape=(1,1)):
             # Check for the 'axs' keyword and remove it
             if 'axs' in kwargs:
                 axs = kwargs['axs']
+            else:
+                axs = None
             if axs is None:
                 fig, axs = plt.subplots(shape[0], shape[1])
             else:
