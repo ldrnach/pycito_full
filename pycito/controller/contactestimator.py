@@ -672,23 +672,23 @@ class ContactModelEstimator(OptimizationMixin):
             Update the contact estimation trajectory from the problem result
         """
         # Stash the forces, slack variables, etc
-        forces = result.GetSolution(self.forces)
-        vslacks = result.GetSolution(self.velocities)
-        relax = result.GetSolution(self.feasibilities)
+        forces = result.GetSolution(self.forces).reshape(self.forces.shape)
+        vslacks = result.GetSolution(self.velocities).reshape(self.velocities.shape)
+        relax = result.GetSolution(self.feasibilities).reshape(self.feasibilities.shape)
         idx = self.traj.getTimeIndex(t)
         self.traj.set_force(idx, forces[:, -1])
         self.traj.set_dissipation(idx, vslacks[:, -1])
-        self.traj.set_feasibility(idx, relax[-1])
+        self.traj.set_feasibility(idx, relax[:, -1])
         # Get the distance and friction weights
-        dweights = result.GetSolution(self._distance_weights)
-        fweights = result.GetSolution(self._friction_weights)
+        dweights = result.GetSolution(self._distance_weights).reshape(self._distance_weights.shape)
+        fweights = result.GetSolution(self._friction_weights).reshape(self._friction_weights.shape)
         # Calculate and update the distance errors
         derr = self._distance_kernel.dot(dweights).reshape((self.traj.num_contacts, self.horizon))
         self.traj.set_distance_error(idx, derr[:, -1])
         # Calculate and update the friction errors
         fc_weights = self._variables_to_friction_weights(fweights, forces)
         fc_err = self._friction_kernel.dot(fc_weights).reshape((self.traj.num_contacts, self.horizon))
-        self.traj.set_friction_error(idx, fc_err)
+        self.traj.set_friction_error(idx, fc_err[:, -1])
 
     def _variables_to_friction_weights(self, fweights, forces):
         """
@@ -880,16 +880,6 @@ class ContactModelEstimator(OptimizationMixin):
         nc = self.traj.num_contacts
         return nc * index, nc * (index + 1)
 
-    def result_to_dict(self, result):
-        return {'distance_weights': result.GetSolution(self._distance_weights),
-                'friction_weights': result.GetSolution(self._friction_weights),
-                'forces': result.GetSolution(self.forces),
-                'velocities': result.GetSolution(self.velocities),
-                'feasibility': result.GetSolution(self.feasibilities),
-                'slacks': result.GetSolution(self.slacks),
-                'success': result.is_success()
-                }
-
     @property
     def relaxedcost(self):
         return self._relax_cost_weight
@@ -1076,7 +1066,7 @@ class ContactEstimationPlotter():
         self.traj = traj
 
     def plot(self, show=True, savename=None):
-        self.plot_forces()
+        self.plot_forces(show=False, savename=savename)
         # Plot the velocities and feasibilities in one graph
         _, axs1 = plt.subplots(2, 1)
         self.plot_velocities(axs1[0], show=False, savename=None)
@@ -1112,6 +1102,7 @@ class ContactEstimationPlotter():
         axs.plot(t, f, linewidth=1.5, color='black')
         axs.set_xlabel('Time (s)')
         axs.set_ylabel('Feasibility')
+        fig.tight_layout()
         return fig, axs
 
     @deco.showable_fig
@@ -1132,6 +1123,7 @@ class ContactEstimationPlotter():
             axs.plot(t, v[n,:], linewidth=1.5)
         axs.set_xlabel('Time (s)')
         axs.set_ylabel('Maximum sliding velocity')
+        fig.tight_layout()
         return fig, axs
 
     @deco.showable_fig
@@ -1148,6 +1140,7 @@ class ContactEstimationPlotter():
             axs.plot(t, s_err[n,:], linewidth=1.5)
         axs.set_xlabel('Time (s)')
         axs.set_ylabel('Distance Error')
+        fig.tight_layout()
         return fig, axs
 
     @deco.showable_fig
@@ -1164,6 +1157,7 @@ class ContactEstimationPlotter():
             axs.plot(t, f_err[n,:], linewidth=1.5)
         axs.set_xlabel('Time (s)')
         axs.set_ylabel('Friction error')
+        fig.tight_layout()
         return fig, axs
 
 if __name__ == '__main__':
