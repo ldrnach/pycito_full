@@ -63,7 +63,7 @@ class DifferentiableStationaryKernel(abc.ABC):
 class RBFKernel(DifferentiableStationaryKernel):
     def __init__(self, length_scale = 1.0):
         assert length_scale > 0, "length_scale must be positive"
-        self.length_scale = 1.0
+        self.length_scale = length_scale
         self._scale = -1/(2*self.length_scale **2)
 
     def _eval_stationary(self, distances):
