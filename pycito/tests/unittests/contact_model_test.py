@@ -256,7 +256,7 @@ class SemiparametricModelTest(unittest.TestCase):
 
 class SemiparametricContactModelTest(unittest.TestCase):
     def setUp(self):
-        self.model = cm.SemiparametricContactModel.FlatSurfaceWithRBFKernel(height = 1.0, friction=1.0)
+        self.model = cm.SemiparametricContactModel.FlatSurfaceWithRBFKernel(height = 1.0, friction=1.0, length_scale=1.)
         self.data = np.array([[1, 0, 0],
                         [2, 0, -1]]).T 
         self.weights = np.array([0, 1]) 
