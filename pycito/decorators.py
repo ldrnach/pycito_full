@@ -4,8 +4,7 @@ Useful function decorators for robotics and optimization problems
 Luke Drnach
 June 18, 2021
 """
-import timeit
-import functools
+import timeit, functools, os
 from matplotlib import pyplot as plt
 import pycito.utilities as utils
 
@@ -32,6 +31,9 @@ def saveable_fig(func):
         fig, *axs, = func(*args, **kwargs)
         # Check kwargs for a savename and save the figure
         if savename:
+            dir = os.path.dirname(savename)
+            if not os.path.exists(dir):
+                os.makedirs(dir)
             if hasattr(fig, '__iter__'):
                 n = 0
                 for f in fig:
