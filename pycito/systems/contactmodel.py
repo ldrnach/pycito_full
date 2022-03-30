@@ -115,23 +115,23 @@ class SemiparametricModel(DifferentiableModel):
         self._sample_points = None
 
     @classmethod
-    def ConstantPriorWithRBFKernel(cls, const=0, length_scale=1):
-        return cls(prior = ConstantModel(const = const), kernel=kernels.RBFKernel(length_scale=length_scale))
+    def ConstantPriorWithRBFKernel(cls, const=0, length_scale=1, reg=0.):
+        return cls(prior = ConstantModel(const = const), kernel=kernels.RBFKernel(length_scale=length_scale, reg=reg))
 
     @classmethod
-    def FlatPriorWithRBFKernel(cls, location = 0., direction = np.array([0, 0, 1]), length_scale = 1.):
+    def FlatPriorWithRBFKernel(cls, location = 0., direction = np.array([0, 0, 1]), length_scale = 1., reg=0.):
         return cls(prior = FlatModel(location = location, direction = direction),
-                    kernel = kernels.RBFKernel(length_scale=length_scale))
+                    kernel = kernels.RBFKernel(length_scale=length_scale, reg=reg))
 
     @classmethod
-    def ConstantPriorWithHuberKernel(cls, const=0, length_scale=1, delta=1):
+    def ConstantPriorWithHuberKernel(cls, const=0, length_scale=1, delta=1, reg=0.):
         return cls(prior = ConstantModel(const = const),
-                    kernel = kernels.PseudoHuberKernel(length_scale=length_scale, delta=delta))
+                    kernel = kernels.PseudoHuberKernel(length_scale=length_scale, delta=delta, reg=reg))
     
     @classmethod
-    def FlatPriorWithHuberKernel(cls, location = 0, direction = np.array([0, 0, 1]), length_scale = 1., delta = 1):
+    def FlatPriorWithHuberKernel(cls, location = 0, direction = np.array([0, 0, 1]), length_scale = 1., delta = 1, reg=0.):
         return cls(prior = FlatModel(location, direction),
-                    kernel = kernels.PseudoHuberKernel(length_scale, delta))
+                    kernel = kernels.PseudoHuberKernel(length_scale, delta, reg=reg))
 
     def add_samples(self, samples, weights):
         """
@@ -318,31 +318,31 @@ class SemiparametricContactModel(ContactModel):
         super(SemiparametricContactModel, self).__init__(surface, friction)
 
     @classmethod
-    def FlatSurfaceWithRBFKernel(cls, height=0., friction=1., length_scale=0.1):
+    def FlatSurfaceWithRBFKernel(cls, height=0., friction=1., length_scale=0.1, reg=0.):
         """
         Factory method for constructing a semiparametric contact model
         
         Assumes the prior is a flat surface with constant friction
         uses independent RBF kernels for the surface and friction models
         """
-        surf = SemiparametricModel.FlatPriorWithRBFKernel(location = height, length_scale=length_scale)
-        fric = SemiparametricModel.ConstantPriorWithRBFKernel(const = friction, length_scale=length_scale)
+        surf = SemiparametricModel.FlatPriorWithRBFKernel(location = height, length_scale=length_scale, reg=reg)
+        fric = SemiparametricModel.ConstantPriorWithRBFKernel(const = friction, length_scale=length_scale, reg=reg)
         return cls(surf, fric)
 
     @classmethod
-    def FlatSurfaceWithHuberKernel(cls, height = 0., friction = 1., length_scale = 0.1, delta = 0.1):
+    def FlatSurfaceWithHuberKernel(cls, height = 0., friction = 1., length_scale = 0.1, delta = 0.1, reg=0.):
         """
         Factory method for constructing a semiparametric contact model
         Assumes the prior is a flat surface with constant friction
         Uses independent Pseudo-Huber kernels for the surface and friction models
         """
-        surf = SemiparametricModel.FlatPriorWithHuberKernel(location = height, length_scale=length_scale, delta=delta)
-        fric = SemiparametricModel.ConstantPriorWithHuberKernel(const = friction, length_scale=length_scale, delta=delta)
+        surf = SemiparametricModel.FlatPriorWithHuberKernel(location = height, length_scale=length_scale, delta=delta, reg=reg)
+        fric = SemiparametricModel.ConstantPriorWithHuberKernel(const = friction, length_scale=length_scale, delta=delta, reg=reg)
     
         return cls(surf, fric)
 
     @classmethod
-    def RBFSurfaceWithHuberFriction(cls, height=0., friction=1., height_length = 0.1, friction_length=0.1, delta=0.1):
+    def RBFSurfaceWithHuberFriction(cls, height=0., friction=1., height_length = 0.1, friction_length=0.1, delta=0.1, reg=0.):
         """
         Factory method for constructing a semiparametric contact model
         Assumes the prior is a flat surface with constant friction
@@ -355,8 +355,8 @@ class SemiparametricContactModel(ContactModel):
             friction_length (float): the length scale value for the friction PseudoHuber kernel
             delta (float): the delta value for the friction PseudoHuber kernel
         """
-        surf = SemiparametricModel.FlatModelWithRBFKernel(location = height, length_scale = height_length)
-        fric = SemiparametricModel.ConstantPriorWithHuberKernel(const = friction, length_scale = friction_length, delta = delta)
+        surf = SemiparametricModel.FlatModelWithRBFKernel(location = height, length_scale = height_length, reg = reg)
+        fric = SemiparametricModel.ConstantPriorWithHuberKernel(const = friction, length_scale = friction_length, delta = delta, reg = reg)
         return cls(surf, fric)
 
 
