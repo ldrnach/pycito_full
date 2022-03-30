@@ -99,6 +99,21 @@ class ContactTrajectory():
         self._distance_error = []
         self._friction_error = []
 
+    def save(self, filename):
+        """
+        Save the ContactTrajectory to a file
+        """
+        utils.save(filename, self)
+
+    @staticmethod
+    def load(filename):
+        """
+        Load the ContactTrajectory from a file
+        """
+        data = utils.load(filename)
+        assert isinstance(data, ContactTrajectory), 'file does not contain a ContactTrajectory'
+        return data
+
     def subset(self, start, stop, *args):
         """Return a subset of the original contact trajectory"""
         new = self.__class__(*args)
@@ -356,6 +371,20 @@ class ContactEstimationTrajectory(ContactTrajectory):
         self._append_distance()
         self._append_dissipation()
         self._append_friction()
+
+    def saveContactTrajectory(self, filename):
+        """
+        Saves only a copy of the ContactTrajectory superclass
+        """
+        traj = ContactTrajectory()
+        traj._time = self._time
+        traj._contactpoints = self._contactpoints
+        traj._forces = self._forces
+        traj._slacks = self._slacks
+        traj._feasibility = self._feasibility
+        traj._distance_error = self._distance_error
+        traj._friction_error = self._friction_error
+        traj.save(filename)
 
     def subset(self, start, stop):
         """Get a subset of the estimation trajectory"""
