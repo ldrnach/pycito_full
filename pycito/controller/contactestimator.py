@@ -636,6 +636,13 @@ class ContactModelEstimator(OptimizationMixin):
         self.create_estimator()
         print(f"Solving contact estimation")
         result = self.solve()
+        self.update_trajectory(t, result)
+        return self.get_updated_contact_model(result)
+
+    def update_trajectory(self, t, result):
+        """
+            Update the contact estimation trajectory from the problem result
+        """
         # Stash the forces, slack variables, etc
         forces = result.GetSolution(self.forces)
         vslacks = result.GetSolution(self.velocities)
@@ -651,16 +658,29 @@ class ContactModelEstimator(OptimizationMixin):
         derr = self._distance_kernel.dot(dweights).reshape((self.traj.num_contacts, self.horizon))
         self.traj.set_distance_error(idx, derr[:, -1])
         # Calculate and update the friction errors
+        fc_weights = self._variables_to_friction_weights(fweights, forces)
+        fc_err = self._friction_kernel.dot(fc_weights).reshape((self.traj.num_contacts, self.horizon))
+        self.traj.set_friction_error(idx, fc_err)
+
+    def _variables_to_friction_weights(self, fweights, forces):
+        """
+            Calculate the friction coefficient weights from solution variables
+        """
         fN = forces[:self.traj.num_contacts,:].reshape(-1)
         fc_weights = np.zeros_like(fweights)
         fc_weights[fN > 0] = fweights[fN > 0]/fN[fN > 0]
-        fc_err = self._friction_kernel.dot(fc_weights).reshape((self.traj.num_contacts, self.horizon))
-        self.traj.set_friction_error(idx, fc_err)
-        # Return an updated contact model
+        return fc_weights
+
+    def get_updated_contact_model(self, result):
+        """
+            Return a copy of the contact model after updating from the optimization result
+        """
+        dweights = result.GetSolution(self._distance_weights)
+        fc_weights = self._variables_to_friction_weights(result.GetSolution(self._friction_weights, self.forces))
         model = copy.deepcopy(self.traj.contact_model)
         cpts = self.traj.get_contacts(self._startptr, self._startptr + self.horizon)
         cpts = np.concatenate(cpts, axis=1)
-        model.add_samples(cpts, dweights, fc_weights)        
+        model.add_samples(cpts, dweights, fc_weights)    
         return model
 
     def _clear_program(self):
