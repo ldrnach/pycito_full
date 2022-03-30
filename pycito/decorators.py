@@ -59,21 +59,23 @@ def showable_fig(func):
         return out
     return wrapper_showable_fig
 
-def return_fig(func, shape=(1,1)):
+def return_fig(shape=(1,1)):
     """Return a figure as part of the output of a function"""
-    @functools.wraps(func)
-    def wrapper_return_fig(*args, **kwargs):
-        # Check for the 'axs' keyword and remove it
-        if 'axs' in kwargs:
-            axs = kwargs['axs']
-        if axs is None:
-            fig, axs = plt.subplots(shape[0], shape[1])
-        else:
-            plt.sca(axs)
-            fig = plt.gcf()
-        out = func(*args, **kwargs)
-        return fig, out
-    return wrapper_return_fig
+    def return_fig_decorator(func):    
+        @functools.wraps(func)
+        def wrapper_return_fig(*args, **kwargs):
+            # Check for the 'axs' keyword and remove it
+            if 'axs' in kwargs:
+                axs = kwargs['axs']
+            if axs is None:
+                fig, axs = plt.subplots(shape[0], shape[1])
+            else:
+                plt.sca(axs)
+                fig = plt.gcf()
+            out = func(*args, **kwargs)
+            return fig, out
+        return wrapper_return_fig
+    return return_fig_decorator
 
 #NOTE: TO show and save figures, add the decorator saveable_fig first and then showable_fig. This way, the figures are saved before they are shown (and ultimately deleted). 
 @showable_fig
