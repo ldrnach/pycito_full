@@ -8,13 +8,18 @@ import numpy as np
 import abc
 
 class DifferentiableStationaryKernel(abc.ABC):
-    
+    def __init__(self, reg=0.):
+        super().__init__()
+        assert isinstance(reg, (int, float)) and reg >= 0., 'reg must be a nonnegative integer or float'
+        self.reg = reg
+
     def __call__(self, X, Y = None):
         """
         Evaluate the kernel matrix
         """
         if Y is None:
-            return self.eval(X, X)
+            K = self.eval(X, X)
+            return K + self.reg * np.eye(K.shape[0])
         else:
             return self.eval(X, Y)
 
@@ -61,7 +66,8 @@ class DifferentiableStationaryKernel(abc.ABC):
         raise NotImplementedError
 
 class RBFKernel(DifferentiableStationaryKernel):
-    def __init__(self, length_scale = 1.0):
+    def __init__(self, length_scale = 1.0, reg=0.):
+        super().__init__(reg)
         assert length_scale > 0, "length_scale must be positive"
         self.length_scale = length_scale
         self._scale = -1/(2*self.length_scale **2)
@@ -95,7 +101,8 @@ class RBFKernel(DifferentiableStationaryKernel):
         return 2 * self._scale * np.diag(K.flatten()).dot((x - y).transpose())
 
 class PseudoHuberKernel(DifferentiableStationaryKernel):
-    def __init__(self, length_scale=1.0, delta=1.0):
+    def __init__(self, length_scale=1.0, delta=1.0, reg=0.):
+        super().__init__(reg)
         assert length_scale > 0, 'length_scale must be positive'
         assert delta > 0, 'delta must be positive'
         self._length_scale =  length_scale
