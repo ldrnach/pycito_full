@@ -4,18 +4,16 @@ Contact model estimation
 Luke Drnach
 February 14, 2022
 """
-#TODO: Develop plotting utility for contact estimation trajectory - basic done
 #TODO: Update EstimatedContactModelRectifier
 #TODO: Refactor ContactModelEstimator to reuse and update the program
-#TODO: Make logging utility for contactmodelestimator
+
 
 
 import numpy as np
 import copy
-from scipy.linalg import block_diag
 import matplotlib.pyplot as plt
 
-from pydrake.all import MathematicalProgram, SnoptSolver, Solve
+from pydrake.all import MathematicalProgram, SnoptSolver
 from pydrake.all import PiecewisePolynomial as pp
 
 import pycito.trajopt.constraints as cstr
@@ -98,6 +96,8 @@ class ContactTrajectory():
         self._forces = []
         self._slacks = []
         self._feasibility = []
+        self._distance_error = []
+        self._friction_error = []
 
     def subset(self, start, stop, *args):
         """Return a subset of the original contact trajectory"""
@@ -269,6 +269,52 @@ class ContactTrajectory():
         """
         return self.get_at(self._slacks, start_idx, stop_idx)
 
+    def get_distance_error(self, start_idx, stop_idx=None):
+        """
+        Return a list of signed distance errors at the specified index
+
+        Arguments:
+            start_idx (int): the first index to return
+            stop_idx (int, optional): the last index to return (by default, start_index)
+        
+        Returns:
+            lst: signed distance errors between [start_idx, stop_idx)
+        """
+        return self.get_at(self._distance_error, start_idx, stop_idx)
+
+    def get_friction_error(self, start_idx, stop_idx=None):
+        """
+        Return a list of friction coefficient errors at the specified index
+
+        Arguments:
+            start_idx (int): the first index to return
+            stop_idx (int, optional): the last index to return (by default, start_index)
+        
+        Returns:
+            lst: friction coefficient errors between [start_idx, stop_idx)
+        """
+        return self.get_at(self._friction_error, start_idx, stop_idx)
+
+    def set_distance_error(self, index, derr):
+        """
+        set distance error values and the specified index
+        
+        Arguments:
+            index: (int) the index at which to set the value 
+            derr: the distance error value to set
+        """
+        self.set_at(self._distance_error, index, derr)
+
+    def set_friction_error(self, index, ferr):
+        """
+        set friction error values and the specified index
+        
+        Arguments:
+            index: (int) the index at which to set the value 
+            ferr: the distance error value to set
+        """
+        self.set_at(self._friction_error, index, ferr)
+    
     @property
     def num_timesteps(self):
         return len(self._time)
@@ -288,8 +334,7 @@ class ContactEstimationTrajectory(ContactTrajectory):
         self._distance_cstr = []
         self._dissipation_cstr = []
         self._friction_cstr = []
-        self._distance_error = []
-        self._friction_error = []
+
         # Store the last state for calculating dynamics - assume it was static before we started moving
         self._last_state = initial_state
         self._plant.multibody.SetPositionsAndVelocities(self._context, initial_state)
@@ -554,52 +599,6 @@ class ContactEstimationTrajectory(ContactTrajectory):
         cpts = np.concatenate(self.get_contacts(start, stop), axis=1)   
         # Calculate the surface and friction kernel matrices
         return self.contact_model.surface_kernel(cpts), self.contact_model.friction_kernel(cpts)
-
-    def get_distance_error(self, start_idx, stop_idx=None):
-        """
-        Return a list of signed distance errors at the specified index
-
-        Arguments:
-            start_idx (int): the first index to return
-            stop_idx (int, optional): the last index to return (by default, start_index)
-        
-        Returns:
-            lst: signed distance errors between [start_idx, stop_idx)
-        """
-        return self.get_at(self._distance_error, start_idx, stop_idx)
-
-    def get_friction_error(self, start_idx, stop_idx=None):
-        """
-        Return a list of friction coefficient errors at the specified index
-
-        Arguments:
-            start_idx (int): the first index to return
-            stop_idx (int, optional): the last index to return (by default, start_index)
-        
-        Returns:
-            lst: friction coefficient errors between [start_idx, stop_idx)
-        """
-        return self.get_at(self._friction_error, start_idx, stop_idx)
-
-    def set_distance_error(self, index, derr):
-        """
-        set distance error values and the specified index
-        
-        Arguments:
-            index: (int) the index at which to set the value 
-            derr: the distance error value to set
-        """
-        self.set_at(self._distance_error, index, derr)
-
-    def set_friction_error(self, index, ferr):
-        """
-        set friction error values and the specified index
-        
-        Arguments:
-            index: (int) the index at which to set the value 
-            ferr: the distance error value to set
-        """
-        self.set_at(self._friction_error, index, ferr)
     
     @property
     def num_contacts(self):
