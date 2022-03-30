@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 from pydrake.all import MathematicalProgram, SnoptSolver, OsqpSolver, GurobiSolver, IpoptSolver, ChooseBestSolver, MakeSolver
 
-from pycito.utilities import save, load, FindResource
+import pycito.utilities as utils
 import pycito.decorators as deco
 
 class OptimizationMixin():
@@ -74,7 +74,7 @@ class OptimizationMixin():
             Store the data in MathematicalProgramResult in a dictionary
         """
         # Store the final values of the decision variables
-        vars = self.get_decision_variable_dicionary()
+        vars = self.get_decision_variable_dictionary()
         soln = {}
         for key, value in vars.items():
             soln[key] = result.GetSolution(value)
@@ -85,9 +85,9 @@ class OptimizationMixin():
         soln['constraints'] = self.get_constraints(result)
         # Store solution meta-data
         soln['success'] = result.is_success()
-        soln['solver'] = result.solver_id().name()
+        soln['solver'] = result.get_solver_id().name()
         if soln['solver'] == 'SNOPT/fortran':
-            soln['exitcode'] = result.solver_details().info
+            soln['exitcode'] = result.get_solver_details().info
         elif id == 'OSQP':
             soln['exitcode'] = result.get_solver_details().status_val
         elif id =='IPOPT':
@@ -95,26 +95,35 @@ class OptimizationMixin():
         elif id =='Gurobi':
             soln['exitcode'] =  result.get_solver_details().optimization_status
         else:
-            soln['exitcode'] = np.NaN
+            soln['exitcode'] = 0
         return soln
 
-    def get_costs(self, result):
+    def get_costs(self, result=None):
         """Get all the cost function values"""
-        costs = defaultdict(0)
+        costs = defaultdict(int)
+        if result is None:
+            eval_vars = self.prog.GetInitialGuess
+        else:
+            eval_vars = result.GetSolution
+
         for cost in self.prog.GetAllCosts():
             dvars = cost.variables()
-            val = cost.evaluator().Eval(result.GetSolution(dvars))
+            val = cost.evaluator().Eval(eval_vars(dvars))
             name = cost.evaluator().get_description()
             costs[name] += val
         return costs
 
-    def get_constraints(self, result):
+    def get_constraints(self, result=None):
         """Get all the constraint violations"""
-        cstrs = defaultdict(0)
+        cstrs = defaultdict(int)
+        if result is None:
+            eval_vars = self.prog.GetInitialGuess
+        else:
+            eval_vars = result.GetSolution
         for cstr in self.prog.GetAllConstraints():
             name = cstr.evaluator().get_description()
             # Constraint violation
-            val = cstr.evaluator().Eval(result.GetSolution(cstr.variables()))
+            val = cstr.evaluator().Eval(eval_vars(cstr.variables()))
             lb = cstr.evaluator().lower_bound()
             ub = cstr.evaluator().upper_bound()
             lb_viol = np.minimum(val - lb, np.zeros(lb.shape))
@@ -124,6 +133,16 @@ class OptimizationMixin():
             viol = sum(abs(lb_viol)) + sum(abs(ub_viol))
             cstrs[name] += viol
         return cstrs
+
+    def initial_guess_dictionary(self):
+        """Create a results dictionary based on the initial guess"""
+        vars = self.get_decision_variable_dictionary()
+        soln = {}
+        for key, value in vars.items():
+            soln[key] = self.prog.GetInitialGuess(value)
+        soln['costs'] = self.get_costs()
+        soln['constraints'] = self.get_constraints()
+        return soln
 
     @property
     def solver(self):
@@ -145,13 +164,14 @@ class OptimizationLogger():
         assert issubclass(type(problem), OptimizationMixin), 'problem must inherit from OptimizationMixin'
         self.problem = problem
         self.logs = []
+        self.guess_logs = []
 
     def save(self, filename):
         """
             Save the logs to a file
             NOTE: Save only saves the logs, not the pointer to the original optimization problem
         """
-        save(filename, self.logs)
+        utils.save(filename, (self.logs, self.guess_logs))
 
     @classmethod
     def load(self, filename):
@@ -160,82 +180,97 @@ class OptimizationLogger():
             NOTE: load does not restore the original optimization problem, only the result logs. In it's place, we put an empty OptimizationMixin object
         """
         logger = OptimizationLogger(OptimizationMixin())
-        logger.logs = load(FindResource(filename))
+        data = utils.load(utils.FindResource(filename))
+        logger.logs, logger.guess_logs = data[0], data[1]
         return logger
 
     def log(self, results):
         """Log the results of calling the optimization program"""
         self.logs.append(self.problem.result_to_dict(results))
+        self.guess_logs.append(self.problem.initial_guess_dictionary())
 
-    @deco.showable_fig
-    @deco.saveable_fig
-    def plot(self):
+    def plot(self, show = False, savename=None):
         """
             Plots the exit code, costs, and constraints of the logged optimization problems
         """
-        fig, axs = plt.subplots(3,1)
-        self.plot_status(axs[0], show=False, savename=None)
-        self.plot_costs(axs[1], show=False, savename=None)
-        self.plot_constraints(axs[2], show=False, savename=None)
-        plt.tight_layout()
-        return fig, axs
+        fig, axs = self.plot_status(show=False, savename=utils.append_filename(savename, 'Status'))
+        fig1, axs1 = self.plot_costs(show=False, savename=utils.append_filename(savename,'Costs'))
+        fig2, axs2 = self.plot_constraints(show=False, savename=utils.append_filename(savename, 'Constraints'))
+        if show:
+            plt.show()
+        return [fig, fig1, fig2], [axs, axs1, axs2]
 
     @deco.showable_fig
     @deco.saveable_fig
-    @deco.return_fig(shape=(1,1))
     def plot_status(self, axs=None):
         """
             Plot the exit status code on the given axis
         """
+        if axs is None:
+            fig, axs = plt.subplots(1,1)
+        else:
+            plt.sca(axs)
+            fig = plt.gcf()
         code = [log['exitcode'] for log in self.logs]
         x = np.arange(len(code))
         axs.scatter(x, code)
         axs.set_ylabel('Exit Code')
         axs.set_xlabel('Problem number')
-        return axs
+        return fig, axs
 
     @deco.showable_fig
     @deco.saveable_fig
-    @deco.return_fig(shape=(1,1))
     def plot_constraints(self, axs=None):
         """
             Plot the constraint values on the given axis
         """
-        for key, value in self.cost_log_array():
-            x = np.arange(value.shape[0])
-            axs.plot(x, value, linewidth=1.5, label=key)
-        axs.set_ylabel('Cost')
-        axs.set_xlabel('Problem Number')
-        axs.legend()
-        return axs
-
-    @deco.showable_fig
-    @deco.saveable_fig
-    @deco.return_fig(shape=(1,1))
-    def plot_costs(self, axs=None):
-        """Plot the cost values on the given axis"""
-        for key, value in self.constraint_log_array():
+        if axs is None:
+            fig, axs = plt.subplots(1,1)
+        else:
+            plt.sca(axs)
+            fig = plt.gcf()
+        for key, value in self.constraint_log_array().items():
             x = np.arange(value.shape[0])
             axs.plot(x, value, linewidth=1.5, label=key)
         axs.set_ylabel('Violation')
         axs.set_xlabel('Problem Number')
+        axs.set_yscale('symlog', linthresh=1e-6)
+        axs.grid(True)
         axs.legend()
-        return axs
+        return fig, axs
+
+    @deco.showable_fig
+    @deco.saveable_fig
+    def plot_costs(self, axs=None):
+        """Plot the cost values on the given axis"""
+        if axs is None:
+            fig, axs = plt.subplots(1,1)
+        else:
+            plt.sca(axs)
+            fig = plt.gcf()
+        for key, value in self.cost_log_array().items():
+            x = np.arange(value.shape[0])
+            axs.plot(x, value, linewidth=1.5, label=key)
+        axs.set_ylabel('Cost')
+        axs.set_xlabel('Problem Number')
+        axs.set_yscale('symlog', linthresh=1e-6)
+        axs.grid(True)
+        axs.legend()
+        return fig, axs
 
     def cost_log_array(self):
         """Return all the costs as a dictionary of arrays"""
-        costs = defaultdict(np.zeros((len(self.logs,))))
-        for k, log in enumerate(self.logs):
-            for key, value in log['costs']:
-                costs[key][k] = value
+        costs = {key: [log['costs'][key] for log in self.logs] for key in self.logs[0]['costs'].keys()}
+        for key in costs.keys():
+            costs[key] = np.asarray(costs[key])
         return costs
+
 
     def constraint_log_array(self):
         """Return all the constraint violations as a dictionary of arrays"""
-        cstrs = defaultdict(np.zeros((len(self.logs,))))
-        for k, log in enumerate(self.logs):
-            for key, value in log['constraints']:
-                cstrs[key][k] = np.sum(np.abs(value))
+        cstrs = {key: [log['constraints'][key] for log in self.logs] for key in self.logs[0]['constraints'].keys()}
+        for key in cstrs.keys():
+            cstrs[key] = np.asarray(cstrs[key])
         return cstrs
 
 if __name__ == '__main__':
