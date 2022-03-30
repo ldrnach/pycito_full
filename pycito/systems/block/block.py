@@ -70,6 +70,7 @@ class Block(TimeSteppingMultibodyPlant):
         axs[1].set_ylabel('Velocity (m/s)')
         axs[1].set_xlabel('Time (s)')
         axs[0].legend()
+        fig.tight_layout()
         return fig, axs
 
     @deco.showable_fig
@@ -80,6 +81,7 @@ class Block(TimeSteppingMultibodyPlant):
         axs[0].plot(t, u[0,:], linewidth=1.5)
         axs[0].set_ylabel('Control (N)')
         axs[0].set_xlabel('Time (s)')
+        fig.tight_layout()
         return fig, axs
 
     @deco.showable_fig
@@ -95,6 +97,7 @@ class Block(TimeSteppingMultibodyPlant):
         axs[2].plot(t, f[2, :] - f[4,:], linewidth=1.5)
         axs[2].set_ylabel('Friction-y')
         axs[2].set_xlabel('Time (s)')
+        fig.tight_layout()
         return fig, axs
 
     @staticmethod
