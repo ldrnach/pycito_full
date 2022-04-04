@@ -831,7 +831,7 @@ class ContactModelEstimator(OptimizationMixin):
         # Set the initial guess
         self._prog.SetInitialGuess(force, self.traj.getForceGuess(self._startptr + index))
         # Set the initial guess for the relaxation variables
-        self._prog.SetInitialGuess(self._relaxation_vars[-1], 2*self.traj.getFeasibilityGuess(self._startptr + index))
+        self._prog.SetInitialGuess(self._relaxation_vars[-1], self.traj.getFeasibilityGuess(self._startptr + index))
 
     def _add_distance_constraints(self, index):
         """Add and initialize the semiparametric distance constraints"""
@@ -886,7 +886,7 @@ class ContactModelEstimator(OptimizationMixin):
 
     @relaxedcost.setter
     def relaxedcost(self, val):
-        assert isinstance(val, [int, float]) and val >=0, f"val must be a nonnegative float or a nonnegative int"
+        assert isinstance(val, (int, float)) and val >=0, f"val must be a nonnegative float or a nonnegative int"
         self._relax_cost_weight = val
         if self._relax_cost is not None:
             # Update the relaxation costs in the program
@@ -905,10 +905,6 @@ class ContactModelEstimator(OptimizationMixin):
         if self._force_cost is not None:
             allforceshape = np.ravel(self.forces).shape
             self._force_cost.evaluator().UpdateCoefficients(val * np.ones(allforceshape))
-
-    @property
-    def forceregweight(self):
-        return self._force_ortho_weight
 
     @property
     def forces(self):
