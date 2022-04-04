@@ -2,6 +2,7 @@ import numpy as np
 from collections import defaultdict
 import re
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FormatStrFormatter
 
 from pydrake.all import MathematicalProgram, SnoptSolver, OsqpSolver, GurobiSolver, IpoptSolver, ChooseBestSolver, MakeSolver
 
@@ -237,6 +238,7 @@ class OptimizationLogger():
         axs.set_yscale('symlog', linthresh=1e-6)
         axs.grid(True)
         axs.legend()
+        axs.yaxis.set_major_formatter(FormatStrFormatter('%.2e'))
         return fig, axs
 
     @deco.showable_fig
