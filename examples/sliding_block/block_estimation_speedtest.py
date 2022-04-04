@@ -14,7 +14,7 @@ import pycito.controller.speedtesttools as speedtesttools
 
 import pycito.utilities as utils
 
-SAVEDIR = os.path.join('examples','sliding_block','estimator_speedtests_debug')
+SAVEDIR = os.path.join('examples','sliding_block','estimator_speedtests','regularized_linear')
 FILENAME = 'speedtestresults.pkl'
 FIGURENAME = 'SpeedTest.png'
 
@@ -24,7 +24,7 @@ SOURCEDIR = os.path.join('examples','sliding_block','simulations')
 def create_block():
     block = Block()
     block.Finalize()
-    block.terrain = SemiparametricContactModel.FlatSurfaceWithRBFKernel()
+    block.terrain = SemiparametricContactModel.FlatSurfaceWithRBFKernel(reg=0.01)
     return block
 
 def datakeys():
