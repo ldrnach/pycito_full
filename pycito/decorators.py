@@ -41,7 +41,7 @@ def saveable_fig(func):
                     f.savefig(utils.append_filename(savename, append_str), dpi=f.dpi)
                     n+=1
             else:
-                fig.savefig(savename, dpi=fig.dpi)
+                fig.savefig(savename, dpi=fig.dpi, bbox_inches='tight')
         return (fig, *axs) 
     return wrapper_saveable_fig
 
