@@ -323,3 +323,6 @@ class ContactEstimatorSpeedTest():
                 speedResult.record_results(result, estimator._prog, n, horizon)
             print(f"\n\t{sum(speedResult.successful_solves[n, :])} of {speedResult.successful_solves.shape[1]} solved successfully")
         return speedResult
+
+if __name__ == '__main__':
+    print("hello from speedtest!")
