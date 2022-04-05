@@ -33,10 +33,20 @@ class PseudoLinearComplementarityConstraint():
         self._slack = None
         self._xvars = None
         self._zvars = None
+        self._lincstr = None
 
     def __eq__(self, obj):
         """Test for equality of two psuedo-linear complementarity constraints"""
         return type(self) is type(obj) and np.array_equal(self.A, obj.A) and np.array_equal(self.c, obj.c) 
+
+    @classmethod
+    def random(cls, xdim, zdim):
+        """
+        Generates a random psuedo-linear complementarity constraint of the desired size
+        
+        """
+        rng = np.random.default_rng()
+        return cls(rng.random((zdim, xdim)), rng.random((zdim,)))
 
     def str(self):
         return f"{type(self).__name__} with {self.num_free} free variables and {self.dim} complementarity variables"
@@ -52,12 +62,12 @@ class PseudoLinearComplementarityConstraint():
         Note, the constraint is imposed as
             s - Ax = c
         """
-        cstr = prog.AddLinearEqualityConstraint(
-            Aeq = np.concatenate([np.eye(self.dim), -self.A], axis=1),
-            beq = self.c,
-            vars = np.concatenate([svar, xvar], axis=0)
+        self._lincstr = prog.AddLinearEqualityConstraint(
+                Aeq = np.concatenate([np.eye(self.dim), -self.A], axis=1),
+                beq = self.c,
+                vars = np.concatenate([svar, xvar], axis=0)
         )
-        cstr.evaluator().set_description(f"{self.name}_equality")
+        self._lincstr.evaluator().set_description(f"{self.name}_equality")
         return prog
 
     def _add_nonnegativity_constraint(self, prog, zvar, svar):
@@ -128,6 +138,15 @@ class PseudoLinearComplementarityConstraint():
         # Set the initial value for s
         sval = self.A.dot(xvals) + self.c
         self._prog.SetInitialGuess(self._slack, sval)
+
+    def updateCoefficients(self, A, c):
+        """Update the coefficients in the LCP constraint"""
+        assert A.shape == self.A.shape, f"The new matrix must have shape {A.shape}"
+        assert c.shape == self.c.shape, f"The new vector must have shape {c.shape}"
+        self.A = A
+        self.c = c
+        if self._lincstr is not None:
+            self._lincstr.evaluator().UpdateCoefficients(np.concatenate([np.eye(self.dim), -self.A], axis=1),c)
 
     @property
     def slack(self):
@@ -313,6 +332,11 @@ class MixedLinearComplementarityConstraint(PseudoLinearComplementarityConstraint
         """Two objects are equal if they are of the same type and have the same (A, B, c) parameter values"""
         return type(self) is type(obj) and np.array_equal(self.A, obj.A) and np.array_equal(self.B, obj.B) and np.array_equal(self.c, obj.c) 
 
+    @classmethod
+    def random(cls, xdim, zdim):
+        rng = np.random.default_rng()
+        return cls(rng.random((zdim, xdim)), rng.random((zdim, zdim)), rng.random((zdim,)))
+
     def addToProgram(self, prog, xvar, zvar):
         """
         Add the constraint to a mathematical program 
@@ -358,13 +382,25 @@ class MixedLinearComplementarityConstraint(PseudoLinearComplementarityConstraint
         Note, the constraint is imposed as
             s - Ax - Bz = c
         """
-        cstr = prog.AddLinearEqualityConstraint(
-            Aeq = np.concatenate([np.eye(self.dim), -self.A, -self.B], axis=1),
-            beq = self.c,
-            vars = np.concatenate([svar, xvar, zvar], axis=0)
+        self._lincstr = prog.AddLinearEqualityConstraint(
+                Aeq = np.concatenate([np.eye(self.dim), -self.A, -self.B], axis=1),
+                beq = self.c,
+                vars = np.concatenate([svar, xvar, zvar], axis=0)
         )
-        cstr.evaluator().set_description(f"{self.name}_equality")
+        self._lincstr.evaluator().set_description(f"{self.name}_equality")
         return prog
+
+    def updateCoefficients(self, A, B, c):
+        """Update the coefficients in the LCP constraint"""
+        assert A.shape == self.A.shape, f"The new A matrix must have shape {A.shape}"
+        assert B.shape == self.B.shape, f"The new B matrix must have shape {B.shape}"
+        assert c.shape == self.c.shape, f"The new c vector must have shape {c.shape}"
+        self.A = A
+        self.B = B
+        self.c = c
+        if self._lincstr is not None:
+            Aeq = np.concatenate([np.eye(self.dim), -self.A, -self.B], axis=1)
+            self._lincstr.evaluator().UpdateCoefficients(Aeq,c)
 
     @property
     def slack(self):

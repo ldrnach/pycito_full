@@ -124,6 +124,32 @@ class _MLCPExampleMixin(_LCPTestBase):
         s_expected = self.A.dot(self.x_expected) + self.B.dot(self.z_expected) + self.c
         np.testing.assert_allclose(svals, s_expected, atol=1e-6, err_msg = "slack variables initialized incorrectly")
 
+    def test_random(self):
+        """Test random initialization of the constraint"""
+        cstr_type = type(self.cstr)
+        xdim = 2
+        zdim = 3
+        rand_cstr = cstr_type.random(xdim, zdim)
+        self.assertTrue(type(rand_cstr) is cstr_type, f"Random does not produce the correct type")
+        self.assertEqual(rand_cstr.A.shape, (zdim, xdim), f"Random A matrix has incorrect shape")
+        self.assertEqual(rand_cstr.B.shape, (zdim, zdim), f"Random B matrix has incorrect shape")
+        self.assertEqual(rand_cstr.c.shape, (zdim,), f"Random c vector has incorrect shape")
+
+    def test_update_coefficients(self):
+        """Test that we can """
+        lincstr = self.cstr._lincstr.evaluator()
+        A = 2*self.A
+        B = 3*self.B
+        c = -1*self.c
+        self.cstr.updateCoefficients(A, B, c)
+        A_new = np.concatenate([np.eye(self.cstr.dim), -A, -B], axis=1)
+        np.testing.assert_allclose(lincstr.A(), A_new, atol=1e-8, err_msg=f"calling UpdateCoefficients did not update linear constraint coefficients")
+        np.testing.assert_allclose(lincstr.lower_bound(), c, atol=1e-8, err_msg=f"calling UpdateCoefficients did not update the lower bound on the linear constraint")
+        np.testing.assert_allclose(lincstr.upper_bound(), c, atol=1e-8, err_msg=f"calling UpdateCoefficients did not update the upper bound on the linear constraint")
+        np.testing.assert_allclose(self.cstr.A, A, atol=1e-8, err_msg=f"updateCoefficients did not update the coefficient A in the LCP object")
+        np.testing.assert_allclose(self.cstr.B, B, atol=1e-8, err_msg=f"updateCoefficients did not update the coefficient A in the LCP object")
+        np.testing.assert_allclose(self.cstr.c, c, atol=1e-8, err_msg=f"updateCoefficients did not update the coefficient A in the LCP object")
+
 class MixedLinearComplementarityTest(_MLCPExampleMixin, unittest.TestCase):
     def setUp(self):
         super(MixedLinearComplementarityTest, self).setUp()
@@ -188,12 +214,36 @@ class _PseudoLinearExampleMixin(_LCPTestBase):
         s_expected = self.A.dot(self.x_expected) + self.c
         np.testing.assert_allclose(svals, s_expected, atol=1e-6, err_msg="Slack variables incorrectly initialized")
 
+    def test_update_coefficients(self):
+        """Test that we can """
+        lincstr = self.cstr._lincstr.evaluator()
+        A = 2*self.A
+        c = -1*self.c
+        self.cstr.updateCoefficients(A, c)
+        A_new = np.concatenate([np.eye(self.cstr.dim), -A], axis=1)
+        np.testing.assert_allclose(lincstr.A(), A_new, atol=1e-8, err_msg=f"calling UpdateCoefficients did not update linear constraint coefficients")
+        np.testing.assert_allclose(lincstr.lower_bound(), c, atol=1e-8, err_msg=f"calling UpdateCoefficients did not update the lower bound on the linear constraint")
+        np.testing.assert_allclose(lincstr.upper_bound(), c, atol=1e-8, err_msg=f"calling UpdateCoefficients did not update the upper bound on the linear constriant")
+        np.testing.assert_allclose(self.cstr.A, A, atol=1e-8, err_msg=f"updateCoefficients did not update the coefficient A in the LCP object")
+        np.testing.assert_allclose(self.cstr.c, c, atol=1e-8, err_msg=f"updateCoefficients did not update the coefficient A in the LCP object")
+
+    def test_random(self):
+        """Test random initialization of the constraint"""
+        cstr_type = type(self.cstr)
+        xdim = 2
+        zdim = 3
+        rand_cstr = cstr_type.random(xdim, zdim)
+        self.assertTrue(type(rand_cstr) is cstr_type, f"Random does not produce the correct type")
+        self.assertEqual(rand_cstr.A.shape, (zdim, xdim), f"Random A matrix has incorrect shape")
+        self.assertEqual(rand_cstr.c.shape, (zdim,), f"Random c vector has incorrect shape")
+
 class PseudoLinearComplementarityTest(_PseudoLinearExampleMixin, unittest.TestCase):
     def setUp(self):
         super(PseudoLinearComplementarityTest, self).setUp()
 
     def setup_complementarity_constraints(self):
         self.cstr = mlcp.PseudoLinearComplementarityConstraint(self.A, self.c)
+
 
 class CostRelaxedPseudoLinearComplementarityTest(_PseudoLinearExampleMixin,unittest.TestCase):
     def setUp(self):
