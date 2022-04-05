@@ -53,7 +53,6 @@ class OpenLoopController(_ControllerBase):
         t = min(max(self._utraj.start_time(), t), self._utraj.end_time())
         return np.reshape(self._utraj.value(t), (-1,))
 
-
 class ReferenceTrajectory():
     """
     Container class for holding a optimized trajectory and it's respective plant model
@@ -152,32 +151,43 @@ class ReferenceTrajectory():
         return self._jlimit is not None
 
 class LinearizedContactTrajectory(ReferenceTrajectory):
-    def __init__(self, plant, time, state, control, force, jointlimit=None, lcp=mlcp.CostRelaxedPseudoLinearComplementarityConstraint):
-        super(LinearizedContactTrajectory, self).__init__(plant, time, state, control, force, jointlimit)
-        self.lcp = lcp
-        # Store the trajectory values
-        if self.has_joint_limits:
-            self._linearize_joint_limits()
-        else:
-            self.joint_limit_cstr = None
+    def __init__(self, plant, time, state, control, force, jointlimit=None):
+        super(LinearizedContactTrajectory, self).__init__(plant, time, state, control, force, jointlimit)           
+        # Setup the parameter lists
+        self.joint_limit_cstr = None
+        self.dynamics_cstr = []
+        self.distance_cstr = []
+        self.dissipation_cstr = []
+        self.friccone_cstr = []
         # Store the linearized parameter values
-        self._linearize_dynamics()
-        self._linearize_normal_distance()
-        self._linearize_maximum_dissipation()
-        self._linearize_friction_cone()
+        self.linearize_trajectory()
 
     @classmethod
-    def load(cls, plant, filename, lcp=mlcp.CostRelaxedPseudoLinearComplementarityConstraint):
+    def load(cls, plant, filename):
         """Class Method for generating a LinearizedContactTrajectory from a file containing a trajectory"""
         data = utils.load(filename)
         if data['jointlimit'] is not None:
-            return cls(plant, data['time'], data['state'], data['control'], data['force'], data['jointlimit'], lcp=lcp)
+            return cls(plant, data['time'], data['state'], data['control'], data['force'], data['jointlimit'])
         else:
-            return cls(plant, data['time'], data['state'], data['control'], data['force'], lcp=lcp)
+            return cls(plant, data['time'], data['state'], data['control'], data['force'])
 
+    def linearize_trajectory(self):
+        """Store the linearizations of all the parameters"""
+        self._linearize_dynamics()
+        if self.has_joint_limits:
+            self._linearize_joint_limits()
+        # Store the constraint evaluators
+        self._distance = cstr.NormalDistanceConstraint(self.plant)
+        self._dissipation = cstr.MaximumDissipationConstraint(self.plant)
+        self._friccone = cstr.FrictionConeConstraint(self.plant)
+        # Linearize the constraints
+        for x, s, f in zip(self._state.T, self._slack.T, self._force.T):
+            self._linearize_normal_distance(x)
+            self._linearize_maximum_dissipation(x, s)
+            self._linearize_friction_cone(x, f)
+        
     def _linearize_dynamics(self):
         """Store the linearization of the dynamics constraints"""
-        self.dynamics_cstr = []
         force_idx = 2*self.state_dim + self.control_dim + 1
         dynamics = cstr.BackwardEulerDynamicsConstraint(self.plant)
         if self.has_joint_limits:
@@ -189,36 +199,24 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
             A, _ = dynamics.linearize(h, self._state[:,n], self._state[:, n+1], self._control[:,n], force[:, n+1])
             b =  - A[:, force_idx:].dot(force[:, n+1])
             A = A[:, 1:]
-            self.dynamics_cstr.append(cstr.LinearImplicitDynamics(A, b))
+            self.dynamics_cstr.append((A,b))
 
-    def _linearize_normal_distance(self):
+    def _linearize_normal_distance(self, state):
         """Store the linearizations for the normal distance constraint"""
-        distance = cstr.NormalDistanceConstraint(self.plant)
-        self.distance_cstr = []
-        for x in self._state.transpose():
-            A, c = distance.linearize(x)
-            self.distance_cstr.append(self.lcp(A, c))
-            self.distance_cstr[-1].set_description('distance')
+        A, c = self._distance.linearize(state)
+        self.distance_cstr.append((A,c))
 
-    def _linearize_maximum_dissipation(self):
+    def _linearize_maximum_dissipation(self, state, vslack):
         """Store the linearizations for the maximum dissipation function"""
-        dissipation = cstr.MaximumDissipationConstraint(self.plant)
-        self.dissipation_cstr = []
-        for x, s in zip(self._state.transpose(), self._slack.transpose()):
-            A, c = dissipation.linearize(x, s)
-            c -= A[:, x.shape[0]:].dot(s)       #Correction term for LCP 
-            self.dissipation_cstr.append(self.lcp(A, c))
-            self.dissipation_cstr[-1].set_description('dissipation')
+        A, c = self._dissipation.linearize(state, vslack)
+        c -= A[:, state.shape[0]:].dot(vslack)       #Correction term for LCP 
+        self.dissipation_cstr.append((A,c))
 
-    def _linearize_friction_cone(self):
+    def _linearize_friction_cone(self,state, force):
         """Store the linearizations for the friction cone constraint function"""
-        friccone = cstr.FrictionConeConstraint(self.plant)
-        self.friccone_cstr = []
-        for x, f in zip(self._state.transpose(), self._force.transpose()):
-            A, c = friccone.linearize(x, f)
-            c -= A[:, x.shape[0]:].dot(f)   #Correction term for LCP
-            self.friccone_cstr.append(self.lcp(A, c))
-            self.friccone_cstr[-1].set_description('frictioncone')
+        A, c = self._friccone.linearize(state, force)
+        c -= A[:, state.shape[0]:].dot(force)   #Correction term for LCP
+        self.friccone_cstr.append((A,c))
 
     def _linearize_joint_limits(self):
         """Store the linearizations of the joint limits constraint function"""
@@ -227,8 +225,7 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
         nQ = self.plant.multibody.num_positions()
         for x in self._state.transpose():
             A, c = jointlimits.linearize(x[:nQ])
-            self.joint_limit_cstr.append(self.lcp(A, c))
-            self.joint_limit_cstr[-1].set_description('jointlimit')
+            self.joint_limit_cstr.append((A,c))
     
     def getDynamicsConstraint(self, index):
         """Returns the linear dynamics constraint at the specified index"""
