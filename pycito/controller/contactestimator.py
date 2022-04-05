@@ -704,7 +704,7 @@ class ContactModelEstimator(OptimizationMixin):
             Return a copy of the contact model after updating from the optimization result
         """
         dweights = result.GetSolution(self._distance_weights)
-        fc_weights = self._variables_to_friction_weights(result.GetSolution(self._friction_weights, self.forces))
+        fc_weights = self._variables_to_friction_weights(result.GetSolution(self._friction_weights), result.GetSolution(self.forces))
         model = copy.deepcopy(self.traj.contact_model)
         cpts = self.traj.get_contacts(self._startptr, self._startptr + self.horizon)
         cpts = np.concatenate(cpts, axis=1)
