@@ -253,7 +253,7 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
         return self.joint_limit_cstr[index]
 
 class LinearContactMPC(_ControllerBase, OptimizationMixin):
-    def __init__(self, linear_traj, horizon):
+    def __init__(self, linear_traj, horizon, lcptype=mlcp.CostRelaxedPseudoLinearComplementarityConstraint):
         """
         Plant: a TimesteppingMultibodyPlant instance
         Traj: a LinearizedContactTrajectory
@@ -261,6 +261,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         super().__init__(linear_traj.plant)
         self.lintraj = linear_traj
         self.horizon = horizon
+        self.lcp = lcptype
         # Internal variables
         self._prog = None
         self._dx = []   # States
