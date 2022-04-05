@@ -143,6 +143,52 @@ class RelaxedLinearConstraintTest(unittest.TestCase):
         cost = self.lin_cstr._cost.evaluator().Eval(testval)
         np.testing.assert_allclose(cost, 10*np.ones((1,)), atol=1e-6, err_msg="Cost after updating cost weight inaccurate")
         
+class LinearImplicitDynamicsTest(unittest.TestCase):
+
+    def setUp(self):
+        """Setup a program with a linear constraint"""
+        A = np.array([[2., 1.], [0., -3]])
+        b = np.array([0., 6.])
+        self.implicit_cstr = cstr.LinearImplicitDynamics(A, b)
+        self.prog = MathematicalProgram()
+        self.x = self.prog.NewContinuousVariables(rows = 2, name='x')
+        self.x_expected = np.array([-1., 2.])
+
+    def test_random(self):
+        """Check that we can generate a random constraint"""
+        in_dim = 3
+        out_dim = 4
+        rand_cstr = cstr.LinearImplicitDynamics.random(in_dim, out_dim)
+        self.assertTrue(type(rand_cstr) is cstr.LinearImplicitDynamics, msg="LinearImplicitDynamics.random returns a constraint that is of the wrong type")
+        self.assertEqual(rand_cstr.A.shape, (out_dim, in_dim), f"random constraint A matrix is the wrong shape")
+        self.assertEqual(rand_cstr.b.shape, (out_dim, ), "random constraint b vector has the wrong shape")
+
+    def test_add_constraint(self):
+        """Test that adding the constraint adds 1 constraint to the problem"""
+        self.assertEqual(len(self.prog.GetAllConstraints()), 0, f"Program has constraints before any are added")
+        self.implicit_cstr.addToProgram(self.prog, self.x)
+        self.assertEqual(len(self.prog.GetAllConstraints()), 1, f"Incorrect number of constraints added to program")
+
+    def test_solve(self):
+        """Check that we can solve the problem"""
+        self.implicit_cstr.addToProgram(self.prog, self.x)
+        self.prog.SetInitialGuess(self.x, self.x_expected)
+        result = Solve(self.prog)
+        np.testing.assert_allclose(result.GetSolution(self.x), self.x_expected, atol=1e-8, err_msg=f"Solution value inaccurate")
+
+    def test_update_coefficients(self):
+        """Check that we can update the constraint coefficients"""
+        self.implicit_cstr.addToProgram(self.prog, self.x)
+        Anew = 2*np.eye(2)
+        bnew = np.array([4., -7.])
+        self.implicit_cstr.updateCoefficients(Anew, bnew)
+        evaluator = self.implicit_cstr._cstr.evaluator()
+        np.testing.assert_allclose(self.implicit_cstr.A, Anew, atol=1e-8, err_msg="Calling updateCoefficients did not update the coeffcient matrix within the constriant object")
+        np.testing.assert_allclose(self.implicit_cstr.b, bnew, atol=1e-8, err_msg='Calling updateCoefficients did not update the coefficient vector within the constraint object')
+        np.testing.assert_allclose(evaluator.A(), Anew, atol=1e-8, err_msg="Calling updateCoefficients did not update the coefficient matrix in the constraint")
+        np.testing.assert_allclose(evaluator.lower_bound(), bnew, atol=1e-8, err_msg="Calling updateCoefficients did not update the constraint lower bound")
+        np.testing.assert_allclose(evaluator.upper_bound(), bnew, atol=1e-8, err_msg="Calling updateCoefficients did not update the constraint upper bound")
+
 
 if __name__ == '__main__':
     unittest.main()
