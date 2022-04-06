@@ -17,7 +17,7 @@ import pycito.systems.terrain as terrain
 
 # Globals
 SOURCE = os.path.join('data','slidingblock','block_trajopt.pkl')
-SAVEDIR = os.path.join('examples','sliding_block','simulations')
+SAVEDIR = os.path.join('examples','sliding_block','simulations','correct')
 FILENAME = 'simdata.pkl'
 
 # Friction models
