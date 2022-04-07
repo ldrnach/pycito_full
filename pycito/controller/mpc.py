@@ -16,6 +16,7 @@ import pycito.utilities as utils
 import pycito.trajopt.constraints as cstr
 import pycito.controller.mlcp as mlcp
 from pycito.controller.optimization import OptimizationMixin
+from pycito.controller.contactestimator import ContactModelEstimator
 
 class _ControllerBase(abc.ABC):
     def __init__(self, plant):
@@ -692,6 +693,34 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
 
     def use_random_guess(self):
         self._use_zero_guess = False
+
+class ContactAdaptiveMPC():
+    def __init__(self):
+        super().__init__()
+        self.estimator = None
+        self.controller = None
+
+    def get_control(self, t, x, u_old):
+        """
+            Get a new control based on the previous control
+        
+            Arguments:
+                t: (1, ) numpy array, the current time
+                x: (N, ) numpy array, the current state
+                u_old: (M, ) numpy array, the previous control
+            
+            Return values:
+                u: (M, ) the updated current control
+        """    
+        model = self.estimator.estimate_contact(t, x, u_old)
+        self._update_contact_linearization(t, model)
+        return self.controller.get_control(t, x)
+
+    def _update_contact_linearization(self, t, model):
+        """
+            Update the contact constraints linearization used in MPC
+        """
+        pass
 
 if __name__ == "__main__":
     print("Hello from MPC!")
