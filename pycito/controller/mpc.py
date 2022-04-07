@@ -328,12 +328,22 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         self._prog = MathematicalProgram()
         # Create the initial state and constrain it
         self._dx = [self.prog.NewContinuousVariables(rows = self.state_dim, name='state')]
-        # state0 = self.lintraj.getState(index)
-        # dx0 = x0 - state0
         dx0 = np.random.default_rng().random((self.state_dim,))
         self.initial = self.prog.AddLinearEqualityConstraint(Aeq = np.eye(self.state_dim), beq=dx0, vars=self._dx[0])
         self.initial.evaluator().set_description('initial state')
-        #self.prog.SetInitialGuess(self._dx[0], dx0)
+
+    def _add_decision_variables(self):
+        """
+        Add and initialize decision variables to the program for the current time index
+        """
+        # Add new variables to the program
+        self._dx.append(self.prog.NewContinuousVariables(rows = self.state_dim, name='state'))
+        self._du.append(self.prog.NewContinuousVariables(rows = self.control_dim, name='control'))
+        self._dl.append(self.prog.NewContinuousVariables(rows = self.force_dim, name='force'))
+        self._ds.append(self.prog.NewContinuousVariables(rows = self.slack_dim, name='slack'))
+        # Add and initialize joint limits
+        if self.jlimit_dim > 0:
+            self._djl.append(self.prog.NewContinuousVariables(rows = self.jlimit_dim, name='joint_limits'))
 
     def _initialize_constraints(self):
         """Initialize the constraints with random values"""
@@ -345,7 +355,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         # Initialize the dynamics constraints
         if self.jlimit_dim > 0:
             dl_all = np.concatenate([self._dl[-1], self._djl[-1]], axis=0)
-            self._dynamics.append(cstr.LinearImplicitDynamics.random(2*self._dx[-1].size + self._du[-1].size + dl_all.size, nV))
+            self._dynamics.append(cstr.LinearImplicitDynamics.random(2*self._dx[-1].size + self._du[-1].size + dl_all.size, nQ + nV))
             self._dynamics[-1].name = 'linear dynamics'
             self._dynamics[-1].addToProgram(self.prog, self._dx[-2], self._dx[-1], self._du[-1], dl_all)
 
@@ -353,7 +363,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             self._limits[-1].name = 'joint limits'
             self._limits[-1].addToProgram(self.prog, self._dx[-1][:nQ], self._djl[-1])
         else:
-            self._dynamics.append(cstr.LinearImplicitDynamics.random(2*self._dx[-1].size + self._du[-1].size + self._dl[-1].size, nV))
+            self._dynamics.append(cstr.LinearImplicitDynamics.random(2*self._dx[-1].size + self._du[-1].size + self._dl[-1].size, nQ + nV))
             self._dynamics[-1].name = 'linear dynamics'
             self._dynamics[-1].addToProgram(self.prog, self._dx[-2], self._dx[-1], self._du[-1], self._dl[-1])
         # Initialize distance constraint
@@ -362,7 +372,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         self._distance[-1].name = "distance"
         self._distance[-1].addToProgram(self.prog, self._dx[-1], self._dl[-1][:nC])
         # Initialize dissipation constraint
-        self._dissipation.apppend(self.lcp.random(nQ + nV + nC, nF))
+        self._dissipation.append(self.lcp.random(nQ + nV + nC, nF))
         self._dissipation[-1].cost_weight = self._complementarity_weight
         self._dissipation[-1].name = 'dissipation'
         self._dissipation[-1].addToProgram(self.prog, np.concatenate([self._dx[-1], self._ds[-1]], axis=0), self._dl[-1][nC:nC+nF])
@@ -392,7 +402,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             self._limit_cost.append(self.prog.AddQuadraticErrorCost(self._jlimit_weight, np.ones(self._djl[-1].shape), vars=self._djl[-1]))
             self._limit_cost[-1].evaluator().set_description('joint_limit_cost')
         
-    def _update_program(self, t, x0):
+    def create_mpc_program(self, t, x0):
         """
             Update all the costs and constraints within the MPC program
         
@@ -410,6 +420,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
 
     def _initialize_variables(self, index):
         """Set the initial guesses for all variables in the program"""
+        #TODO: Better initialization for states and controls
         if self._use_zero_guess:
              self.prog.SetInitialGuess(self.dx, np.zeros((self.state_dim, self.horizon + 1)))
              self.prog.SetInitialGuess(self.du, np.zeros((self.control_dim, self.horizon)))
@@ -430,8 +441,8 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
 
     def _update_dynamics(self, index):
         """Update the dynamics constraints"""
-        for k, dyn in self._dynamics:
-            A, b = self.lintraj.getDynamicsConstraints(index + k)
+        for k, dyn in enumerate(self._dynamics):
+            A, b = self.lintraj.getDynamicsConstraint(index + k)
             dyn.updateCoefficients(A, b)
                 
     def _update_limits(self, index):
@@ -444,7 +455,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
     def _update_contact(self, index):
         """Update the contact constraints"""
         for k, (dist, diss, fric) in enumerate(zip(self._distance, self._dissipation, self._friccone)):
-            A, b = self.lintraj.GetDistanceConstraint(index + k)
+            A, b = self.lintraj.getDistanceConstraint(index + k)
             dist.updateCoefficients(A, b)
             dist.initializeSlackVariables()
             A, b = self.lintraj.getDissipationConstraint(index + k)
@@ -456,7 +467,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
 
     def _update_costs(self, index):
         """Update the quadratic cost values"""
-        for k, (fcost, scost) in enumerate(self._force_cost, self._slack_cost):
+        for k, (fcost, scost) in enumerate(zip(self._force_cost, self._slack_cost)):
             fcost.evaluator().UpdateCoefficients(self._force_weight, self.lintraj.getForce(index+k))
             scost.evaluator().UpdateCoefficients(self._slack_weight, self.lintraj.getSlack(index+k))
         for k, jcost in enumerate(self._limit_cost):
@@ -493,85 +504,6 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             print(f"MPC failed at time {t:0.3f} using {result.get_solver_id().name()} {insert}. Returning open loop control")
             return u
 
-    def create_mpc_program(self, t, x0):
-        """
-        Create a MathematicalProgram to solve the MPC problem
-        """
-        index = self.lintraj.getTimeIndex(t)
-        self._initialize_mpc(index, x0)
-        for n in range(index, index+self.horizon):
-            self._add_decision_variables(n)
-            self._add_costs(n)
-            self._add_constraints(n)
-
-    def _add_decision_variables(self):
-        """
-        Add and initialize decision variables to the program for the current time index
-        """
-        # Add new variables to the program
-        self._dx.append(self.prog.NewContinuousVariables(rows = self.state_dim, name='state'))
-        self._du.append(self.prog.NewContinuousVariables(rows = self.control_dim, name='control'))
-        self._dl.append(self.prog.NewContinuousVariables(rows = self.force_dim, name='force'))
-        self._ds.append(self.prog.NewContinuousVariables(rows = self.slack_dim, name='slack'))
-        # Add and initialize joint limits
-        if self.jlimit_dim > 0:
-            self._djl.append(self.prog.NewContinuousVariables(rows = self.jlimit_dim, name='joint_limits'))
-            # self.prog.SetInitialGuess(self._djl[-1], self.lintraj.getJointLimit(index+1))
-        # # Initalize the decision variables
-        # self.prog.SetInitialGuess(self._dl[-1], self.lintraj.getForce(index+1))
-        # self.prog.SetInitialGuess(self._ds[-1], self.lintraj.getSlack(index+1))
-        # # Initialize the states and controls (random, nonzero values)
-        # if self._use_zero_guess:
-        #     self.prog.SetInitialGuess(self._dx[-1], np.zeros((self.state_dim,)))
-        #     self.prog.SetInitialGuess(self._du[-1], np.zeros((self.control_dim, )))
-        # else:
-        #     self.prog.SetInitialGuess(self._dx[-1], np.random.default_rng().standard_normal(self.state_dim))
-        #     self.prog.SetInitialGuess(self._du[-1], np.random.default_rng().standard_normal(self.control_dim))
-
-    def _add_constraints(self, index):
-        """
-        Add the linear contact-implicit dynamics constraints at the specified index
-        """
-        # Some necessary parameters
-        nQ = self.lintraj.plant.multibody.num_positions()
-        nC = self.lintraj.plant.num_contacts()
-        nF = self.lintraj.plant.num_friction()
-        # Add the dynamics and joint limit constraints
-        if self.jlimit_dim > 0:
-            dl_all = np.concatenate([self._dl[-1], self._djl[-1]], axis=0)
-            self.lintraj.getDynamicsConstraint(index).addToProgram(self.prog, self._dx[-2], self._dx[-1], self._du[-1], dl_all)
-            self.lintraj.getJointLimitConstraint(index+1).addToProgram(self.prog, self._dx[-1][:nQ], self._djl[-1])
-            self.lintraj.getJointLimitConstraint(index+1).initializeSlackVariables()
-        else:
-            self.lintraj.getDynamicsConstraint(index).addToProgram(self.prog, self._dx[-2], self._dx[-1], self._du[-1], self._dl[-1])
-        # Update the complementarity cost weights
-        self.lintraj.getDistanceConstraint(index+1).cost_weight = self._complementarity_weight
-        self.lintraj.getDissipationConstraint(index+1).cost_weight = self._complementarity_weight
-        self.lintraj.getFrictionConeConstraint(index+1).cost_weight = self._complementarity_weight
-        # Get the decision variables
-        dist_vars = self._dx[-1]
-        diss_vars = np.concatenate([self._dx[-1], self._ds[-1]], axis=0)
-        fric_vars = np.concatenate([self._dx[-1], self._dl[-1][:nC+nF]], axis=0)
-        # Add the contact constraints
-        self.lintraj.getDistanceConstraint(index+1).addToProgram(self.prog, dist_vars, self._dl[-1][:nC])
-        self.lintraj.getDissipationConstraint(index+1).addToProgram(self.prog, diss_vars, self._dl[-1][nC:nC+nF])
-        self.lintraj.getFrictionConeConstraint(index+1).addToProgram(self.prog, fric_vars, self._ds[-1])
-        # Initialize the slack variables for the complementarity constraints
-        self.lintraj.getDistanceConstraint(index+1).initializeSlackVariables()
-        self.lintraj.getDissipationConstraint(index+1).initializeSlackVariables()
-        self.lintraj.getFrictionConeConstraint(index+1).initializeSlackVariables()
-
-    def _add_costs(self, index):
-        """Add cost terms on the most recent variables"""
-        # We add quadratic error costs on all variables, regularizing states and controls to 0 and complementarity variables to their trajectory values
-        self.prog.AddQuadraticErrorCost(self._state_weight, np.zeros((self.state_dim, 1)), vars=self._dx[-1]).evaluator().set_description('state_cost')
-        self.prog.AddQuadraticErrorCost(self._control_weight, np.zeros((self.control_dim, 1)), vars=self._du[-1]).evaluator().set_description('control_cost')
-        self.prog.AddQuadraticErrorCost(self._force_weight, self.lintraj.getForce(index+1), vars=self._dl[-1]).evaluator().set_description('force_cost')
-        self.prog.AddQuadraticErrorCost(self._slack_weight, self.lintraj.getSlack(index+1), vars=self._ds[-1]).evaluator().set_description('slack_cost')
-        # Add a cost for joint limits
-        if self.jlimit_dim > 0:
-            self.prog.AddQuadraticErrorCost(self._jlimit_weight, self.lintraj.getJointLimit(index+1), vars=self._djl[-1]).evaluator().set_description('joint_limit_cost')
-        
 
     @property
     def state_dim(self):
