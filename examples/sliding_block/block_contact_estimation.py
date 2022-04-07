@@ -1,15 +1,15 @@
 import os
 import numpy as np
-from collections import defaultdict
+import matplotlib.pyplot as plt
 from pycito.controller import contactestimator as ce
 from pycito.systems.block.block import Block
 from pycito.systems.contactmodel import SemiparametricContactModel
 import pycito.utilities as utils
 from pycito.controller.optimization import OptimizationLogger
 
-SOURCEBASE = os.path.join('examples','sliding_block','simulations')
+SOURCEBASE = os.path.join('examples','sliding_block','simulations','correct')
 SOURCEFILE = os.path.join('mpc', 'simdata.pkl')
-SAVEDIR = os.path.join('examples','sliding_block','estimation_SNRtests','SNR100000')
+SAVEDIR = os.path.join('examples','sliding_block','estimation_mpc','SNR1e5_N1_Feasibility')
 FIGURENAME = 'EstimationResults.png'
 LOGFIGURE = 'SolverLogs.png'
 LOGGINGNAME = 'solutionlogs.pkl'
@@ -30,10 +30,12 @@ def get_data(sourcepart):
 def make_estimator(data):
     block = make_block()
     traj = ce.ContactEstimationTrajectory(block, data['state'][:, 0])    
-    estimator = ce.ContactModelEstimator(traj, horizon=5)
+    estimator = ce.ContactModelEstimator(traj, horizon=1)
     # Set the costs appropriately
-    estimator.forcecost = 0.01
-    estimator.relaxedcost = 1000
+    estimator.forcecost = 1e-1
+    estimator.relaxedcost = 1e4
+    estimator.distancecost = 1e-3
+    estimator.frictioncost = 1e-3
     estimator.useSnoptSolver()
     estimator.setSolverOptions({'Major feasibility tolerance': 1e-6,
                                 'Major optimality tolerance': 1e-6})
@@ -51,7 +53,7 @@ def run_estimation(filepart):
     estimator.update_trajectory(data['time'][0], result)
     logger.log(result)
     # Loop over each part of the contact estimation problem
-    for t, x, u in zip(data['time'][1:], data['state'][:, 1:].T, data['control'][:, 1:].T):
+    for t, x, u in zip(data['time'][1:], data['state'][:, 1:].T, data['control'][:, 0:].T):
         print(f'Contact estimation at timestep {t:.2f}:', end='', flush=True)
         estimator.traj.append_sample(t, x, u)
         estimator.create_estimator()
@@ -63,9 +65,11 @@ def run_estimation(filepart):
     estimator.traj.saveContactTrajectory(os.path.join(SAVEDIR, filepart, TRAJNAME))
     # Plot the overall results
     plotter = ce.ContactEstimationPlotter(estimator.traj)
+#    plotter.plot(show=True)
     plotter.plot(show=False, savename=os.path.join(SAVEDIR, filepart, FIGURENAME))
     logger.plot(show=False, savename=os.path.join(SAVEDIR, filepart, LOGFIGURE))
     logger.save(filename = os.path.join(SAVEDIR, filepart, LOGGINGNAME))
+    plt.close('all')
 
 def replot_logs(filepart):
     logger = OptimizationLogger.load(os.path.join(SAVEDIR, filepart, LOGGINGNAME))
@@ -77,5 +81,8 @@ def open_logs(filepart):
 
 if __name__ == '__main__':
     run_estimation('steppedterrain')
-    #replot_logs('flatterrain')
+    run_estimation('flatterrain')
+    run_estimation('lowfriction')
+    run_estimation('highfriction')
+    # replot_logs('flatterrain')
     #open_logs('flatterrain')

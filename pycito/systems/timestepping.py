@@ -313,10 +313,10 @@ class TimeSteppingMultibodyPlant():
         # Calculate the next state
         b = h * (B.dot(u) - C.dot(dq) + G) + J.transpose().dot(f)
         v = np.linalg.solve(M,b)
-        dq += v
-        q += h * dq
+        dq2 = dq + v
+        q2 = q + h * dq2
         # Collect the configuration and velocity into a state vector
-        return np.concatenate((q,dq), axis=0)
+        return np.concatenate((q2,dq2), axis=0)
 
     def contact_impulse(self, h, x, u):
         # Get the configuration and generalized velocity
