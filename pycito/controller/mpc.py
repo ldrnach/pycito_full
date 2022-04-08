@@ -468,10 +468,18 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
     def _update_costs(self, index):
         """Update the quadratic cost values"""
         for k, (fcost, scost) in enumerate(zip(self._force_cost, self._slack_cost)):
-            fcost.evaluator().UpdateCoefficients(self._force_weight, self.lintraj.getForce(index+k))
-            scost.evaluator().UpdateCoefficients(self._slack_weight, self.lintraj.getSlack(index+k))
+            f_ref = self.lintraj.getForce(index + k)
+            fcost.evaluator().UpdateCoefficients(2*self._force_weight,
+                                     -2*self._force_weight.dot(f_ref), f_ref.dot(self._force_weight.dot(f_ref)))
+            s_ref = self.lintraj.getSlack(index + k)
+            scost.evaluator().UpdateCoefficients(2 * self._slack_weight, 
+                                    -2 * self._slack_weight.dot(s_ref),
+                                    s_ref.dot(self._slack_weight.dot(s_ref)))
         for k, jcost in enumerate(self._limit_cost):
-            jcost.evaluator().UpdateCoefficients(self._jlimit_weight, self.lintraj.getJointLimit(index+k))
+            j_ref = self.lintraj.getJointLimit(index + k)
+            jcost.evaluator().UpdateCoefficients(2 * self._jlimit_weight, 
+                                    -2 * self._jlimit_weight.dot(j_ref),
+                                    j_ref.dot(self._jlimit_weight.dot(j_ref)))
 
     def get_control(self, t, x0):
         """"
@@ -652,7 +660,9 @@ class ContactAdaptiveMPC():
         """
             Update the contact constraints linearization used in MPC
         """
-        pass
+        index = self.controller.traj.getTimeIndex(t)
+        for k in range(self.controller.horizon):
+            self.controller.traj._update_contact(index + k)
 
 if __name__ == "__main__":
     print("Hello from MPC!")

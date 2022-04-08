@@ -412,7 +412,7 @@ class LinearImplicitDynamics():
         self.A = A_new
         self.b = b_new
         if self._cstr is not None:
-            self._cstr.evaluator().UpdateCoefficients(A_new, b_new)
+            self._cstr.evaluator().UpdateCoefficients(A_new, -b_new)
 
 
 class RelaxedLinearConstraint():
