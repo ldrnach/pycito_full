@@ -75,7 +75,7 @@ class ReferenceTrajectory():
             return cls(plant, data['time'], data['state'], data['control'], data['force'], data['jointlimit'])
         else:
             return cls(plant, data['time'], data['state'], data['control'], data['force'])
-    
+
     def getTimeIndex(self, t):
         """Return the index of the last timepoint less than the current time"""
         if t < self._time[0]:
@@ -182,10 +182,14 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
         self._dissipation = cstr.MaximumDissipationConstraint(self.plant)
         self._friccone = cstr.FrictionConeConstraint(self.plant)
         # Linearize the constraints
-        for x, s, f in zip(self._state.T, self._slack.T, self._force.T):
-            self._linearize_normal_distance(x)
-            self._linearize_maximum_dissipation(x, s)
-            self._linearize_friction_cone(x, f)
+        self.distance_cstr = [None] * self.num_timesteps
+        self.dissipation_cstr [None] * self.num_timesteps
+        self.friccone_cstr = [None] * self.num_timesteps
+
+        for k in range(self.num_timesteps):
+            self._linearize_normal_distance(k)
+            self._linearize_maximum_dissipation(k)
+            self._linearize_friction_cone(k)
         
     def _linearize_dynamics(self):
         """Store the linearization of the dynamics constraints"""
@@ -202,22 +206,24 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
             A = A[:, 1:]
             self.dynamics_cstr.append((A,b))
 
-    def _linearize_normal_distance(self, state):
+    def _linearize_normal_distance(self, index):
         """Store the linearizations for the normal distance constraint"""
-        A, c = self._distance.linearize(state)
-        self.distance_cstr.append((A,c))
+        A, c = self._distance.linearize(self.getState(index))
+        self.distance_cstr[index] = (A, c)
 
-    def _linearize_maximum_dissipation(self, state, vslack):
+    def _linearize_maximum_dissipation(self, index):
         """Store the linearizations for the maximum dissipation function"""
+        state, vslack = self.getState(index), self.getSlack(index)
         A, c = self._dissipation.linearize(state, vslack)
         c -= A[:, state.shape[0]:].dot(vslack)       #Correction term for LCP 
-        self.dissipation_cstr.append((A,c))
+        self.dissipation_cstr[index] = (A, c)
 
-    def _linearize_friction_cone(self,state, force):
+    def _linearize_friction_cone(self, index):
         """Store the linearizations for the friction cone constraint function"""
+        state, force = self.getState(index), self.getForce(index)
         A, c = self._friccone.linearize(state, force)
         c -= A[:, state.shape[0]:].dot(force)   #Correction term for LCP
-        self.friccone_cstr.append((A,c))
+        self.friccone_cstr[index] = (A, c)
 
     def _linearize_joint_limits(self):
         """Store the linearizations of the joint limits constraint function"""
@@ -227,7 +233,7 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
         for x in self._state.transpose():
             A, c = jointlimits.linearize(x[:nQ])
             self.joint_limit_cstr.append((A,c))
-    
+
     def getDynamicsConstraint(self, index):
         """Returns the linear dynamics constraint at the specified index"""
         index = min(max(0, index), len(self.dynamics_cstr)-1)
@@ -660,9 +666,12 @@ class ContactAdaptiveMPC():
         """
             Update the contact constraints linearization used in MPC
         """
+        self.controller.plant.terrain = model
         index = self.controller.traj.getTimeIndex(t)
         for k in range(self.controller.horizon):
-            self.controller.traj._update_contact(index + k)
+            self.controller.traj._linearize_normal_distance(index + k)
+            self.controller.traj._linearize_maximum_dissipation(index + k)
+            self.controller.traj._linearize_friction_cone(index + k)
 
 if __name__ == "__main__":
     print("Hello from MPC!")
