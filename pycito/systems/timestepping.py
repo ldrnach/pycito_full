@@ -11,6 +11,7 @@ Luke Drnach
 October 9, 2020
 """
 import numpy as np
+import copy
 from math import pi
 from pydrake.all import MultibodyPlant, DiagramBuilder, SceneGraph,AddMultibodyPlantSceneGraph, JacobianWrtVariable, AngleAxis, RotationMatrix, RigidTransform, MathematicalProgram, Solve
 from pydrake.geometry import Role, Sphere
@@ -49,11 +50,11 @@ class TimeSteppingMultibodyPlant():
         self._autodiff_ptr = None
 
     def __deepcopy__(self):
-        copy = TimeSteppingMultibodyPlant(file=self.files[0], terrain=self.terrain.__deepcopy__(), dlevel=1)
+        new_copy = TimeSteppingMultibodyPlant(file=self.files[0], terrain=copy.deepcopy(self.terrain), dlevel=1)
         if len(self.files) > 1:
             for file in self.files[1:]:
-                copy.add_model(file)
-        return copy
+                new_copy.add_model(file)
+        return new_copy
 
     def str(self):
         """ String describing the timestepping plant"""
