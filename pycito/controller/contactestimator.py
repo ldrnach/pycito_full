@@ -661,6 +661,9 @@ class ContactModelEstimator(OptimizationMixin):
 
     def estimate_contact(self, t, x, u):
         # Append new samples
+        if t <= self.traj._time[-1]:
+            return self.get_contact_model_at_time(t)
+
         self.traj.append_sample(t, x, u)
         # Create contact estimation problem 
         print(f"Creating contact estimation problem")
@@ -669,6 +672,23 @@ class ContactModelEstimator(OptimizationMixin):
         result = self.solve()
         self.update_trajectory(t, result)
         return self.get_updated_contact_model(result)
+
+    def get_contact_model_at_time(self, t):
+        """Get the contact model at the specified index"""
+        index = self.traj.getTimeIndex(t)
+        model = copy.deepcopy(self.traj.contact_model)
+        start = max(0, index - self.maxhorizon)
+        Kd, Kf = self.traj.getContactKernels(start, index)
+        cpts = self.traj.get_contacts(start, index)
+        forces = self.traj.get_forces(start, index)
+        derr = self.traj.get_distance_error(start, index)
+        ferr = self.traj.get_friction_error(start, index)
+        # Calculate model weights
+        dweights = np.linalg.lstsq(Kd, derr, rcond=None)[0]
+        fc_weights = np.linalg.lstsq(Kf, ferr, rcond=None)[0]
+        fc_weights = self._variables_to_friction_weights(fc_weights, forces)
+        model.add_samples(cpts, dweights, fc_weights)
+        return model
 
     def update_trajectory(self, t, result):
         """
