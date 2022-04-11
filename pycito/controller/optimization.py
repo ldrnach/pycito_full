@@ -15,7 +15,7 @@ class OptimizationMixin():
         self._prog = MathematicalProgram()
         self._solver = None
         self.solver_options = {}
-        self.logger = OptimizationLogger(self)
+        self._logger = OptimizationLogger(self)
         self._log_enabled = False
 
     def enableLogging(self):
@@ -51,7 +51,7 @@ class OptimizationMixin():
         # Solve and return the solution
         result =  self.solver.Solve(self.prog)
         if self._log_enabled:
-            self.logger.log(result)
+            self._logger.log(result)
         return result
 
     def get_decision_variable_dictionary(self):
