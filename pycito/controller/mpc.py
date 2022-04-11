@@ -642,6 +642,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
 class ContactAdaptiveMPC(LinearContactMPC):
     def __init__(self, estimator, linear_traj, horizon, lcptype=mlcp.CostRelaxedPseudoLinearComplementarityConstraint):
         super().__init__(linear_traj, horizon, lcptype)
+        assert isinstance(estimator, ContactModelEstimator), f"estimator must be an instance of ContactModelEstimator"
         self.estimator = estimator
 
     def enableLogging(self):
