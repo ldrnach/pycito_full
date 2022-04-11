@@ -492,7 +492,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         Return the MPC feedback controller
         Thin wrapper for do_mpc
         """
-        return self.do_mpc(t, x0)
+        return self.do_mpc(t, x)
 
     def do_mpc(self, t, x0):
         """
@@ -639,25 +639,24 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
     def use_random_guess(self):
         self._use_zero_guess = False
 
-class ContactAdaptiveMPC():
-    def __init__(self, controller, estimator):
-        super().__init__()
+class ContactAdaptiveMPC(LinearContactMPC):
+    def __init__(self, estimator, linear_traj, horizon, lcptype=mlcp.CostRelaxedPseudoLinearComplementarityConstraint):
+        super().__init__(linear_traj, horizon, lcptype)
         self.estimator = estimator
-        self.controller = controller
-    
+
     def enableLogging(self):
         """Enable solution logging for both the estimator and the controller"""
+        super().enableLogging()
         self.estimator.enableLogging()
-        self.controller.enableLogging()
-
+        
     def disableLogging(self):
         """Disable solution logging for both the estimator and the controller"""
+        super().disableLoggin()
         self.estimator.disableLogging()
-        self.controller.disableLogging()
 
     def getControllerLogs(self):
         """Return the predictive controller solution logs"""
-        return self.controller.logs
+        return self.logs
 
     def getEstimatorLogs(self):
         """Return the contact estimator solution logs"""
@@ -677,18 +676,17 @@ class ContactAdaptiveMPC():
         """    
         model = self.estimator.estimate_contact(t, x, u)
         self._update_contact_linearization(t, model)
-        return self.controller.get_control(t, x)
+        return self.do_mpc(t, x)
 
     def _update_contact_linearization(self, t, model):
         """
             Update the contact constraints linearization used in MPC
         """
-        self.controller.plant.terrain = model
-        index = self.controller.traj.getTimeIndex(t)
-        for k in range(self.controller.horizon):
-            self.controller.traj._linearize_normal_distance(index + k)
-            self.controller.traj._linearize_maximum_dissipation(index + k)
-            self.controller.traj._linearize_friction_cone(index + k)
+        self.plant.terrain = model
+        index = self.lintraj.getTimeIndex(t)
+        for k in range(self.horizon):
+            self.lintraj._linearize_normal_distance(index + k)
+            self.lintraj._linearize_friction_cone(index + k)
 
 if __name__ == "__main__":
     print("Hello from MPC!")
