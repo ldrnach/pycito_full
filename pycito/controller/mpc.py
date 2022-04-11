@@ -85,6 +85,13 @@ class ReferenceTrajectory():
         else:
             return np.argmax(self._time > t) - 1
     
+    def getTime(self, index):
+        """
+        Return the time at the given index, returning the last time if the index is out of bounds
+        """
+        index = min(max(0,index), self.num_timesteps-1)
+        return self._time[index]
+
     def getState(self, index):
         """
         Return the state at the given index, returning the last state if the index is out of bounds
@@ -688,6 +695,9 @@ class ContactAdaptiveMPC(LinearContactMPC):
         for k in range(self.horizon):
             self.lintraj._linearize_normal_distance(index + k)
             self.lintraj._linearize_friction_cone(index + k)
+
+    def getContactEstimationTrajectory(self):
+        return self.estimator.traj
 
 if __name__ == "__main__":
     print("Hello from MPC!")
