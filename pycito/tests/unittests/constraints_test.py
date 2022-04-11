@@ -186,8 +186,8 @@ class LinearImplicitDynamicsTest(unittest.TestCase):
         np.testing.assert_allclose(self.implicit_cstr.A, Anew, atol=1e-8, err_msg="Calling updateCoefficients did not update the coeffcient matrix within the constriant object")
         np.testing.assert_allclose(self.implicit_cstr.b, bnew, atol=1e-8, err_msg='Calling updateCoefficients did not update the coefficient vector within the constraint object')
         np.testing.assert_allclose(evaluator.A(), Anew, atol=1e-8, err_msg="Calling updateCoefficients did not update the coefficient matrix in the constraint")
-        np.testing.assert_allclose(evaluator.lower_bound(), bnew, atol=1e-8, err_msg="Calling updateCoefficients did not update the constraint lower bound")
-        np.testing.assert_allclose(evaluator.upper_bound(), bnew, atol=1e-8, err_msg="Calling updateCoefficients did not update the constraint upper bound")
+        np.testing.assert_allclose(evaluator.lower_bound(), -bnew, atol=1e-8, err_msg="Calling updateCoefficients did not update the constraint lower bound")
+        np.testing.assert_allclose(evaluator.upper_bound(), -bnew, atol=1e-8, err_msg="Calling updateCoefficients did not update the constraint upper bound")
 
 
 if __name__ == '__main__':

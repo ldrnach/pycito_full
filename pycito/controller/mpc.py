@@ -183,7 +183,7 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
         self._friccone = cstr.FrictionConeConstraint(self.plant)
         # Linearize the constraints
         self.distance_cstr = [None] * self.num_timesteps
-        self.dissipation_cstr [None] * self.num_timesteps
+        self.dissipation_cstr = [None] * self.num_timesteps
         self.friccone_cstr = [None] * self.num_timesteps
 
         for k in range(self.num_timesteps):
