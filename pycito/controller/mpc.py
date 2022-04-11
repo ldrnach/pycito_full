@@ -24,7 +24,7 @@ class _ControllerBase(abc.ABC):
         self._plant = plant
 
     @abc.abstractmethod
-    def get_control(self, t, x):
+    def get_control(self, t, x, u=None):
         raise NotImplementedError
 
 class NullController(_ControllerBase):
@@ -34,7 +34,7 @@ class NullController(_ControllerBase):
     def __init__(self, plant):
         super(NullController, self).__init__(plant)
 
-    def get_control(self, t, x):
+    def get_control(self, t, x, u=None):
         return np.zeros((self._plant.multibody.num_actuators(), ))
 
 class OpenLoopController(_ControllerBase):
@@ -49,7 +49,7 @@ class OpenLoopController(_ControllerBase):
     def fromReferenceTrajectory(cls, reftraj):
         return cls(reftraj.plant, reftraj._time, reftraj._control)
 
-    def get_control(self, t, x):
+    def get_control(self, t, x, u=None):
         """Open loop control value"""
         t = min(max(self._utraj.start_time(), t), self._utraj.end_time())
         return np.reshape(self._utraj.value(t), (-1,))
@@ -487,7 +487,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
                                     -2 * self._jlimit_weight.dot(j_ref),
                                     j_ref.dot(self._jlimit_weight.dot(j_ref)))
 
-    def get_control(self, t, x0):
+    def get_control(self, t, x, u=None):
         """"
         Return the MPC feedback controller
         Thin wrapper for do_mpc
@@ -517,7 +517,6 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
                 insert = ''
             print(f"MPC failed at time {t:0.3f} using {result.get_solver_id().name()} {insert}. Returning open loop control")
             return u
-
 
     @property
     def state_dim(self):
@@ -641,12 +640,30 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         self._use_zero_guess = False
 
 class ContactAdaptiveMPC():
-    def __init__(self):
+    def __init__(self, controller, estimator):
         super().__init__()
-        self.estimator = None
-        self.controller = None
+        self.estimator = estimator
+        self.controller = controller
+    
+    def enableLogging(self):
+        """Enable solution logging for both the estimator and the controller"""
+        self.estimator.enableLogging()
+        self.controller.enableLogging()
 
-    def get_control(self, t, x, u_old):
+    def disableLogging(self):
+        """Disable solution logging for both the estimator and the controller"""
+        self.estimator.disableLogging()
+        self.controller.disableLogging()
+
+    def getControllerLogs(self):
+        """Return the predictive controller solution logs"""
+        return self.controller.logs
+
+    def getEstimatorLogs(self):
+        """Return the contact estimator solution logs"""
+        return self.estimator.logs
+
+    def get_control(self, t, x, u):
         """
             Get a new control based on the previous control
         
@@ -658,7 +675,7 @@ class ContactAdaptiveMPC():
             Return values:
                 u: (M, ) the updated current control
         """    
-        model = self.estimator.estimate_contact(t, x, u_old)
+        model = self.estimator.estimate_contact(t, x, u)
         self._update_contact_linearization(t, model)
         return self.controller.get_control(t, x)
 
