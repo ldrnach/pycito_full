@@ -15,6 +15,14 @@ class OptimizationMixin():
         self._prog = MathematicalProgram()
         self._solver = None
         self.solver_options = {}
+        self.logger = OptimizationLogger(self)
+        self._log_enabled = False
+
+    def enableLogging(self):
+        self._log_enabled = True
+
+    def disableLogging(self):
+        self._log_enabled = False
 
     def useIpoptSolver(self):
         self.solver = IpoptSolver()
@@ -41,7 +49,10 @@ class OptimizationMixin():
         for key, value in self.solver_options.items():
             self.prog.SetSolverOption(self.solver.solver_id(), key, value)
         # Solve and return the solution
-        return self.solver.Solve(self.prog)
+        result =  self.solver.Solve(self.prog)
+        if self._log_enabled:
+            self.logger.log(result)
+        return result
 
     def get_decision_variable_dictionary(self):
         """
@@ -160,6 +171,10 @@ class OptimizationMixin():
     def prog(self):
         return self._prog
 
+    @property
+    def logger(self):
+        return self._logger
+
 class OptimizationLogger():
     def __init__(self, problem):
         assert issubclass(type(problem), OptimizationMixin), 'problem must inherit from OptimizationMixin'
@@ -266,7 +281,6 @@ class OptimizationLogger():
         for key in costs.keys():
             costs[key] = np.asarray(costs[key])
         return costs
-
 
     def constraint_log_array(self):
         """Return all the constraint violations as a dictionary of arrays"""
