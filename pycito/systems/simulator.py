@@ -33,12 +33,15 @@ class Simulator():
         # Everything else
         control = np.zeros((self.plant.multibody.num_actuators(), N))
         force  = np.zeros((self.plant.num_contacts() + self.plant.num_friction(), N))
+        # Get the initial static control law
+        control[:, 0], fN = self.plant.static_controller(state[:self.plant.multibody.num_positions(), 0])
+        force[:self.plant.num_contacts(), 0] = fN
         # Run the simulation
         status = True
         for n in range(1, N):
-            control[:, n-1] = self.controller.get_control(time[n-1], state[:, n-1])
-            force[:, n] = self.plant.contact_impulse(self._timestep, state[:, n-1], control[:, n-1])
-            state[:, n] = self.plant.integrate(self._timestep, state[:, n-1], control[:, n-1], force[:, n])
+            control[:, n] = self.controller.get_control(time[n-1], state[:, n-1], control[:, n-1])
+            force[:, n] = self.plant.contact_impulse(self._timestep, state[:, n-1], control[:, n])
+            state[:, n] = self.plant.integrate(self._timestep, state[:, n-1], control[:, n], force[:, n])
             if np.any(np.isnan(state[:, n])):
                 control = control[:, :n-1]
                 force = force[:, :n-1]
