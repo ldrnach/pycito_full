@@ -9,6 +9,10 @@ block_estimation_in_loop:
 Luke Drnach
 April 11, 2022
 """
+#TODO: Solve ERROR 41 in MPC
+#TODO: Solve problems with friction updating from terrain.py
+#TODO: FIX: Semiparametric models return different shapes for prior and posterior evaluations
+
 import os
 import numpy as np
 
@@ -20,7 +24,7 @@ import pycito.utilities as utils
 
 MPC_HORIZON = 5
 ESTIMATION_HORIZON = 5
-REFSOURCE = os.path.join('data','slidingblock','block_trajopt.pkl')
+REFSOURCE = os.path.join('data','slidingblock','block_reference.pkl')
 TARGET = os.path.join('examples','sliding_block','estimation_control')
 TERRAINFIGURE = 'EstimatedTerrain.png'
 TRAJNAME = 'estimatedtrajectory.pkl'
@@ -35,7 +39,8 @@ def make_estimator_controller():
     # Create the estimator
     t0 = reftraj.getTime(0)
     x0 = reftraj.getState(0)
-    esttraj = ce.ContactEstimationTrajectory(block, x0)
+    block2 = blocktools.make_semiparametric_block_model()
+    esttraj = ce.ContactEstimationTrajectory(block2, x0)
     estimator = ce.ContactModelEstimator(esttraj, ESTIMATION_HORIZON)
     # Set the estimator solver parameters
     estimator.forcecost = 1e-1
@@ -54,7 +59,8 @@ def make_estimator_controller():
     controller.slackcost = 1e-2 * np.eye(controller.slack_dim)
     controller.useSnoptSolver()
     controller.setSolverOptions({"Major feasibility tolerance": 1e-6,
-                                "Major optimality tolerance": 1e-6})
+                                "Major optimality tolerance": 1e-6,
+                                'Scale option': 1})
     # Enable logging
     controller.enableLogging()
     return controller
