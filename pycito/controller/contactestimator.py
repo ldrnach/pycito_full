@@ -494,7 +494,9 @@ class ContactEstimationTrajectory(ContactTrajectory):
         fN, fT = np.split(self._forces[-1], [self.num_contacts])
         fc = np.diag(mu).dot(fN) - self._D.dot(fT)
         mu_err = np.zeros_like(mu)
-        mu_err[fc < 0 and fN > 0] = -fc[fc < 0 and fN > 0]/fN[fc < 0 and fN > 0]
+        err_index = fc < 0 and fN > 0
+        if np.any(err_index):
+            mu_err[fc < 0 and fN > 0] = -fc[fc < 0 and fN > 0]/fN[fc < 0 and fN > 0]
         self._friction_error.append(mu_err)
         # Update the feasibility to ensure the nonlinear constraint is trivially satisfied
         g = self._slacks[-1]
