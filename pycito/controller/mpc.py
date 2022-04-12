@@ -438,8 +438,8 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
              self.prog.SetInitialGuess(self.dx, np.zeros((self.state_dim, self.horizon + 1)))
              self.prog.SetInitialGuess(self.du, np.zeros((self.control_dim, self.horizon)))
         else:
-            self.prog.SetInitialGuess(self.dx, np.random.default_rng().standard_normal(size = self.dx.size))
-            self.prog.SetInitialGuess(self.du, np.random.default_rng().standard_normal(size = self.du.size))
+            self.prog.SetInitialGuess(self.dx, np.random.default_rng().standard_normal(size = self.dx.shape))
+            self.prog.SetInitialGuess(self.du, np.random.default_rng().standard_normal(size = self.du.shape))
         for k, (df, ds) in enumerate(zip(self._dl, self._ds)):
             self.prog.SetInitialGuess(df, self.lintraj.getForce(index + k + 1))
             self.prog.SetInitialGuess(ds, self.lintraj.getSlack(index + k + 1))
@@ -690,7 +690,7 @@ class ContactAdaptiveMPC(LinearContactMPC):
         """
             Update the contact constraints linearization used in MPC
         """
-        self.plant.terrain = model
+        self.lintraj.plant.terrain = model
         index = self.lintraj.getTimeIndex(t)
         for k in range(self.horizon):
             self.lintraj._linearize_normal_distance(index + k)
