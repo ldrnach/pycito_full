@@ -664,12 +664,12 @@ class ContactAdaptiveMPC(LinearContactMPC):
 
     def getControllerLogs(self):
         """Return the predictive controller solution logs"""
-        return self.logs
+        return self.logger
 
     def getEstimatorLogs(self):
         """Return the contact estimator solution logs"""
-        return self.estimator.logs
-
+        return self.estimator.logger
+        
     def get_control(self, t, x, u):
         """
             Get a new control based on the previous control
