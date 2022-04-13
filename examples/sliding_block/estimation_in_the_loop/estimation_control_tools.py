@@ -1,0 +1,217 @@
+"""
+block_estimation_in_loop:
+    Example script demonstrating contact estimation in the control loop for the sliding block example. Examples inlcude:
+        1. Flatterrain - where there is no model mismatch between the planning and execution model
+        2. Highfriction - where the execution model has higher friction than the planning model
+        3. Lowfriction - where the execution model has lower friction than the planning model
+        4. Steppedterrain - where the execution model has a sudden drop in the terrain height
+
+Luke Drnach
+April 11, 2022
+"""
+#TODO: Solve ERROR 41 in MPC
+#TODO: Solve problems with friction updating from terrain.py
+#TODO: FIX: Semiparametric models return different shapes for prior and posterior evaluations
+
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+import examples.sliding_block.blocktools as blocktools
+import pycito.controller.mpc as mpc
+import pycito.controller.contactestimator as ce
+from pycito.systems.simulator import Simulator
+import pycito.utilities as utils
+from pycito.systems.block.block import Block
+
+FIG_EXT = '.png'
+MPC_HORIZON = 5
+ESTIMATION_HORIZON = 5
+REFSOURCE = os.path.join('data','slidingblock','block_reference.pkl')
+TARGET = os.path.join('examples','sliding_block','estimation_control')
+TERRAINFIGURE = 'EstimatedTerrain' + FIG_EXT
+TRAJNAME = 'estimatedtrajectory.pkl'
+CONTROLLOGFIG = 'mpclogs' + FIG_EXT
+CONTROLLOGNAME = 'mpclogs.pkl'
+ESTIMATELOGFIG = 'EstimationLogs' + FIG_EXT
+ESTIMATELOGNAME = 'EstimationLogs.pkl'
+
+def make_block_model():
+    block = Block()
+    block.Finalize()
+    return block
+
+def make_estimator_controller():
+    block = blocktools.make_semiparametric_block_model()
+    reftraj = mpc.LinearizedContactTrajectory.load(block, REFSOURCE)
+    # Create the estimator
+    x0 = reftraj.getState(0)
+    block2 = blocktools.make_semiparametric_block_model()
+    esttraj = ce.ContactEstimationTrajectory(block2, x0)
+    estimator = ce.ContactModelEstimator(esttraj, ESTIMATION_HORIZON)
+    # Set the estimator solver parameters
+    estimator.forcecost = 1e-1
+    estimator.relaxedcost = 1e4
+    estimator.distancecost = 1e-3
+    estimator.frictioncost = 1e-3
+    estimator.useSnoptSolver()
+    estimator.setSolverOptions({"Major feasibility tolerance": 1e-6,
+                                "Major optimality tolerance": 1e-6})
+    # Create the overall controller
+    controller = mpc.ContactAdaptiveMPC(estimator, reftraj, MPC_HORIZON)
+    # Tune the controller
+    controller = set_controller_options(controller)
+
+    return controller
+
+def set_controller_options(controller):
+    controller.statecost = 1e2 * np.eye(controller.state_dim)
+    controller.controlcost = 1e-2 * np.eye(controller.control_dim)
+    controller.forcecost = 1e-2 * np.eye(controller.force_dim)
+    controller.slackcost = 1e-2 * np.eye(controller.slack_dim)
+    controller.complementaritycost = 1e2
+    controller.useSnoptSolver()
+    controller.setSolverOptions({"Major feasibility tolerance": 1e-6,
+                                "Major optimality tolerance": 1e-6,
+                                'Scale option': 1})
+    return controller
+
+def make_mpc_controller():
+    block = make_block_model()
+    reftraj = mpc.LinearizedContactTrajectory.load(block, REFSOURCE)
+    controller = mpc.LinearContactMPC(reftraj, MPC_HORIZON)
+    controller = set_controller_options(controller)
+    return controller
+
+def run_simulation(plant, controller, initial_state, duration, savedir=None):
+    #Check if the target directory exists
+    if savedir is not None and not os.path.exists(savedir):
+        os.makedirs(savedir)
+    # Create and run the simulation
+    sim = Simulator(plant, controller)
+    tsim, xsim, usim, fsim, status = sim.simulate(initial_state, duration)
+    if not status:
+        print(f"Simulation faied at timestep {tsim[-1]}")
+    sim_results = {'time': tsim,
+                    'state': xsim,
+                    'control': usim,
+                    'force': fsim,
+                    'status': status}
+    return sim_results
+
+def plot_mpc_logs(mpc_controller, savedir):
+    if not os.path.exists(savedir):
+        os.makedirs(savedir)
+    mpc_controller.logger.plot(show=False, savename=os.path.join(savedir,CONTROLLOGFIG))
+
+def plot_campc_logs(campc_controller, savedir):
+    if not os.path.exists(savedir):
+        os.makedirs(savedir)
+    campc_controller.getControllerLogs().plot(show=False, savename=os.path.join(savedir, CONTROLLOGFIG))
+    campc_controller.getEstimatorLogs().plot(show=False, savename=os.path.join(savedir, ESTIMATELOGFIG))
+
+def save_mpc_logs(mpc_controller, savedir):
+    if not os.path.exists(savedir):
+        os.makedirs(savedir)
+    mpc_controller.logger.save(os.path.join(savedir, CONTROLLOGNAME))
+
+def save_campc_logs(campc_controller, savedir):
+    if not os.path.exists(savedir):
+        os.makedirs(savedir)
+    campc_controller.getControllerLogs().save(os.path.join(savedir, CONTROLLOGNAME))
+    campc_controller.getEstimatorLogs().save(os.path.join(savedir, ESTIMATELOGNAME))
+
+def plot_estimated_terrain(controller, savedir):
+    esttraj = controller.getContactEstimationTrajectory()
+    plotter = ce.ContactEstimationPlotter(esttraj)
+    plotter.plot(show=False, savename=os.path.join(savedir, TERRAINFIGURE))
+
+def save_estimated_terrain(controller, savedir):
+    controller.getContactEstimationTrajectory().saveContactTrajectory(os.path.join(savedir, TRAJNAME))
+
+def plot_trajectory_comparison(mpc_sim, campc_sim, savename):
+    fig, axs = plt.subplots(3,1)
+    # Horizontal state plot
+    plot_horizontal_sim_trajectory(axs, mpc_sim, label='MPC')
+    plot_horizontal_sim_trajectory(axs, campc_sim, label='CAMPC')
+    axs[0].set_title('Horizontal Trajectory')
+    axs[0].legend()
+    fig.tight_layout
+    fig.savefig(os.path.join(savename, 'horizontal_traj' + FIG_EXT), dpi=fig.dpi, bbox_inches='tight')
+    plt.close(fig)
+    # Vertical State Plot
+    fig, axs = plt.subplots(2,1)
+    plot_vertical_sim_trajectory(axs, mpc_sim, label='MPC')
+    plot_vertical_sim_trajectory(axs, campc_sim, label='CAMPC')
+    axs[0].set_title('Vertical Trajectory')
+    axs[0].legend()
+    fig.tight_layout()
+    fig.savefig(os.path.join(savename, 'vertical_traj' + FIG_EXT), dpi=fig.dpi, bbox_inches='tight')
+    plt.close(fig)
+    # Ground reaction force plot
+    fig, axs = plt.subplots(3,1)
+    plot_sim_forces(axs, mpc_sim, label='MPC')
+    plot_sim_forces(axs, campc_sim, label='CAMPC')
+    axs[0].set_title('Reaction Forces')
+    axs[0].legend()
+    fig.tight_layout()
+    fig.savefig(os.path.join(savename, 'reaction_forces' + FIG_EXT), dpi=fig.dpi, bbox_inches='tight')
+    plt.close(fig)
+
+def plot_horizontal_sim_trajectory(axs, sim, label=None):
+    axs[0].plot(sim['time'], sim['state'][0,:], linewidth=1.5, label=label)
+    axs[0].set_ylabel('Position (m)')
+    axs[1].plot(sim['time'], sim['state'][2,:], linewidth=1.5, label=label)
+    axs[1].set_ylabel('Velocity (m/s)')
+    axs[2].plot(sim['time'], sim['control'][0,:], linewidth=1.5, label=label)
+    axs[2].set_ylabel('Control (N)')
+    axs[2].set_xlabel('Time (s)')
+
+def plot_vertical_sim_trajectory(axs, sim, label=None):
+    axs[0].plot(sim['time'], sim['state'][1,:], linewidth=1.5, label=label)
+    axs[0].set_ylabel('Position (m)')
+    axs[1].plot(sim['time'], sim['state'][3,:], linewidth=1.5, label=label)
+    axs[1].set_ylabel("Velocity (m/s)")
+    axs[1].set_xlabel('Time (s)')
+
+def plot_sim_forces(axs, sim, label=None):
+    axs[0].plot(sim['time'], sim['force'][0,:], linewidth=1.5, label=label)
+    axs[0].set_ylabel('Normal (N)')
+    axs[1].plot(sim['time'], sim['force'][1,:] - sim['force'][3,:], linewidth=1.5, label=label)
+    axs[1].set_ylabel('Friction-X (N)')
+    axs[2].plot(sim['time'], sim['force'][2,:] - sim['force'][4,:], linewidth=1.5, label=label)
+    axs[2].set_ylabel('Friction-Y (N)')
+    axs[2].set_xlabel('Time (s)')
+
+def main_flatterrain():
+    block = blocktools.make_flatterrain_model()
+    controller = make_estimator_controller()
+    x0 = controller.lintraj.getState(0)
+    target = os.path.join(TARGET, 'flatterrain')
+    run_simulation(block, controller, x0, duration=1.5, savedir=target)
+
+def main_lowfriction():
+    block = blocktools.make_lowfriction_model()
+    controller = make_estimator_controller()
+    x0 = controller.lintraj.getState(0)
+    target = os.path.join(TARGET, 'lowfriction')
+    run_simulation(block, controller, x0, duration=1.5, savedir=target) 
+
+def main_highfriction():
+    block = blocktools.make_highfriction_model()
+    controller = make_estimator_controller()
+    x0 = controller.lintraj.getState(0)
+    target = os.path.join(TARGET, 'highfriction')
+    run_simulation(block, controller, x0, duration=1.5, savedir=target) 
+
+def main_stepterrain():
+    block = blocktools.make_stepterrain_model()
+    controller = make_estimator_controller()
+    x0 = controller.lintraj.getState(0)
+    target = os.path.join(TARGET, 'stepterrain')
+    run_simulation(block, controller, x0, duration=1.5, savedir=target) 
+
+if __name__ == '__main__':
+    #main_flatterrain()
+    main_stepterrain()
+    main_lowfriction()
+    main_highfriction()
