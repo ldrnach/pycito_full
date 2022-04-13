@@ -480,6 +480,9 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
 
     def _update_costs(self, index):
         """Update the quadratic cost values"""
+        for xcost, ucost in zip(self._state_cost, self._control_cost):
+            xcost.evaluator().UpdateCoefficients(2 * self._state_weight, np.zeros((self.state_dim,)), np.zeros((1,)))
+            ucost.evaluator().UpdateCoefficients(2 * self._control_weight, np.zeros((self.control_dim)), np.zeros((1,)))
         for k, (fcost, scost) in enumerate(zip(self._force_cost, self._slack_cost)):
             f_ref = self.lintraj.getForce(index + k)
             fcost.evaluator().UpdateCoefficients(2*self._force_weight,
