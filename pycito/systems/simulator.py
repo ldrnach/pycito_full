@@ -42,9 +42,10 @@ class Simulator():
             control[:, n] = self.controller.get_control(time[n-1], state[:, n-1], control[:, n-1])
             force[:, n] = self.plant.contact_impulse(self._timestep, state[:, n-1], control[:, n])
             state[:, n] = self.plant.integrate(self._timestep, state[:, n-1], control[:, n], force[:, n])
+            force[:, n] = force[:, n] / self._timestep
             if np.any(np.isnan(state[:, n])):
                 control = control[:, :n-1]
-                force = force[:, :n-1]
+                force = force[:, :n-1] 
                 state = state[:, :n-1]
                 time = time[:n-1]
                 status = False
