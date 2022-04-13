@@ -721,7 +721,9 @@ class ContactModelEstimator(OptimizationMixin):
         """
         fN = forces[:self.traj.num_contacts,:].reshape(-1)
         fc_weights = np.zeros_like(fweights)
-        fc_weights[fN > self.traj._FTOL] = fweights[fN > self.traj._FTOL]/fN[fN > self.traj._FTOL]
+        err_index = fN > self.traj._FTOL 
+        if np.any(err_index):
+            fc_weights[err_index] = fweights[err_index]/fN[err_index]
         return fc_weights
 
     def get_updated_contact_model(self, result):
