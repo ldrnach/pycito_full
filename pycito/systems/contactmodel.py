@@ -8,9 +8,14 @@ February 16, 2022
 #TODO: rewrite models to always return numpy arrays
 #TODO: Integrate with Timestepping
 import numpy as np
-import abc
+import abc, warnings
+import matplotlib.pyplot as plt
+from functools import partial
+
 import pycito.systems.kernels as kernels
-from copy import deepcopy
+import pycito.decorators as deco
+
+from pydrake.all import MathematicalProgram, Solve
 
 def householderortho3D(normal):
     """
@@ -252,6 +257,57 @@ class _ContactModel(abc.ABC):
         """
         raise NotImplementedError
 
+    def find_surface_zaxis_zeros(self, pts):       
+        # Setup the mathematical program
+        soln = np.copy(pts)
+        guess = pts[2:,0]
+        for k, pt in enumerate(pts.transpose()):
+            prog = MathematicalProgram()
+            zvar = prog.NewContinuousVariables(rows=1, name='z')
+            # Find the smallest modification
+            prog.AddQuadraticErrorCost(np.eye(1), pt[2:], vars=zvar)
+            # Constrain the surface to evaluate to zero
+            pt_cstr = lambda z, x=pt[0], y=pt[1]: self.eval_surface(np.concatenate([np.array([x, y]), z], axis=0))
+            prog.AddConstraint(pt_cstr, lb = np.zeros((1,)), ub = np.zeros((1,)), vars = zvar, description='zeroset')
+            # Solve the program
+            prog.SetInitialGuess(zvar, guess)
+            result = Solve(prog)
+            if not result.is_success():
+                warnings.warn(f"find_surface_zaxis_zeros did not solve successfully. Results may be inaccurate")
+            print(f"Solved problem {k} of {pts.shape[1]}")
+            soln[2,k] = result.GetSolution(zvar)
+            guess = soln[2:,k]
+        return soln
+
+    @deco.showable_fig
+    @deco.saveable_fig
+    def plot2D(self, pts, axs=None, label=None):
+        """
+        Plot the contact model in 2D coordinates. Currently, plot2D requires a full 3D point specification, but plots the z-axis values of the terrain along the x-axis (the y-values are ignored).
+
+        plot2D first finds the closest zeros of the contact surface model, and then plots the corresponding (x,z) value pair. plot2D also evaluates the friction coefficient at the given (x,y,z) triples
+
+        Arguments:
+            pts: (3,N) numpy array, points "close to" the contact model surface
+
+        """
+        # Get the figure and axis handles
+        if axs is None:
+            fig, axs = plt.subplots(2,1)
+        else:
+            plt.sca(axs[0])
+            fig = plt.gcf()
+        # Evaluate the contact models
+        surf_pts = self.find_surface_zaxis_zeros(pts)
+        fric_pts = np.concatenate([self.eval_friction(pt) for pt in pts.transpose()], axis=0)
+        # Make the plots
+        axs[0].plot(surf_pts[0], surf_pts[2], linewidth=1.5, label=label)
+        axs[0].set_ylabel('Contact Height (m)')
+        axs[1].plot(pts[0,:], fric_pts, linewidth=1.5, label=label)
+        axs[1].set_ylabel('Friction Coefficient')
+        axs[1].set_xlabel('Position (m)')
+        return fig, axs
+
 class ContactModel(_ContactModel):
     def __init__(self, surface, friction):
         assert issubclass(type(surface), DifferentiableModel), 'surface must be a subclass of DifferentiableModel'
@@ -310,6 +366,7 @@ class ContactModel(_ContactModel):
         normal = normal / np.linalg.norm(normal)
         tangent, binormal = householderortho3D(normal)
         return np.row_stack([normal, tangent, binormal])
+
 
 class SemiparametricContactModel(ContactModel):
     def __init__(self, surface, friction):
