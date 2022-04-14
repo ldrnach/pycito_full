@@ -180,6 +180,14 @@ class ContactModelTest(unittest.TestCase):
         frame_ad = self.model.local_frame(test)
         np.testing.assert_allclose(ad.ExtractValue(frame_ad), self.expected_frame, atol=1e-12, err_msg=f"Contact model local frame evaluation inaccurate when using autodiff types")
 
+    def test_find_surface_points(self):
+        """Test the algorithm that finds the z-axis surface points"""
+        pts = np.column_stack(self.test_points)
+        surf_pts = self.model.find_surface_zaxis_zeros(pts)
+        expected_pts = np.copy(pts)
+        expected_pts[2,:] = self.model.surface._location
+        np.testing.assert_allclose(surf_pts, expected_pts, atol=1e-6, err_msg=f"Could not accurately find the surface zero level set")
+
 class SemiparametricModelTest(unittest.TestCase):
     def setUp(self):
         self.model = cm.SemiparametricModel.ConstantPriorWithRBFKernel(const = 0, length_scale=1)
@@ -331,6 +339,14 @@ class SemiparametricContactModelTest(unittest.TestCase):
         R = ad.ExtractValue(R_ad)
         np.testing.assert_allclose(R.dot(R.T), np.eye(3), atol=1e-6, err_msg=f"Evaluating posterior local frame does not return an orthonormal matrix for autodiff types")
         
+    def test_find_surface_points(self):
+        """Test the algorithm that finds the z-axis surface points"""
+        pts = np.column_stack(self.data).T
+        surf_pts = self.model.find_surface_zaxis_zeros(pts)
+        expected_pts = np.copy(pts)
+        expected_pts[2,:] = self.model.surface.prior._location
+        np.testing.assert_allclose(surf_pts, expected_pts, atol=1e-6, err_msg=f"Could not accurately find the surface zero level set")
+
 
 if __name__ == '__main__':
     unittest.main()
