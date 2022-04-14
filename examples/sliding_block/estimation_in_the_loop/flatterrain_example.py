@@ -31,8 +31,12 @@ def main():
     # Plot and save the results
     campctools.plot_trajectory_comparison(mpc_sim, campc_sim, savename=TARGET)
     # Plot the estimated contact model
-    campctools.plot_estimated_terrain(campc_controller, savedir=TARGET)
+    campctools.plot_terrain_errors(campc_controller, savedir=TARGET)
     campctools.save_estimated_terrain(campc_controller, savedir=TARGET)
+    estimated_model = campctools.get_contact_model(campc_controller)
+    pts = campctools.get_x_samples(campc_sim, sampling=1000)
+    campctools.compare_estimated_contact_model(estimated_model, true_plant.terrain, pts, savedir=TARGET)
+    campctools.compare_forces(campc_sim, campc_controller, savedir=TARGET)
     # Plot the mpc and campc logs
     campctools.plot_mpc_logs(mpc_controller, savedir = os.path.join(TARGET, 'mpc_logs'))
     campctools.save_mpc_logs(mpc_controller, savedir = os.path.join(TARGET, 'mpc_logs'))

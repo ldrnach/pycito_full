@@ -13,7 +13,7 @@ April 11, 2022
 #TODO: Solve problems with friction updating from terrain.py
 #TODO: FIX: Semiparametric models return different shapes for prior and posterior evaluations
 
-import os
+import os, copy
 import numpy as np
 import matplotlib.pyplot as plt
 import examples.sliding_block.blocktools as blocktools
@@ -99,43 +99,53 @@ def run_simulation(plant, controller, initial_state, duration, savedir=None):
     return sim_results
 
 def plot_mpc_logs(mpc_controller, savedir):
+    print('Plotting MPC logs')
     if not os.path.exists(savedir):
         os.makedirs(savedir)
     mpc_controller.logger.plot(show=False, savename=os.path.join(savedir,CONTROLLOGFIG))
 
 def plot_campc_logs(campc_controller, savedir):
+    print('Plotting CAMPC logs')
     if not os.path.exists(savedir):
         os.makedirs(savedir)
     campc_controller.getControllerLogs().plot(show=False, savename=os.path.join(savedir, CONTROLLOGFIG))
     campc_controller.getEstimatorLogs().plot(show=False, savename=os.path.join(savedir, ESTIMATELOGFIG))
 
 def save_mpc_logs(mpc_controller, savedir):
+    print('Saving MPC logs')
     if not os.path.exists(savedir):
         os.makedirs(savedir)
     mpc_controller.logger.save(os.path.join(savedir, CONTROLLOGNAME))
+    print('Saved!')
 
 def save_campc_logs(campc_controller, savedir):
+    print('Saving CAMPC logs')
     if not os.path.exists(savedir):
         os.makedirs(savedir)
     campc_controller.getControllerLogs().save(os.path.join(savedir, CONTROLLOGNAME))
     campc_controller.getEstimatorLogs().save(os.path.join(savedir, ESTIMATELOGNAME))
+    print('Saved!')
 
-def plot_estimated_terrain(controller, savedir):
+def plot_terrain_errors(controller, savedir):
+    print('Plotting terrain residuals')
     esttraj = controller.getContactEstimationTrajectory()
     plotter = ce.ContactEstimationPlotter(esttraj)
     plotter.plot(show=False, savename=os.path.join(savedir, TERRAINFIGURE))
 
 def save_estimated_terrain(controller, savedir):
+    print("saving estimated terrain")
     controller.getContactEstimationTrajectory().saveContactTrajectory(os.path.join(savedir, TRAJNAME))
+    print("Saved!")
 
 def plot_trajectory_comparison(mpc_sim, campc_sim, savename):
+    print('Generating simulation comparison plots')
     fig, axs = plt.subplots(3,1)
     # Horizontal state plot
     plot_horizontal_sim_trajectory(axs, mpc_sim, label='MPC')
     plot_horizontal_sim_trajectory(axs, campc_sim, label='CAMPC')
     axs[0].set_title('Horizontal Trajectory')
     axs[0].legend()
-    fig.tight_layout
+    fig.tight_layout()
     fig.savefig(os.path.join(savename, 'horizontal_traj' + FIG_EXT), dpi=fig.dpi, bbox_inches='tight')
     plt.close(fig)
     # Vertical State Plot
@@ -182,36 +192,48 @@ def plot_sim_forces(axs, sim, label=None):
     axs[2].set_ylabel('Friction-Y (N)')
     axs[2].set_xlabel('Time (s)')
 
-def main_flatterrain():
-    block = blocktools.make_flatterrain_model()
-    controller = make_estimator_controller()
-    x0 = controller.lintraj.getState(0)
-    target = os.path.join(TARGET, 'flatterrain')
-    run_simulation(block, controller, x0, duration=1.5, savedir=target)
+def compare_forces(sim, campc, savedir):
+    fig, axs = plt.subplots(3,1)
+    plot_sim_forces(axs, sim, label='True')
+    campc_data = {'time': np.asarray(campc.getContactEstimationTrajectory()._time),
+                'force': np.column_stack(campc.getContactEstimationTrajectory()._forces)
+    }
+    plot_sim_forces(axs, campc_data, label='Estimated')
+    axs[0].set_title('Estimated Force Comparison')
+    axs[0].legend()
+    fig.tight_layout()
+    fig.savefig(os.path.join(savedir, 'estimated_force_comparison' + FIG_EXT), dpi=fig.dpi, bbox_inches='tight')
+    plt.close(fig)
 
-def main_lowfriction():
-    block = blocktools.make_lowfriction_model()
-    controller = make_estimator_controller()
-    x0 = controller.lintraj.getState(0)
-    target = os.path.join(TARGET, 'lowfriction')
-    run_simulation(block, controller, x0, duration=1.5, savedir=target) 
+def get_contact_model(campc):
+    etraj = campc.getContactEstimationTrajectory()
+    model = copy.deepcopy(etraj.contact_model)
+    N = etraj.num_timesteps
+    cpts = np.concatenate(etraj.get_contacts(0, N), axis=1)
+    derr = np.row_stack(etraj.get_distance_error(0, N))
+    ferr = np.row_stack(etraj.get_friction_error(0, N))
+    Kd, Kf = etraj.getContactKernels(0, N)
+    dweight = np.linalg.lstsq(Kd, derr, rcond=None)[0]
+    fweight = np.linalg.lstsq(Kf, ferr, rcond=None)[0]
+    model.add_samples(cpts, dweight, fweight)
+    return model
 
-def main_highfriction():
-    block = blocktools.make_highfriction_model()
-    controller = make_estimator_controller()
-    x0 = controller.lintraj.getState(0)
-    target = os.path.join(TARGET, 'highfriction')
-    run_simulation(block, controller, x0, duration=1.5, savedir=target) 
+def compare_estimated_contact_model(estimated, true, pts, savedir):
+    print(f"Generating contact model comparison plots")
+    fig, axs = true.plot2D(pts, label='True', show=False, savename=None)
+    fig, axs = estimated.plot2D(pts, axs, label='Estimated', show=False, savename=None)
+    axs[0].set_title('Contact Model Estimation Performance')
+    axs[0].legend()
+    fig.tight_layout()
+    fig.savefig(os.path.join(savedir, 'estimatedcontactmodel' + FIG_EXT), dpi=fig.dpi, bbox_inches='tight')
+    plt.close(fig)
 
-def main_stepterrain():
-    block = blocktools.make_stepterrain_model()
-    controller = make_estimator_controller()
-    x0 = controller.lintraj.getState(0)
-    target = os.path.join(TARGET, 'stepterrain')
-    run_simulation(block, controller, x0, duration=1.5, savedir=target) 
+def get_x_samples(sim, sampling=100):
+    xvals = sim['state'][0,:]
+    pt0 = np.zeros((3,))
+    ptN = np.zeros((3,))
+    pt0[0], ptN[0] = np.amin(xvals), np.amax(xvals)
+    return np.linspace(pt0, ptN, sampling).transpose()
 
 if __name__ == '__main__':
-    #main_flatterrain()
-    main_stepterrain()
-    main_lowfriction()
-    main_highfriction()
+    print("Heelo from estimation_control_tools.py!")
