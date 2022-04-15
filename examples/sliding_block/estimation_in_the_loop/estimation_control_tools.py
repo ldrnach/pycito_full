@@ -64,9 +64,9 @@ def make_estimator_controller():
     return controller
 
 def set_controller_options(controller):
-    controller.statecost = 1e2 * np.eye(controller.state_dim)
+    controller.statecost = np.diag([1e2, 1e2, 1, 1])
     controller.controlcost = 1e-2 * np.eye(controller.control_dim)
-    controller.forcecost = 1e-2 * np.eye(controller.force_dim)
+    controller.forcecost = 1e-4 * np.eye(controller.force_dim)
     controller.slackcost = 1e-2 * np.eye(controller.slack_dim)
     controller.complementaritycost = 1e2
     controller.useSnoptSolver()
