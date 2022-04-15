@@ -301,7 +301,14 @@ class TimeSteppingMultibodyPlant():
             f[:,n] = f[:,n]/h
         return (t, x, f)
 
-    def integrate(self, h, x, u, f):
+    def integrate(self, h, x, u):
+        """Semi-implicit Euler integration for multibody systems with contact"""
+        force, status = self.contact_impulse(h, x, u)
+        force  = force 
+        x_next = self.integrate_given_force(h, x, u, force)
+        return x_next, force, status
+
+    def integrate_given_force(self, h, x, u, f):
         """Semi-implicit Euler integration for multibody systems"""
         # Get the configuration and the velocity
         q, v = np.split(x,[self.multibody.num_positions()])
@@ -368,7 +375,7 @@ class TimeSteppingMultibodyPlant():
             return np.zeros(shape=(numN+numT,))
         else:
             # Strip the slack variables from the LCP solution
-            return f[0:numN + numT]
+            return f[0:numN + numT], status
 
     def get_multibody(self):
         return self.multibody
