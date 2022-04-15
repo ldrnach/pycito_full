@@ -146,14 +146,14 @@ class ContactDynamicsIntegrator():
         context = self.plant.multibody.CreateDefaultContext()
         self.plant.multibody.SetPositionsAndVelocities(context, x0)
         q, v = np.split(x0, [self.plant.num_positions])
-        q += dt * self.plant.multibody.MapVelocityToQDot(context, v)
-        self.prog.SetInitialGuess(self.x[:, 1], np.hstack([q, v]))
+        q2 = q + dt * self.plant.multibody.MapVelocityToQDot(context, v)
+        self.prog.SetInitialGuess(self.x[:, 1], np.hstack([q2, v]))
         # Currently - do not initialize the forces (use previous solve if one exists)
         if self._last_force is not None:
             self.prog.SetInitialGuess(self.all_forces, self._last_force)
         else:
             # Initialize using the static case
-            _, f = self.plant.static_controller(q)
+            _, f = self.plant.static_controller(q2)
             self.prog.SetInitialGuess(self.fn, f)
         if self._last_slack is not None:
             self.prog.SetInitialGuess(self.vs, self._last_slack)
