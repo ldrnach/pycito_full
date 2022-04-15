@@ -30,6 +30,9 @@ class Simulator():
     def useImplicitMidpoint(self):
         self.integrator = ContactDynamicsIntegrator.ImplicitMidpointIntegrator(self.plant)
 
+    def useTimestepping(self):
+        self.integrator = self.plant
+
     def simulate(self, initial_state, duration):
         """Run the simulation"""
         # Initialize the output arrays
