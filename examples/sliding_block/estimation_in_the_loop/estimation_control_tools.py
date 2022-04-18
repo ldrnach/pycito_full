@@ -134,7 +134,7 @@ def plot_terrain_errors(controller, savedir):
 
 def save_estimated_terrain(controller, savedir):
     print("saving estimated terrain")
-    controller.getContactEstimationTrajectory().saveContactTrajectory(os.path.join(savedir, TRAJNAME))
+    controller.getContactEstimationTrajectory().save(os.path.join(savedir, TRAJNAME))
     print("Saved!")
 
 def plot_trajectory_comparison(mpc_sim, campc_sim, savename):
@@ -218,14 +218,14 @@ def get_contact_model(campc):
     model.add_samples(cpts, dweight, fweight)
     return model
 
-def compare_estimated_contact_model(estimated, true, pts, savedir):
+def compare_estimated_contact_model(estimated, true, pts, savedir, name='estimatedcontactmodel'):
     print(f"Generating contact model comparison plots")
     fig, axs = true.plot2D(pts, label='True', show=False, savename=None)
     fig, axs = estimated.plot2D(pts, axs, label='Estimated', show=False, savename=None)
     axs[0].set_title('Contact Model Estimation Performance')
     axs[0].legend()
     fig.tight_layout()
-    fig.savefig(os.path.join(savedir, 'estimatedcontactmodel' + FIG_EXT), dpi=fig.dpi, bbox_inches='tight')
+    fig.savefig(os.path.join(savedir, name + FIG_EXT), dpi=fig.dpi, bbox_inches='tight')
     plt.close(fig)
 
 def get_x_samples(sim, sampling=100):
@@ -234,6 +234,18 @@ def get_x_samples(sim, sampling=100):
     ptN = np.zeros((3,))
     pt0[0], ptN[0] = np.amin(xvals), np.amax(xvals)
     return np.linspace(pt0, ptN, sampling).transpose()
+
+def run_ambiguity_optimization(esttraj):
+    rectifier = ce.EstimatedContactModelRectifier(esttraj, surf_max = 100, fric_max = 100)
+    rectifier.useSnoptSolver()
+    rectifier.setSolverOptions({'Major feasibility tolerance': 1e-6,
+                                'Major optimality tolerance': 1e-6})
+    ambi_model = rectifier.solve_global_model_with_ambiguity()
+    return ambi_model
+
+def load_estimation_trajectory(loaddir):
+    block = blocktools.make_semiparametric_block_model()
+    return ce.ContactEstimationTrajectory.load(block, os.path.join(loaddir, 'estimatedtrajectory.pkl'))
 
 if __name__ == '__main__':
     print("Heelo from estimation_control_tools.py!")
