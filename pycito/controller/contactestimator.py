@@ -377,6 +377,7 @@ class ContactEstimationTrajectory(ContactTrajectory):
         # Save the estimation trajectory to the disk
         var_dict = vars(self)
         var_dict['_plant'] = type(self._plant).__name__
+        var_dict.pop('_context')
         var_dict['isContactEstimationTrajectory'] = True
         utils.save(filename, var_dict)
 
@@ -392,7 +393,7 @@ class ContactEstimationTrajectory(ContactTrajectory):
             raise ValueError(f"{filename} was made with a {data['_plant']} plant model, but a {type(plant).__name__} was given")
         # Create the new contact estimation trajectory
         newinstance = cls(plant, data['_last_state'])
-        data.pop('isContactEstimationTrajectry')
+        data.pop('isContactEstimationTrajectory')
         data.pop('_plant')
         for key, value in data.items():
             setattr(newinstance, key, value)
@@ -1046,6 +1047,7 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         self._add_distance_constraints()
         self._add_friction_constraints()
         self._add_relaxation_constraint()
+        self._initialize()
         self.costs = []
 
     def _add_variables(self):
@@ -1109,6 +1111,19 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         f = np.expand_dims(f, axis=1)
         relax = np.expand_dims(self.relax, axis=1)
         self.prog.AddBoundingBoxConstraint(np.zeros(f.shape), f, relax).evaluator().set_description('Feasibility Limits')
+
+    def _initialize(self):
+        """Initialize the decision variables"""
+        derr = np.concatenate(self.traj.get_distance_error(0, self.traj.num_timesteps), axis=0)
+        ferr = np.concatenate(self.traj.get_friction_error(0, self.traj.num_timesteps), axis=0)
+        relax = np.concatenate(self.traj.get_feasibility(0, self.traj.num_timesteps), axis=0)
+        # Convert to kernel weights
+        dweight = np.linalg.lstsq(self.Kd, derr, rcond=None)[0]
+        fweight = np.linalg.lstsq(self.Kf, ferr, rcond=None)[0]
+        # Set initial guess
+        self.prog.SetInitialGuess(self.dweights, dweight)
+        self.prog.SetInitialGuess(self.fweights, fweight)
+        self.prog.SetInitialGuess(self.relax, relax)
 
     def _add_quadratic_cost(self):
         """Add the quadratic cost terms used in global model optimization"""
@@ -1181,7 +1196,7 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         # Create the model with ambiguity information
         model = copy.deepcopy(self.traj.contact_model)
         model = model.toSemiparametricModelWithAmbiguity()
-        cpts = self.traj.get_contacts(0, self.traj.num_timesteps)
+        cpts = np.concatenate(self.traj.get_contacts(0, self.traj.num_timesteps), axis=1)
         model.add_samples(cpts, surf_global, fric_global)
         model.set_upper_bound(surf_ub, fric_ub)
         model.set_lower_bound(surf_lb, fric_lb)
