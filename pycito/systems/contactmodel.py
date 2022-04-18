@@ -149,8 +149,8 @@ class SemiparametricModel(DifferentiableModel):
         samples = np.atleast_2d(samples)
         assert samples.shape[1] == weights.shape[0], 'there must be as many weights as there are samples'
         if self._sample_points is not None:
-            assert samples.shape[1] == self._sample_points.shape[1], 'new samples must have the same number of features as the existing samples'
-            self._sample_points = np.concatenate([self._sample_points, samples], axis=0)
+            assert samples.shape[0] == self._sample_points.shape[0], 'new samples must have the same number of features as the existing samples'
+            self._sample_points = np.concatenate([self._sample_points, samples], axis=1)
             self._kernel_weights = np.concatenate([self._kernel_weights, weights], axis=0)
         else:
             self._sample_points = samples
@@ -274,7 +274,6 @@ class _ContactModel(abc.ABC):
             result = Solve(prog)
             if not result.is_success():
                 warnings.warn(f"find_surface_zaxis_zeros did not solve successfully. Results may be inaccurate")
-            print(f"Solved problem {k} of {pts.shape[1]}")
             soln[2,k] = result.GetSolution(zvar)
             guess = soln[2:,k]
         return soln
@@ -452,8 +451,8 @@ class SemiparametricContactModel(ContactModel):
 class SemiparametricContactModelWithAmbiguity(SemiparametricContactModel):
     def __init__(self, surface, friction):
         super().__init__(surface, friction)
-        self.lower_bound = SemiparametricContactModel(surface, friction)
-        self.upper_bound = SemiparametricContactModel(surface, friction)
+        self.lower_bound = SemiparametricContactModel(copy.deepcopy(surface), copy.deepcopy(friction))
+        self.upper_bound = SemiparametricContactModel(copy.deepcopy(surface), copy.deepcopy(friction))
 
     def add_samples(self, sample_points, surface_weights, friction_weights):
         """
@@ -510,13 +509,13 @@ class SemiparametricContactModelWithAmbiguity(SemiparametricContactModel):
         # Make the plots
         surf_line = axs[0].plot(surf_pts[0], surf_pts[2], linewidth=1.5, label=label)
         surf_limits = axs[0].get_ylim()
-        axs[0].fill_between(surf_pts[0], surf_lb[2], surf_ub[2], alpha=0.2, color=surf_line.get_color())
+        axs[0].fill_between(surf_pts[0], surf_lb[2], surf_ub[2], alpha=0.2, color=surf_line[-1].get_color())
         axs[0].set_ylim(surf_limits)
         axs[0].set_ylabel('Contact Height (m)')
         
         fric_line = axs[1].plot(pts[0,:], fric_pts, linewidth=1.5, label=label)
         fric_limits = axs[1].get_ylim()
-        axs[1].fill_between(pts[0,:], fric_lb, fric_ub, alpha=0.2, color=fric_line.get_color())
+        axs[1].fill_between(pts[0,:], fric_lb, fric_ub, alpha=0.2, color=fric_line[-1].get_color())
         axs[1].set_ylim(fric_limits)
         axs[1].set_ylabel('Friction Coefficient')
         axs[1].set_xlabel('Position (m)')
