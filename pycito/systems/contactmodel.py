@@ -415,7 +415,6 @@ class SemiparametricContactModel(ContactModel):
         fric = SemiparametricModel.ConstantPriorWithHuberKernel(const = friction, length_scale = friction_length, delta = delta, reg = reg)
         return cls(surf, fric)
 
-
     def add_samples(self, sample_points, surface_weights, friction_weights):
         """
         Add samples to the semiparametric model
@@ -424,6 +423,15 @@ class SemiparametricContactModel(ContactModel):
         self.surface.add_samples(sample_points, surface_weights)
         self.friction.add_samples(sample_points, friction_weights)
 
+    def get_sample_points(self):
+        return self.surface._sample_points
+
+    def get_surface_weights(self):
+        return self.surface._kernel_weights
+
+    def get_friction_weights(self):
+        return self.friction._kernel_weights
+
     @property
     def surface_kernel(self):
         return self.surface.kernel
@@ -431,6 +439,15 @@ class SemiparametricContactModel(ContactModel):
     @property
     def friction_kernel(self):
         return self.friction.kernel
+
+    def toSemiparametricModelWithAmbiguity(self):
+        """
+        Upcast model to SemiparametricContactModelWithAmbiguity
+        """
+        model = SemiparametricContactModelWithAmbiguity(self.surface, self.friction)
+        if model.get_sample_points() is not None:
+            model.add_samples(model.get_sample_points(), model.get_surface_weights(), model.get_friction_weights())
+        return model
 
 class SemiparametricContactModelWithAmbiguity(SemiparametricContactModel):
     def __init__(self, surface, friction):
@@ -484,10 +501,11 @@ class SemiparametricContactModelWithAmbiguity(SemiparametricContactModel):
         surf_pts = self.find_surface_zaxis_zeros(pts)
         fric_pts = np.concatenate([self.eval_friction(pt) for pt in pts.transpose()], axis=0)
         # Evaluate the upper and lower bound models
-        surf_lb = self.lower_bound.find_surface_zaxis_zeros(pts)
+        # Note that the upper_bound model produces the greatest distance to the terrain, and is therefore the lower bound on the terrain location, and vice versa for the lower_bound model
+        surf_ub = self.lower_bound.find_surface_zaxis_zeros(pts)
         fric_lb = np.concatenate([self.lower_bound.eval_friction(pt) for pt in pts.transpose()], axis=0)
-        surf_ub = self.upper_bound.find_surface_zaxis_zeros(pts)
-        fric_ub = np.concateante([self.upper_bound.eval_friction(pt) for pt in pts.transpose()], axis=0)
+        surf_lb = self.upper_bound.find_surface_zaxis_zeros(pts)
+        fric_ub = np.concatenate([self.upper_bound.eval_friction(pt) for pt in pts.transpose()], axis=0)
 
         # Make the plots
         surf_line = axs[0].plot(surf_pts[0], surf_pts[2], linewidth=1.5, label=label)
