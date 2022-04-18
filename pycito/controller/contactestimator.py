@@ -10,7 +10,7 @@ February 14, 2022
 
 
 import numpy as np
-import copy
+import copy, warnings
 import matplotlib.pyplot as plt
 
 from pydrake.all import MathematicalProgram, SnoptSolver
@@ -1000,10 +1000,12 @@ class ContactModelEstimatorNonlinearFrictionCone(ContactModelEstimator):
         return fweights
 
 class EstimatedContactModelRectifier(OptimizationMixin):
-    def __init__(self, esttraj):
+    def __init__(self, esttraj, surf_max=np.inf, fric_max = np.inf):
         super().__init__()
         assert isinstance(esttraj, ContactEstimationTrajectory), "EstimatedContactModelRectifier must be initialized with a ContactEstimationTrajectory object"
         self.traj = esttraj
+        self.surf_max = surf_max
+        self.fric_max = fric_max
         self._setup()
 
     def _setup(self):
@@ -1034,12 +1036,12 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         fN = np.concatenate([force[:self.traj.num_contacts] for force in self.traj._forces], axis=0)
         # Add the distance nonnegativity constraint
         self.prog.AddLinearConstraint(A = self.Kd, 
-                                    lb = dist0, 
-                                    ub = np.full(dist0.shape, np.inf), 
+                                    lb = -dist0, 
+                                    ub = np.full(dist0.shape, self.surf_max) - dist0, 
                                     vars = self.dweights).evaluator().set_description('Distance Nonnegativity')
         # Add the orthogonality constraint
         A = np.concatenate([fN * self.Kd, -self.D], axis=1)
-        b = fN * dist0
+        b = fN * dist0  
         self.prog.AddLinearConstraint(A = A, 
                                     lb = -np.full(dist0.shape[0], np.inf), 
                                     ub = -b, 
@@ -1062,7 +1064,7 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         fN = np.concatenate(fN_all, axis=0)
         self.prog.AddLinearConstraint(A = fN * self.Kf, 
                                     lb = -b, 
-                                    ub = np.full(b.shape[0], np.inf),
+                                    ub = np.full(b.shape[0], self.fric_max) - b,
                                     vars = self.fweights).evaluator().set_description('Friction Cone Nonnegativity')
         # Setup the orthogonality constraint
         sV = np.concatenate(self.traj._slacks, axis=0)
@@ -1093,11 +1095,12 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         # Store the cost terms in case we need to remove them later
         self.costs.extend([distance_cost, friction_cost])
 
-    def _add_linear_cost(self):
+    def _add_linear_cost(self, maximize=False):
         """Add the linear cost terms used in ambiguity set optimization"""
+        coeff = (-1)**maximize
         # Create the costs
-        distance_cost = self.prog.AddLinearCost(np.sum(self.Kd, axis=0), self.dweights)
-        friction_cost = self.prog.AddLinearCost(np.sum(self.Kf, axis=0), self.fweights)
+        distance_cost = self.prog.AddLinearCost(coeff * np.sum(self.Kd, axis=0), self.dweights)
+        friction_cost = self.prog.AddLinearCost(coeff * np.sum(self.Kf, axis=0), self.fweights)
         distance_cost.evaluator().set_description('Linear Distance Cost')
         friction_cost.evaluator().set_description('Linear Friction Cost')
         # Keep the bindings in case we need to remove them later
@@ -1109,11 +1112,19 @@ class EstimatedContactModelRectifier(OptimizationMixin):
             self.prog.RemoveCost(cost)
 
     def solve_ambiguity(self):
-        """Solve the ambiguity set optimization"""
-        #TODO - Determine whether the upper or lower limits for distance, friction are always infinite
+        """
+        Solve the ambiguity set optimization
+        
+        """
+        # Lower bound optimization
         self._clear_costs()
-        self._add_linear_cost()
-        return self.solve()
+        self._add_linear_cost(maximize=False)
+        lb = self.solve()
+        # Upper bound optimization
+        self._clear_costs()
+        self._add_linear_cost(maximize=True)
+        ub = self.solve()
+        return lb, ub
 
     def solve_global_model(self):
         """Solve the global model optimization problem"""
@@ -1121,6 +1132,35 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         self._add_quadratic_cost()
         return self.solve()
 
+    def solve_global_model_with_ambiguity(self):
+        """
+        Solve both the global model optimization and the ambiguity model optimization
+        
+        Returns a SemiparametricContactModelWithAmbiguity
+        """
+        global_model = self.solve_global_model()
+        if not global_model.is_success():
+            warnings.warn('Failed to solve global contact model optimization. Results may be inaccurate')
+        lb, ub = self.solve_ambiguity()
+        if not lb.is_success():
+            warnings.warn('Failed to solve lower bound contact model optimization. Results may be inaccurate')
+        if not ub.is_success():
+            warnings.warn('Failed to solve upper bound contact model. Results may be inaccurate')
+        # Get and check the results
+        surf_global = global_model.GetSolution(self.dweights)
+        fric_global = global_model.GetSolution(self.fweights)
+        surf_lb = lb.GetSolution(self.dweights)
+        surf_ub = ub.GetSolution(self.dweights)
+        fric_lb = lb.GetSolution(self.fweights)
+        fric_ub = ub.GetSolution(self.fweights)
+        # Create the model with ambiguity information
+        model = copy.deepcopy(self.traj.contact_model)
+        model = model.toSemiparametricModelWithAmbiguity()
+        cpts = self.traj.get_contacts(0, self.traj.num_timesteps)
+        model.add_samples(cpts, surf_global, fric_global)
+        model.set_upper_bound(surf_ub, fric_ub)
+        model.set_lower_bound(surf_lb, fric_lb)
+        return model
 
 class ContactEstimationPlotter():
     def __init__(self, traj):
