@@ -373,6 +373,31 @@ class ContactEstimationTrajectory(ContactTrajectory):
         self._append_dissipation()
         self._append_friction()
 
+    def save(self, filename):
+        # Save the estimation trajectory to the disk
+        var_dict = vars(self)
+        var_dict['_plant'] = type(self._plant).__name__
+        var_dict['isContactEstimationTrajectory'] = True
+        utils.save(filename, var_dict)
+
+    @classmethod
+    def load(cls, plant, filename):
+        data = utils.load(utils.FindResource(filename))
+        # Type checking
+        if 'isContactEstimationTrajectory' not in data: 
+            raise ValueError(f"{filename} does not contain a ContactEstimationTrajectory")       
+        if not data['isContactEstimationTrajectory']:
+            raise ValueError(f"{filename} does not contain a ContactEstimationTrajectory")
+        if data['_plant'] != type(plant).__name__:
+            raise ValueError(f"{filename} was made with a {data['_plant']} plant model, but a {type(plant).__name__} was given")
+        # Create the new contact estimation trajectory
+        newinstance = cls(plant, data['_last_state'])
+        data.pop('isContactEstimationTrajectry')
+        data.pop('_plant')
+        for key, value in data.items():
+            setattr(newinstance, key, value)
+        return newinstance
+
     def saveContactTrajectory(self, filename):
         """
         Saves only a copy of the ContactTrajectory superclass
