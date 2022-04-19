@@ -1,6 +1,6 @@
 import numpy as np
 from collections import defaultdict
-import re
+import re, time
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FormatStrFormatter
 
@@ -49,9 +49,12 @@ class OptimizationMixin():
         for key, value in self.solver_options.items():
             self.prog.SetSolverOption(self.solver.solver_id(), key, value)
         # Solve and return the solution
+        start = time.perf_counter()
         result =  self.solver.Solve(self.prog)
+        elapsed = time.perf_counter() - start        
         if self._log_enabled:
-            self._logger.log(result)
+            self._logger.log(result, elapsed)
+
         return result
 
     def get_decision_variable_dictionary(self):
@@ -200,10 +203,12 @@ class OptimizationLogger():
         logger.logs, logger.guess_logs = data[0], data[1]
         return logger
 
-    def log(self, results):
+    def log(self, results, elapsed=None):
         """Log the results of calling the optimization program"""
         self.logs.append(self.problem.result_to_dict(results))
         self.guess_logs.append(self.problem.initial_guess_dictionary())
+        if elapsed is not None:
+            self.logs[-1]['solvetime'] = elapsed
 
     def plot(self, show = False, savename=None):
         """
