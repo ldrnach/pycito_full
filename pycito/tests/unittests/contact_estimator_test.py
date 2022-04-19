@@ -584,7 +584,7 @@ class ContactModelRectifierTest(unittest.TestCase):
         self.t_data = np.array([0.1, 0.2, 0.3])
         self.fN_data = np.array([[9.81, 9.81, 9.81, 9.81]])
         self.fT_data = np.zeros((4, 4))
-        self.fT_data[2, 1:] = 4.95
+        self.fT_data[2, 1:] = 4.905
         self.vs_data = np.array([[0., 1., 2., 3.]])
         f = np.concatenate([self.fN_data, self.fT_data], axis=0)
         # Append just the first point (bring total contacts to 2)
@@ -633,15 +633,15 @@ class ContactModelRectifierTest(unittest.TestCase):
 
     def test_ambiguity_optimization(self):
         """Check that the ambiguity optimization solution method works"""
-        result = self.estimator.solve_ambiguity()
-        self.assertTrue(result.is_success(), msg='Ambiguity optimization failed to solve successfully')
+        lb, ub = self.estimator.solve_ambiguity()
+        self.assertTrue(lb.is_success(), msg='Lower bound optimization failed to solve successfully')
         with self.subTest('Distance Solution'):
-            np.testing.assert_allclose(result.GetSolution(self.estimator.dweights), self.dweights, atol=1e-5, err_msg='Distance weights solution not sufficiently close to zero')
+            np.testing.assert_allclose(lb.GetSolution(self.estimator.dweights), self.dweights, atol=1e-5, err_msg='Distance weights solution not sufficiently close to zero')
         with self.subTest('Friction Solution'):
-            np.testing.assert_allclose(result.GetSolution(self.estimator.fweights), self.fweights, atol=1e-5, err_msg='Friction weight solution not sufficiently close to zero')
+            np.testing.assert_allclose(lb.GetSolution(self.estimator.fweights), self.fweights, atol=1e-5, err_msg='Friction weight solution not sufficiently close to zero')
         with self.subTest('Feasibility Solution'):
-            np.testing.assert_allclose(result.GetSolution(self.estimator.relax), self.relax, atol=1e-5, err_msg='Feasibility solution not sufficiently close to zero')
-
+            np.testing.assert_allclose(lb.GetSolution(self.estimator.relax), self.relax, atol=1e-5, err_msg='Feasibility solution not sufficiently close to zero')
+        self.assertTrue(ub.is_success(), msg='Upper bound optimization failed to solve successfully')
 
     def test_global_optimization(self):
         """Check that the global contact model optimization method works"""

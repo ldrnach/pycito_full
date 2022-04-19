@@ -1088,13 +1088,18 @@ class EstimatedContactModelRectifier(OptimizationMixin):
                                     ub = np.full(dist0.shape, self.surf_max) - dist0, 
                                     vars = self.dweights).evaluator().set_description('Distance Nonnegativity')
         # Add the orthogonality constraint
-        A = np.concatenate([fN * self.Kd, -self.D], axis=1)
-        b = fN * dist0  
+        A = np.concatenate([(self.Kd.T * fN).T, -self.D], axis=1)
+        b = fN * dist0
+        #r = np.concatenate(self.traj._feasibility, axis=0)  
         self.prog.AddLinearConstraint(A = A, 
                                     lb = -np.full(dist0.shape[0], np.inf), 
                                     ub = -b, 
                                     vars=np.concatenate([self.dweights, self.relax], axis=0)).evaluator().set_description('Distance Orthogonality')
-        
+        # self.prog.AddLinearConstraint((self.Kd.T * fN).T, 
+        #                             lb = -np.full(dist0.shape[0], np.inf),
+        #                             ub = self.D.dot(r) - b,
+        #                             vars = self.dweights).evaluator().set_description('Distance orthogonality')
+
     def _add_friction_constraints(self):
         """Add to linear constraints for the friction cone error"""
         # Get the friction coefficients and friction cone defects
@@ -1110,18 +1115,21 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         # Setup the nonnegativity constraint
         b = np.concatenate(b, axis=0)
         fN = np.concatenate(fN_all, axis=0)
-        self.prog.AddLinearConstraint(A = fN * self.Kf, 
+        self.prog.AddLinearConstraint(A = (self.Kf.T * fN).T, 
                                     lb = -b, 
                                     ub = np.full(b.shape[0], self.fric_max) - b,
                                     vars = self.fweights).evaluator().set_description('Friction Cone Nonnegativity')
         # Setup the orthogonality constraint
         sV = np.concatenate(self.traj._slacks, axis=0)
-        A = np.concatenate([sV * fN * self.Kf, -self.D], axis=1)
-        b = sV * b
+        A = np.concatenate([(self.Kf.T * sV * fN).T, -self.D], axis=1)
+        r = np.concatenate(self.traj._feasibility, axis=0)  
         self.prog.AddLinearConstraint(A = A,
                                     lb = -np.full(b.shape[0], np.inf),
-                                    ub = -b,
+                                    ub = -b * sV,
                                     vars = np.concatenate([self.fweights, self.relax], axis=0)).evaluator().set_description('Friction Cone Orthogonality')
+        # self.prog.AddLinearConstraint((self.Kf.T * (sV * fN)).T,
+        #                             lb = -np.full(b.shape[0], np.inf),
+        #                             ub = self.D.dot(r) - sV * b )
         # Add the constraint on the friction coefficient
         mu = np.concatenate(all_mu, axis=0)
         self.prog.AddLinearConstraint(A = self.Kf, lb = -mu, ub = np.full(mu.shape[0], np.inf), vars=self.fweights).evaluator().set_description('Friction Coefficient Nonnegativity')
