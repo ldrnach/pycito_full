@@ -54,6 +54,11 @@ def main():
     # Save the simulation data
     utils.save(os.path.join(TARGET, 'mpcsim.pkl'), mpc_sim)
     utils.save(os.path.join(TARGET, 'campcsim.pkl'), campc_sim)
+    # Run the ambiguity optimization
+    ambi_model = campctools.run_ambiguity_optimization(campc_controller.getContactEstimationTrajectory())
+    campctools.compare_estimated_contact_model(ambi_model, true_plant.terrain, pts, savedir=TARGET, name='contactmodelwithambiguity')
+    # Save the contact model
+    utils.save(os.path.join(TARGET, 'contactambiguity.pkl'), ambi_model)
 
 if __name__ == '__main__':
     main()
