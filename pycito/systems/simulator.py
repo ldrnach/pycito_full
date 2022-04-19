@@ -7,6 +7,7 @@ February 8, 2022
 #TODO: Determine a good method for integrating the contact dynamics
 import numpy as np
 import pycito.controller.mpc as mpc
+from pycito.trajopt import complementarity as cp
 from pycito.systems.integrators import ContactDynamicsIntegrator
 import pycito.utilities as utils
 
@@ -21,14 +22,14 @@ class Simulator():
     def Uncontrolled(plant):
         return Simulator(plant, mpc.NullController(plant))
 
-    def useImplicitEuler(self):
-        self.integrator = ContactDynamicsIntegrator.ImplicitEulerIntegrator(self.plant)
+    def useImplicitEuler(self, ncp=cp.NonlinearConstantSlackComplementarity):
+        self.integrator = ContactDynamicsIntegrator.ImplicitEulerIntegrator(self.plant, ncp)
 
-    def useSemiImplicitEuler(self):
-        self.integrator = ContactDynamicsIntegrator.SemiImplicitEulerIntegrator(self.plant)
+    def useSemiImplicitEuler(self, ncp=cp.NonlinearConstantSlackComplementarity):
+        self.integrator = ContactDynamicsIntegrator.SemiImplicitEulerIntegrator(self.plant, ncp)
 
-    def useImplicitMidpoint(self):
-        self.integrator = ContactDynamicsIntegrator.ImplicitMidpointIntegrator(self.plant)
+    def useImplicitMidpoint(self, ncp=cp.NonlinearConstantSlackComplementarity):
+        self.integrator = ContactDynamicsIntegrator.ImplicitMidpointIntegrator(self.plant, ncp)
 
     def useTimestepping(self):
         self.integrator = self.plant
@@ -46,20 +47,23 @@ class Simulator():
         state = np.zeros((self.plant.multibody.num_positions() + self.plant.multibody.num_velocities(), N))
         state[:, 0] = initial_state
         # Everything else
-        control = np.zeros((self.integrator.u.shape[0], N))
-        force  = np.zeros((self.integrator.forces.shape[0], N))
+        control = np.zeros((self.plant.num_actuators, N))
+        force  = np.zeros((self.plant.num_forces, N))
         # Run the simulation
         status = True
         n = 1
         while n < N and status:
             control[:, n-1] = self.controller.get_control(time[n-1], state[:, n-1]) #FIX THIS. THE INDEX IS WRONG
             state[:, n], force[:, n], status = self.integrator.integrate(self._timestep, state[:, n-1], control[:, n-1])     
+            if np.any(np.isnan(state[:, n])):
+                status = False
+                break
             n += 1
         # Return the simulation values
         if status:
             return time, state, control, force, status
         else:
-            return time[:n-1], state[:, n-1], control[:, n-1], force[:, n-1], status
+            return time[:n-1], state[:, :n-1], control[:, :n-1], force[:, :n-1], status
         
     @property
     def timestep(self):
