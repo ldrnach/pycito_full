@@ -1199,9 +1199,11 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         
         Returns a SemiparametricContactModelWithAmbiguity
         """
+        self.useBestSolver()
         global_model = self.solve_global_model()
         if not global_model.is_success():
             warnings.warn('Failed to solve global contact model optimization. Results may be inaccurate')
+        self.useBestSolver()
         lb, ub = self.solve_ambiguity()
         if not lb.is_success():
             warnings.warn('Failed to solve lower bound contact model optimization. Results may be inaccurate')

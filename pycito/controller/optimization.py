@@ -36,6 +36,10 @@ class OptimizationMixin():
     def useOsqpSolver(self):
         self.solver = OsqpSolver()
 
+    def useBestSolver(self):
+        self._solver = None
+        self.solver_options = {}
+
     def setSolverOptions(self, options_dict):
         for key, value in options_dict.items():
             self.solver_options[key] = value
