@@ -63,5 +63,4 @@ def main_ambiguity():
     utils.save(os.path.join(TARGET, 'contactambiguity.pkl'), model)
 
 if __name__ == '__main__':
-    main_ambiguity()
-    #main()
+    main()

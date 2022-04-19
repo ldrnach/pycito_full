@@ -513,6 +513,9 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         self.create_mpc_program(t, x0)
         print(f"Solving MPC at time {t:0.3f}")
         result = self.solve()
+        if self._log_enabled:
+            self.logger.logs[-1]['time'] = t
+            self.logger.logs[-1]['initial_state'] = x0
         index = self.lintraj.getTimeIndex(t)
         u = self.lintraj.getControl(index)
         if result.is_success():
