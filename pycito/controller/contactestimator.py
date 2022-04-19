@@ -376,10 +376,14 @@ class ContactEstimationTrajectory(ContactTrajectory):
     def save(self, filename):
         # Save the estimation trajectory to the disk
         var_dict = vars(self)
+        plant_copy = copy.deepcopy(self._plant)
         var_dict['_plant'] = type(self._plant).__name__
         var_dict.pop('_context')
         var_dict['isContactEstimationTrajectory'] = True
         utils.save(filename, var_dict)
+        # Put the plant back in
+        self._plant = plant_copy
+        self._context = self._plant.multibody.CreateDefaultContext()
 
     @classmethod
     def load(cls, plant, filename):
