@@ -1067,7 +1067,7 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         self._add_variables()
         self._add_distance_constraints()
         self._add_friction_constraints()
-        self._add_relaxation_constraint()
+        #self._add_relaxation_constraint()
         self._initialize()
         self.costs = []
 
@@ -1075,7 +1075,7 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         """Add decision variables to the optimization problem"""
         self.dweights = self.prog.NewContinuousVariables(rows = self.Kd.shape[1], name='distance_weights')
         self.fweights = self.prog.NewContinuousVariables(rows = self.Kf.shape[1], name='friction_weights')
-        self.relax = self.prog.NewContinuousVariables(rows = self.traj.num_timesteps, name='feasibilities')
+        #self.relax = self.prog.NewContinuousVariables(rows = self.traj.num_timesteps, name='feasibilities')
 
     def _add_distance_constraints(self):
         """Add two linear constraints for the normal distance errors"""
@@ -1088,17 +1088,17 @@ class EstimatedContactModelRectifier(OptimizationMixin):
                                     ub = np.full(dist0.shape, self.surf_max) - dist0, 
                                     vars = self.dweights).evaluator().set_description('Distance Nonnegativity')
         # Add the orthogonality constraint
-        A = np.concatenate([(self.Kd.T * fN).T, -self.D], axis=1)
+        #A = np.concatenate([(self.Kd.T * fN).T, -self.D], axis=1)
         b = fN * dist0
-        #r = np.concatenate(self.traj._feasibility, axis=0)  
-        self.prog.AddLinearConstraint(A = A, 
-                                    lb = -np.full(dist0.shape[0], np.inf), 
-                                    ub = -b, 
-                                    vars=np.concatenate([self.dweights, self.relax], axis=0)).evaluator().set_description('Distance Orthogonality')
-        # self.prog.AddLinearConstraint((self.Kd.T * fN).T, 
-        #                             lb = -np.full(dist0.shape[0], np.inf),
-        #                             ub = self.D.dot(r) - b,
-        #                             vars = self.dweights).evaluator().set_description('Distance orthogonality')
+        r = np.concatenate(self.traj._feasibility, axis=0)  
+        #self.prog.AddLinearConstraint(A = A, 
+                                    # lb = -np.full(dist0.shape[0], np.inf), 
+                                    # ub = -b, 
+                                    # vars=np.concatenate([self.dweights, self.relax], axis=0)).evaluator().set_description('Distance Orthogonality')
+        self.prog.AddLinearConstraint((self.Kd.T * fN).T, 
+                                    lb = -np.full(dist0.shape[0], np.inf),
+                                    ub = self.D.dot(r) - b,
+                                    vars = self.dweights).evaluator().set_description('Distance orthogonality')
 
     def _add_friction_constraints(self):
         """Add to linear constraints for the friction cone error"""
@@ -1121,15 +1121,16 @@ class EstimatedContactModelRectifier(OptimizationMixin):
                                     vars = self.fweights).evaluator().set_description('Friction Cone Nonnegativity')
         # Setup the orthogonality constraint
         sV = np.concatenate(self.traj._slacks, axis=0)
-        A = np.concatenate([(self.Kf.T * sV * fN).T, -self.D], axis=1)
+        #A = np.concatenate([(self.Kf.T * sV * fN).T, -self.D], axis=1)
         r = np.concatenate(self.traj._feasibility, axis=0)  
-        self.prog.AddLinearConstraint(A = A,
-                                    lb = -np.full(b.shape[0], np.inf),
-                                    ub = -b * sV,
-                                    vars = np.concatenate([self.fweights, self.relax], axis=0)).evaluator().set_description('Friction Cone Orthogonality')
-        # self.prog.AddLinearConstraint((self.Kf.T * (sV * fN)).T,
+        # self.prog.AddLinearConstraint(A = A,
         #                             lb = -np.full(b.shape[0], np.inf),
-        #                             ub = self.D.dot(r) - sV * b )
+        #                             ub = -b * sV,
+        #                             vars = np.concatenate([self.fweights, self.relax], axis=0)).evaluator().set_description('Friction Cone Orthogonality')
+        self.prog.AddLinearConstraint((self.Kf.T * (sV * fN)).T,
+                                    lb = -np.full(b.shape[0], np.inf),
+                                    ub = self.D.dot(r) - sV * b ,
+                                    vars = self.fweights).evaluator().set_description('Friction Cone Orthogonality')
         # Add the constraint on the friction coefficient
         mu = np.concatenate(all_mu, axis=0)
         self.prog.AddLinearConstraint(A = self.Kf, lb = -mu, ub = np.full(mu.shape[0], np.inf), vars=self.fweights).evaluator().set_description('Friction Coefficient Nonnegativity')
@@ -1145,14 +1146,14 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         """Initialize the decision variables"""
         derr = np.concatenate(self.traj.get_distance_error(0, self.traj.num_timesteps), axis=0)
         ferr = np.concatenate(self.traj.get_friction_error(0, self.traj.num_timesteps), axis=0)
-        relax = np.concatenate(self.traj.get_feasibility(0, self.traj.num_timesteps), axis=0)
+        #relax = np.concatenate(self.traj.get_feasibility(0, self.traj.num_timesteps), axis=0)
         # Convert to kernel weights
         dweight = np.linalg.lstsq(self.Kd, derr, rcond=None)[0]
         fweight = np.linalg.lstsq(self.Kf, ferr, rcond=None)[0]
         # Set initial guess
         self.prog.SetInitialGuess(self.dweights, dweight)
         self.prog.SetInitialGuess(self.fweights, fweight)
-        self.prog.SetInitialGuess(self.relax, relax)
+        #self.prog.SetInitialGuess(self.relax, relax)
 
     def _add_quadratic_cost(self):
         """Add the quadratic cost terms used in global model optimization"""
