@@ -105,6 +105,7 @@ class ComplementarityConstraint(ABC):
     @cost_weight.setter
     def cost_weight(self, val):
         warnings.warn(f"{type(self).__name__} does not have an associated cost. The value is ignored.")
+
 class NonlinearConstantSlackComplementarity(ComplementarityConstraint):
     """
     Implements the nonlinear complementarity constraint with a constant slack variable
@@ -162,6 +163,7 @@ class NonlinearConstantSlackComplementarity(ComplementarityConstraint):
                         cstr.evaluator().UpdateUpperBound(new_ub = ub)
         else:
             raise ValueError("slack must be a nonnegative numeric value")
+
 class NonlinearVariableSlackComplementarity(ComplementarityConstraint):
     """
     Implements the nonlinear complementarity constraint as
@@ -236,6 +238,7 @@ class NonlinearVariableSlackComplementarity(ComplementarityConstraint):
                     cost.evaluator().UpdateCoefficients(new_a = val*np.ones((nvars,)))
         else:
             raise ValueError("cost_weight must be a nonnegative numeric value")
+
 class CostRelaxedNonlinearComplementarity(ComplementarityConstraint):
     """
         For the nonlinear complementarity constraint:
@@ -304,6 +307,7 @@ class CostRelaxedNonlinearComplementarity(ComplementarityConstraint):
             self._cost_weight = val
         else:
             raise ValueError("cost_weight must be a nonnegative numeric value")       
+
 class LinearEqualityConstantSlackComplementarity(ComplementarityConstraint):
     """
     Introduces new variables and an equality constraint to implement the nonlinear constraint as a linear complementarity constraint with a nonlinear equality constraint. The original problem is implemented as:
@@ -373,6 +377,7 @@ class LinearEqualityConstantSlackComplementarity(ComplementarityConstraint):
                         cstr.evaluator().UpdateUpperBound(new_ub = ub)
         else:
             raise ValueError("const_slack must be a nonnegative numeric value")    
+
 class LinearEqualityVariableSlackComplementarity(ComplementarityConstraint):
     """
     Introduces new variables and an equality constraint to implement the nonlinear constraint as a linear complementarity constraint with a nonlinear equality constraint. The original problem is implemented as:
@@ -383,7 +388,6 @@ class LinearEqualityVariableSlackComplementarity(ComplementarityConstraint):
     """
     def __init__(self, fcn, xdim=1, zdim=1):
         super(LinearEqualityVariableSlackComplementarity, self).__init__(fcn, xdim, zdim)
-        self.name = fcn.__name__
         self._slack_cost = []
         self._cost_weight = 1.
 
@@ -456,7 +460,6 @@ class CostRelaxedLinearEqualityComplementarity(ComplementarityConstraint):
     """
     def __init__(self, fcn, xdim=1, zdim=1):
         super(CostRelaxedLinearEqualityComplementarity, self).__init__(fcn, xdim, zdim)
-        self.name = fcn.__name__
         self._slack_cost = []
         self._cost_weight = 1.
 
