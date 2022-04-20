@@ -1,27 +1,13 @@
 import os, copy
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.animation as animation
+from matplotlib.animation import FuncAnimation
 from matplotlib.patches import Rectangle
 
-import pycito.utilities as utils
 from pycito.controller.optimization import OptimizationLogger
 from pycito.controller.mpc import ReferenceTrajectory
-from pycito.systems.block.block import Block
 
-# SUBPLOT 1
-# TODO: Add real and expected terrains to the background - DONE
-# TODO: Add estimated terrain to the foreground (CAMPC) - DONE
-# TODO: Update block position (MPC and CAMPC) - DONE
-# TODO: Update block trajectory (MPC and CAMPC) - DONE
-# SUBPLOT 2
-# TODO: Update friction coefficient (CAMPC) - DONE
-# SUBPLOT 3 and 4
-# TODO: Update 'planned' reaction forces (MPC vs CAMPC) - DONE
-
-# TODO: Write animation loop for MPC animator and CAMPC Animator
 # TODO: Debugging
-# TODO: Add labels to the figures
 
 # Globals
 LOADDIR = os.path.join('examples','sliding_block','estimation_in_the_loop')
@@ -39,13 +25,7 @@ class BlockMPCAnimator():
         self.plan = None
         self.normals = None
         self.friction = None
-
-    def _create_animator(self, name='Block'):
-        """ Initialize the animator """
-        FFMpegWriter = animation.writers['ffmpeg']
-        metadata = dict(title = f"{name} MPC Animation", artist='matplotlib',comment='Comparing CAMPC and MPC motion plans')
-        self.writer = FFMpegWriter(fps=15, metadata=metadata)
-    
+   
     def _make_figure(self):
         """Initialize the figure for the animations"""
         self.fig = plt.figure(constrained_layout = True)
@@ -83,13 +63,16 @@ class BlockMPCAnimator():
         """Setup the animation"""
         # Draw the contact models
         self.set_contact_samples(logs)
-        self.draw_contact_model(self.truemodel.terrain, label='True', linecolor='k')
-        self.draw_contact_model(self.reftraj.plant.terrain, label='Expected', linecolor='b')
+        self.draw_contact_model(self.truemodel.terrain, label='True Terrain', linecolor='k')
+        self.draw_contact_model(self.reftraj.plant.terrain, label='Expected Terrain', linecolor='b')
         # Make the block
         self.setup_block(logs[0])
         # Setup the motion plan and forces
         self.setup_plan(logs[0], color='g', label='MPC Plan')
-        self.setup_forces(logs[0], color='g', label='MPC Forces')
+        self.setup_forces(logs[0], color='g', label='MPC Forces')      
+        # Add the legends
+        self.axs['main'].legend(loc='upper left', ncol=3)
+        self.axs['normal_force'].legend(loc='upper_left', ncol=2)
 
     def setup_block(self, log):
         """Create a Rectangle to represent the block"""
@@ -134,11 +117,16 @@ class BlockMPCAnimator():
         self.normals, = self.axs['normal_force'].plot(x, fN, linewidth=1.5, color= color, label=label)
         self.friction, = self.axs['tangent_force'].plot(x, fT, linewidth=1.5, color= color, label=label)
     
+    def get_artists(self):
+        """Return the updatable artists"""
+        return self.block, self.plan, self.normals, self.friction
+
     def update(self, log):
         """Update the animation frame"""
         self.update_block_position(log)
         self.update_motion_plan(log)
         self.update_forces(log)
+        return self.get_artists()
 
     def update_block_position(self, log):
         """Update the block position"""
@@ -156,14 +144,16 @@ class BlockMPCAnimator():
         self.normals.set(xdata = x, ydata = fN)
         self.friction.set(xdata = x, ydata = fT)        
 
-    def animate(self, mpclogs):
+    def animate(self, mpclogs, savename):
         """Create an animation using the MPC log files"""
-        self._create_animator()
         self._make_figure()
-        self.setup(mpclogs)
-        for log in mpclogs:
-            self.update(log)
-            self.writer.grab_frame()
+        anim = FuncAnimation(self.fig, 
+                            self.update, 
+                            init_func = self.get_artists,
+                            frames = mpclogs,
+                            interval = 50,
+                            blit = True)
+        anim.save(savename, writer='ffmpeg')
 
 class BlockCAMPCComparisonAnimator(BlockMPCAnimator):
     def __init__(self, truemodel, reftraj, esttraj):
@@ -230,12 +220,15 @@ class BlockCAMPCComparisonAnimator(BlockMPCAnimator):
         """Setup the Animation Window"""
         super().setup(mpclogs)
         # Draw the estimated terrain
-        self.setup_estimated_contact(self.esttraj.contact_model, label='Estimated', linecolor='y')
+        self.setup_estimated_contact(self.esttraj.contact_model, label='Estimated Terrain', linecolor='y')
         # Make the block
         self.setup_estimated_block(campclog[0])
         # Setup the motion plan and forces
         self.setup_estimated_plan(campclog[0], color='o', label='CAMPC Plan')
         self.setup_estimated_forces(campclog[0], color='o', label='CAMPC Forces')
+        # Add the legends
+        self.axs['main'].legend(loc='upper left', ncol=5)
+        self.axs['normal_force'].legend(loc='upper_left', ncol=3)
 
     def setup_estimated_contact(self, model, label, color):
         """Draw the surface and friction coefficients of the contact model"""
@@ -259,6 +252,33 @@ class BlockCAMPCComparisonAnimator(BlockMPCAnimator):
         x, fN, fT = self._get_forces(log)
         self.campc_normals, = self.axs['normal_force'].plot(x, fN, linewidth=1.5, color= color, label=label)
         self.campc_friction, = self.axs['tangent_force'].plot(x, fT, linewidth=1.5, color= color, label=label)
+
+    def get_artists(self):
+        """Return the updatable artists for animation"""
+        mpc_artists = super().get_artists()
+        return (*mpc_artists, self.surfline, self.fricline, self.campc_block, self.campc_plan, self.campc_normals, self.campc_friction)
+
+    def update(self, logs):
+        """Update the animation"""
+        mpc, campc = logs
+        self.update_block_position(mpc, campc)
+        self.update_forces(mpc, campc)
+        self.update_motion_plan(mpc, campc)
+        self.update_contact_model_lines(campc)
+        return self.get_artists()
+
+    def animate(self, mpclogs, campclogs, savename):
+        """Create an animation using the MPC log files"""
+        logs = zip(mpclogs, campclogs)
+        self._make_figure()
+        self.setup(mpclogs[0], campclogs[0])
+        anim = FuncAnimation(self.fig, 
+                            self.update, 
+                            init_func = self.get_artists,
+                            frames = logs,
+                            interval = 50,
+                            blit = True)
+        anim.save(savename, writer='ffmpeg')
 
 
 def main():
