@@ -180,6 +180,53 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
         else:
             return cls(plant, data['time'], data['state'], data['control'], data['force'])
 
+    def save(self, filename):
+        """Save the current LinearizedContactTrajectory to a file"""
+        var_dict = vars(self)
+        plant_copy = self.plant
+        var_dict['plant'] = type(self.plant).__name__
+        var_dict['isLinearizedContactTrajectory'] = True
+        # Remove the constraints
+        var_dict.pop('_distance')
+        var_dict.pop('_dissipation')
+        var_dict.pop('_friccone')
+        utils.save(filename, var_dict)
+        # Put the plant back in
+        self.plant = plant_copy
+    
+    @classmethod
+    def loadLinearizedTrajectory(cls, plant, filename):
+        """Load a LinearizedContactTrajectory and overwrite the current instance variables"""
+        data = utils.load(utils.FindResource(filename))
+        # Type checking
+        if 'isLinearizedContactTrajectory' not in data:
+            raise ValueError(f"{filename} does not contait a LinearizedContactTrajectory")
+        if not data['isLinearizedContactTrajectory']:
+            raise ValueError(f"{filename} does not contain a LinearizedContactTrajectory")
+        if data['plant'] != type(plant).__name__:
+            raise ValueError(f"{filename} was made with a {data['plant']} model, but a {type(plant).__name__} was given instead")
+        # Create a new instance - Dummy variables
+        _time = np.zeros((2,))
+        _state = np.zeros((plant.multibody.num_positions() + plant.multibody.num_velocities(), 2))
+        _control = np.zeros((plant.multibody.num_actuators(), 2))
+        _force = np.zeros((2*plant.num_contacts() + plant.num_friction(), 2))
+        if plant.has_joint_limits:
+            nJ = 2 * np.sum(np.isfinite(plant.multibody.GetPositionLowerLimits()))
+            _jlimit = np.zeros((nJ, 2))
+        else:
+            _jlimit = None
+        # Create the new instance
+        new_instance = cls(plant, _time, _state, _control, _force, _jlimit)
+        data.pop('plant')
+        data.pop('isLinearizedContactTrajectory')
+        for key, value in data.items():
+            setattr(new_instance, key, value)
+        # Add in the constraints
+        new_instance._distance = cstr.NormalDistanceConstraint(plant)
+        new_instance._dissipation = cstr.MaximumDissipationConstraint(plant)
+        new_instance._friccone = cstr.FrictionConeConstraint(plant)
+        return new_instance    
+
     def linearize_trajectory(self):
         """Store the linearizations of all the parameters"""
         self._linearize_dynamics()
