@@ -7,9 +7,15 @@ import os
 from pycito.systems.block.block import Block
 import pycito.utilities as utils
 import estimation_control_tools as campctools
+import campc_animation_tools as animator
+from pycito.controller.optimization import OptimizationLogger
 
 SIM_DURATION = 1.5
 TARGET = os.path.join('examples','sliding_block','estimation_in_the_loop','flatterrain')
+ANIMATION_NAME = 'campc_animation.mp4'
+MPCANIMATIONNAME = 'mpc_animation.mp4'
+
+
 
 def make_flatterrain_model():
     block = Block()
@@ -47,10 +53,10 @@ def main():
     utils.save(os.path.join(TARGET, 'mpcsim.pkl'), mpc_sim)
     utils.save(os.path.join(TARGET, 'campcsim.pkl'), campc_sim)
     # Run the ambiguity optimization
-    ambi_model = campctools.run_ambiguity_optimization(campc_controller.getContactEstimationTrajectory())
-    campctools.compare_estimated_contact_model(ambi_model, true_plant.terrain, pts, savedir=TARGET, name='contactmodelwithambiguity')
-    # Save the contact model
-    utils.save(os.path.join(TARGET, 'contactambiguity.pkl'), ambi_model)
+    # ambi_model = campctools.run_ambiguity_optimization(campc_controller.getContactEstimationTrajectory())
+    # campctools.compare_estimated_contact_model(ambi_model, true_plant.terrain, pts, savedir=TARGET, name='contactmodelwithambiguity')
+    # # Save the contact model
+    # utils.save(os.path.join(TARGET, 'contactambiguity.pkl'), ambi_model)
 
 def main_ambiguity():
     plant = make_flatterrain_model()
@@ -62,5 +68,26 @@ def main_ambiguity():
     # Save the contact model
     utils.save(os.path.join(TARGET, 'contactambiguity.pkl'), model)
 
+def main_animation():
+    # Load the log files
+    mpcfile = os.path.join(TARGET, 'mpc_logs', campctools.CONTROLLOGNAME)
+    campcfile = os.path.join(TARGET, 'campc_logs', campctools.CONTROLLOGNAME)
+    estfile = os.path.join(TARGET, 'campc_logs', campctools.ESTIMATELOGNAME)
+    mpclogs = OptimizationLogger.load(mpcfile).logs
+    campclogs = OptimizationLogger.load(campcfile).logs
+    estlogs = OptimizationLogger.load(estfile).logs
+    campc_full = [{**camplog, **estlog} for camplog, estlog in zip(campclogs, estlogs)]
+    # Get the block model
+    truemodel = make_flatterrain_model()
+    # Load the appropriate reference trajectories
+    reftraj = campctools.make_mpc_controller().lintraj
+    esttraj = campctools.make_estimator_controller().getContactEstimationTrajectory()
+    esttraj.loadEstimatedTrajectory(os.path.join(TARGET, campctools.TRAJNAME))
+    # Setup the animator
+    animation = animator.BlockCAMPCComparisonAnimator(truemodel, reftraj, esttraj)
+    animation.animate(mpclogs, campc_full, savename=os.path.join(TARGET, ANIMATION_NAME))
+    mpc_animation = animator.BlockMPCAnimator(truemodel, reftraj)
+    mpc_animation.animate(mpclogs, savename=os.path.join(TARGET, MPCANIMATIONNAME))
+
 if __name__ == '__main__':
-    main()
+    main_animation()
