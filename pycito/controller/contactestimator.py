@@ -404,6 +404,22 @@ class ContactEstimationTrajectory(ContactTrajectory):
             setattr(newinstance, key, value)
         return newinstance
 
+    def loadEstimatedTrajectory(self, filename):
+        """Load a ContactEstimationTrajectory and update the current instance variables"""
+        # Data type checking
+        data = utils.load(utils.FindResource(filename))
+        if 'isContactEstimationTrajectory' not in data: 
+            raise ValueError(f"{filename} does not contain a ContactEstimationTrajectory")       
+        if not data['isContactEstimationTrajectory']:
+            raise ValueError(f"{filename} does not contain a ContactEstimationTrajectory")
+        if data['_plant'] != type(self._plant).__name__:
+            raise ValueError(f"{filename} was made with a {data['_plant']} plant model, but this instance has a {type(self._plant).__name__} model")
+        # Update the current instance with the new data
+        data.pop('isContactEstimationTrajectory')
+        data.pop('_plant')
+        for key, value in data.items():
+            setattr(self, key, value)
+        
     def saveContactTrajectory(self, filename):
         """
         Saves only a copy of the ContactTrajectory superclass
