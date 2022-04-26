@@ -6,8 +6,8 @@ Luke Drnach
 """
 #TODO: Double check implementation of joint limit linearization in the dynamics
 #TODO: Test getTimeIndex when the time is the final value
-#TODO: Test _update_contact_linearization works as intended
-import pstats
+#TODO: Use the nearest state in the reference trajectory instead of the current time index
+
 import numpy as np
 import abc, enum
 

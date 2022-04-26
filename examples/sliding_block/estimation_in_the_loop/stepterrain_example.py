@@ -33,7 +33,7 @@ def main():
     campc_controller.enableLogging()
     # Run the simulation
     initial_state = mpc_controller.lintraj.getState(0)
-    mpc_sim = campctools.run_simulation(true_plant, mpc_controller, initial_state, duration=SIM_DURATION)
+    #mpc_sim = campctools.run_simulation(true_plant, mpc_controller, initial_state, duration=SIM_DURATION)
     campc_sim = campctools.run_simulation(true_plant, campc_controller, initial_state, duration=SIM_DURATION)
     # Plot and save the results
     campctools.plot_trajectory_comparison(mpc_sim, campc_sim, savename=TARGET)

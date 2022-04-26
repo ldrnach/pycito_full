@@ -16,7 +16,7 @@ April 11, 2022
 import os, copy
 import numpy as np
 import matplotlib.pyplot as plt
-import examples.sliding_block.blocktools as blocktools
+import pycito.systems.contactmodel as cm
 import pycito.controller.mpc as mpc
 import pycito.controller.contactestimator as ce
 from pycito.systems.simulator import Simulator
@@ -35,17 +35,25 @@ CONTROLLOGNAME = 'mpclogs.pkl'
 ESTIMATELOGFIG = 'EstimationLogs' + FIG_EXT
 ESTIMATELOGNAME = 'EstimationLogs.pkl'
 
+def make_semiparametric_block_model():
+    block = Block()
+    block.Finalize()
+    block.terrain = cm.SemiparametricContactModel.FlatSurfaceWithRBFKernel(friction = 0.5,
+                                                                         length_scale = np.array([0.1, 0.1, np.inf]),    
+                                                                         reg=0.01)
+    return block 
+
 def make_block_model():
     block = Block()
     block.Finalize()
     return block
 
 def make_estimator_controller():
-    block = blocktools.make_semiparametric_block_model()
+    block = make_semiparametric_block_model()
     reftraj = mpc.LinearizedContactTrajectory.load(block, REFSOURCE)
     # Create the estimator
     x0 = reftraj.getState(0)
-    block2 = blocktools.make_semiparametric_block_model()
+    block2 = make_semiparametric_block_model()
     esttraj = ce.ContactEstimationTrajectory(block2, x0)
     estimator = ce.ContactModelEstimator(esttraj, ESTIMATION_HORIZON)
     # Set the estimator solver parameters
@@ -68,7 +76,7 @@ def set_controller_options(controller):
     controller.controlcost = 1e-2 * np.eye(controller.control_dim)
     controller.forcecost = 1e-4 * np.eye(controller.force_dim)
     controller.slackcost = 1e-2 * np.eye(controller.slack_dim)
-    controller.complementaritycost = 1e2
+    controller.complementaritycost = 1e3
     controller.useSnoptSolver()
     controller.setSolverOptions({"Major feasibility tolerance": 1e-4,
                                 "Major optimality tolerance": 1e-4,
@@ -245,7 +253,7 @@ def run_ambiguity_optimization(esttraj):
     return ambi_model
 
 def load_estimation_trajectory(loaddir):
-    block = blocktools.make_semiparametric_block_model()
+    block = make_semiparametric_block_model()
     return ce.ContactEstimationTrajectory.load(block, os.path.join(loaddir, 'estimatedtrajectory.pkl'))
 
 if __name__ == '__main__':
