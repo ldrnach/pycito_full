@@ -54,8 +54,8 @@ def make_estimator_controller():
     estimator.distancecost = 1e-3
     estimator.frictioncost = 1e-3
     estimator.useSnoptSolver()
-    estimator.setSolverOptions({"Major feasibility tolerance": 1e-6,
-                                "Major optimality tolerance": 1e-6})
+    estimator.setSolverOptions({"Major feasibility tolerance": 1e-4,
+                                "Major optimality tolerance": 1e-4})
     # Create the overall controller
     controller = mpc.ContactAdaptiveMPC(estimator, reftraj, MPC_HORIZON)
     # Tune the controller
@@ -70,9 +70,10 @@ def set_controller_options(controller):
     controller.slackcost = 1e-2 * np.eye(controller.slack_dim)
     controller.complementaritycost = 1e2
     controller.useSnoptSolver()
-    controller.setSolverOptions({"Major feasibility tolerance": 1e-6,
-                                "Major optimality tolerance": 1e-6,
+    controller.setSolverOptions({"Major feasibility tolerance": 1e-4,
+                                "Major optimality tolerance": 1e-4,
                                 'Scale option': 1})
+    controller.use_random_guess()
     return controller
 
 def make_mpc_controller():
@@ -144,7 +145,7 @@ def plot_trajectory_comparison(mpc_sim, campc_sim, savename):
     plot_horizontal_sim_trajectory(axs, mpc_sim, label='MPC')
     plot_horizontal_sim_trajectory(axs, campc_sim, label='CAMPC')
     axs[0].set_title('Horizontal Trajectory')
-    axs[0].legend()
+    axs[0].legend(frameon=False)
     fig.tight_layout()
     fig.savefig(os.path.join(savename, 'horizontal_traj' + FIG_EXT), dpi=fig.dpi, bbox_inches='tight')
     plt.close(fig)
@@ -153,7 +154,7 @@ def plot_trajectory_comparison(mpc_sim, campc_sim, savename):
     plot_vertical_sim_trajectory(axs, mpc_sim, label='MPC')
     plot_vertical_sim_trajectory(axs, campc_sim, label='CAMPC')
     axs[0].set_title('Vertical Trajectory')
-    axs[0].legend()
+    axs[0].legend(frameon=False)
     fig.tight_layout()
     fig.savefig(os.path.join(savename, 'vertical_traj' + FIG_EXT), dpi=fig.dpi, bbox_inches='tight')
     plt.close(fig)
@@ -162,7 +163,7 @@ def plot_trajectory_comparison(mpc_sim, campc_sim, savename):
     plot_sim_forces(axs, mpc_sim, label='MPC')
     plot_sim_forces(axs, campc_sim, label='CAMPC')
     axs[0].set_title('Reaction Forces')
-    axs[0].legend()
+    axs[0].legend(frameon=False)
     fig.tight_layout()
     fig.savefig(os.path.join(savename, 'reaction_forces' + FIG_EXT), dpi=fig.dpi, bbox_inches='tight')
     plt.close(fig)
@@ -200,7 +201,7 @@ def compare_forces(sim, campc, savedir):
     }
     plot_sim_forces(axs, campc_data, label='Estimated')
     axs[0].set_title('Estimated Force Comparison')
-    axs[0].legend()
+    axs[0].legend(frameon=False)
     fig.tight_layout()
     fig.savefig(os.path.join(savedir, 'estimated_force_comparison' + FIG_EXT), dpi=fig.dpi, bbox_inches='tight')
     plt.close(fig)
@@ -223,7 +224,7 @@ def compare_estimated_contact_model(estimated, true, pts, savedir, name='estimat
     fig, axs = true.plot2D(pts, label='True', show=False, savename=None)
     fig, axs = estimated.plot2D(pts, axs, label='Estimated', show=False, savename=None)
     axs[0].set_title('Contact Model Estimation Performance')
-    axs[0].legend()
+    axs[0].legend(frameon=False)
     fig.tight_layout()
     fig.savefig(os.path.join(savedir, name + FIG_EXT), dpi=fig.dpi, bbox_inches='tight')
     plt.close(fig)

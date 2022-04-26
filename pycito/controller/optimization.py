@@ -257,7 +257,7 @@ class OptimizationLogger():
         axs.set_xlabel('Problem Number')
         axs.set_yscale('symlog', linthresh=1e-6)
         axs.grid(True)
-        axs.legend()
+        axs.legend(frameon=False)
         axs.yaxis.set_major_formatter(FormatStrFormatter('%.2e'))
         return fig, axs
 
@@ -277,7 +277,7 @@ class OptimizationLogger():
         axs.set_xlabel('Problem Number')
         axs.set_yscale('symlog', linthresh=1e-6)
         axs.grid(True)
-        axs.legend()
+        axs.legend(frameon=False)
         return fig, axs
 
     def cost_log_array(self):
