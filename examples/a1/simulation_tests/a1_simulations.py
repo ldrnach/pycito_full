@@ -17,6 +17,7 @@ FILENAME = 'simdata.pkl'
 
 def make_plant():
     a1 = A1VirtualBase()
+    a1.terrain.friction = 1.0
     a1.Finalize()
     return a1
 
@@ -66,7 +67,7 @@ def plot_sim_results(plant, simdata, savedir=None, vis=False):
         plant.visualize(xtraj)
 
 def run_timestepping():
-    filepart = 'timestepping'
+    filepart = 'timestepping_2'
     print(f"Running simulation with {filepart} integrator")
     a1 = make_plant()
     controller = make_plant_controller()
@@ -118,7 +119,7 @@ def run_midpoint():
     utils.save(os.path.join(SAVEDIR, filepart, FILENAME), simresults)
 
 if __name__ == '__main__':
-    #run_timestepping()
-    run_implicit()
+    run_timestepping()
+    #run_implicit()
     #run_semiimplicit()
     #run_midpoint()
