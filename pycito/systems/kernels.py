@@ -8,9 +8,18 @@ import numpy as np
 import abc
 
 class DifferentiableStationaryKernel(abc.ABC):
-    def __init__(self, reg=0.):
+    def __init__(self, weights=1., reg=0.):
         super().__init__()
         assert isinstance(reg, (int, float)) and reg >= 0., 'reg must be a nonnegative integer or float'
+        if isinstance(weights, (int, float)):
+            self.weights = np.array([weights])
+        elif isinstance(weights, list):
+            self.weights = np.array(weights)
+        elif isinstance(weights, np.ndarray):
+            self.weights = weights
+        else:
+            raise TypeError(f"weights must be an int or float, or a list or array of ints and floats")
+        
         self.reg = reg
 
     def __call__(self, X, Y = None):
@@ -27,8 +36,7 @@ class DifferentiableStationaryKernel(abc.ABC):
     def _reshape_inputs(X, Y):
         return np.reshape(X, (X.shape[0], -1)), np.reshape(Y, (Y.shape[0], -1))
 
-    @staticmethod
-    def _squared_distance(X, Y):
+    def _squared_distance(self, X, Y):
         """
         Calculate the squared distance between the two arrays
         
@@ -40,8 +48,11 @@ class DifferentiableStationaryKernel(abc.ABC):
             D: (n_samples_x, n_samples_y) array of squared distance values
         """
         assert X.shape[0] == Y.shape[0], f'example vectors x and y must have the same first dimension'
+        assert self.weights.shape[0] == 1 or self.weights.shape[0] == X.shape[0], f"Provided {self.weights.shape[0]} weights and got {X.shape[0]} features"
         X, Y = DifferentiableStationaryKernel._reshape_inputs(X, Y)
-        return np.sum((X.T[:, None] - Y.T)**2, axis=-1)
+        D3 = X.T[:, None] - Y.T
+        D3 = D3 * self.weights[None, None, :]
+        return np.sum(D3**2, axis=-1)
 
     def eval(self, x, y):
         """
@@ -67,10 +78,8 @@ class DifferentiableStationaryKernel(abc.ABC):
 
 class RBFKernel(DifferentiableStationaryKernel):
     def __init__(self, length_scale = 1.0, reg=0.):
-        super().__init__(reg)
-        assert length_scale > 0, "length_scale must be positive"
-        self.length_scale = length_scale
-        self._scale = -1/(2*self.length_scale **2)
+        super().__init__(weights = 1/length_scale, reg = reg)
+        self._scale = -1/(2*length_scale **2)
 
     def _eval_stationary(self, distances):
         """
@@ -82,7 +91,7 @@ class RBFKernel(DifferentiableStationaryKernel):
         Return Values:
             (N, M) array of kernel values
         """
-        return np.exp(self._scale * distances)
+        return np.exp(-1./2* distances)
 
     def gradient(self, x, y):
         """
@@ -100,9 +109,17 @@ class RBFKernel(DifferentiableStationaryKernel):
         assert K.shape[0] == 1, f"Gradient calculation supports only a single vector as first input"
         return 2 * self._scale * np.diag(K.flatten()).dot((x - y).transpose())
 
+    @property
+    def length_scale(self):
+        finite = self.weights > 0.
+        ls = np.zeros_like(self.weights)
+        ls[finite] = 1/self.weights[finite]
+        return ls
+
+
 class PseudoHuberKernel(DifferentiableStationaryKernel):
     def __init__(self, length_scale=1.0, delta=1.0, reg=0.):
-        super().__init__(reg)
+        super().__init__(reg=reg)
         assert length_scale > 0, 'length_scale must be positive'
         assert delta > 0, 'delta must be positive'
         self._length_scale =  length_scale
