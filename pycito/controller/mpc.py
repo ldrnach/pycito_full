@@ -788,14 +788,24 @@ class ContactAdaptiveMPC(LinearContactMPC):
                 u: (M, ) the updated current control
         """    
         model = self.estimator.estimate_contact(t, x, u)
-        self._update_contact_linearization(t, model)
+        self._update_contact_model(model)
+        self._update_contact_linearization(t)
         return self.do_mpc(t, x)
 
-    def _update_contact_linearization(self, t, model):
+    def _update_contact_model(self, model):
+        """Update the contact model used in the linear trajectory
+        
+        Note: we should update both the terrain model in the plant AND the terrain model within the constraints. The constraints use an AUTODIFF version of the plant which is not linked to the original model
+        """
+        # Update the float version of the plant
+        self.lintraj.plant.terrain = model
+        # Update the autodiff version of the plant
+        self.lintraj.plant.getAutoDiffXd().terrain = model
+
+    def _update_contact_linearization(self, t):
         """
             Update the contact constraints linearization used in MPC
         """
-        self.lintraj.plant.terrain = model
         index = self.lintraj.getTimeIndex(t)
         for k in range(self.horizon):
             self.lintraj._linearize_normal_distance(index + k)
