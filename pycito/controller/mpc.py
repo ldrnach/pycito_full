@@ -7,8 +7,9 @@ Luke Drnach
 #TODO: Double check implementation of joint limit linearization in the dynamics
 #TODO: Test getTimeIndex when the time is the final value
 #TODO: Test _update_contact_linearization works as intended
+import pstats
 import numpy as np
-import abc
+import abc, enum
 
 from pydrake.all import MathematicalProgram, SnoptSolver, OsqpSolver
 from pydrake.all import PiecewisePolynomial as pp
@@ -315,6 +316,11 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
         return self.joint_limit_cstr[index]
 
 class LinearContactMPC(_ControllerBase, OptimizationMixin):
+    class InitializationStrategy(enum.Enum):
+        ZERO = 0
+        RANDOM = 1
+        LINEAR = 2
+        CACHE = 3
     def __init__(self, linear_traj, horizon, lcptype=mlcp.CostRelaxedPseudoLinearComplementarityConstraint):
         """
         Plant: a TimesteppingMultibodyPlant instance
@@ -335,8 +341,10 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             self._jlimit_weight = None
         # Default complementarity cost weight
         self._complementarity_weight = 1
-        # Use zero or random guess
-        self._use_zero_guess = False
+        # Set default strategy for the initial guess
+        self._guess = self.InitializationStrategy.LINEAR
+        # Set the results cache
+        self._cache = None
         # Set the solver
         self._solver = OsqpSolver()
         self.solveroptions = {}
@@ -472,8 +480,8 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
                 x0: (N,) numpy array, initial state vector
         """
         index = self.lintraj.getTimeIndex(t)
-        self._initialize_variables(index)
         self._update_initial_constraint(index, x0)
+        self._initialize_variables(index)
         self._update_dynamics(index)
         self._update_limits(index+1)
         self._update_contact(index+1)
@@ -481,18 +489,47 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
 
     def _initialize_variables(self, index):
         """Set the initial guesses for all variables in the program"""
-        #TODO: Better initialization for states and controls
-        if self._use_zero_guess:
-             self.prog.SetInitialGuess(self.dx, np.zeros((self.state_dim, self.horizon + 1)))
-             self.prog.SetInitialGuess(self.du, np.zeros((self.control_dim, self.horizon)))
-        else:
-            self.prog.SetInitialGuess(self.dx, np.random.default_rng().standard_normal(size = self.dx.shape))
-            self.prog.SetInitialGuess(self.du, np.random.default_rng().standard_normal(size = self.du.shape))
+        #Initialize the forces, slacks, and joint limits
         for k, (df, ds) in enumerate(zip(self._dl, self._ds)):
             self.prog.SetInitialGuess(df, self.lintraj.getForce(index + k + 1))
             self.prog.SetInitialGuess(ds, self.lintraj.getSlack(index + k + 1))
         for k, djl in enumerate(self._djl):
             self.prog.SetInitialGuess(djl, self.lintraj.getJointLimit(index + k + 1))
+        # Initialize states and controls        
+        if self._guess == self.InitializationStrategy.ZERO:
+            # Initialize states and controls to zero
+            self.prog.SetInitialGuess(self.dx, np.zeros((self.state_dim, self.horizon + 1)))
+            self.prog.SetInitialGuess(self.du, np.zeros((self.control_dim, self.horizon)))
+        elif self._guess == self.InitializationStrategy.RANDOM:
+            # Initialize states and controls randomly
+            self.prog.SetInitialGuess(self.dx, np.random.default_rng().standard_normal(size = self.dx.shape))
+            self.prog.SetInitialGuess(self.du, np.random.default_rng().standard_normal(size = self.du.shape))
+        elif self._guess == self.InitializationStrategy.CACHE and self._cache is not None:
+            # Initialize ALL variables using the cached results
+            self.prog.SetInitialGuess(self.dx, self._cache['dx'])
+            self.prog.SetInitialGuess(self.du, self._cache['du'])
+            self.prog.SetInitialGuess(self.dl, self._cache['dl'])
+            self.prog.SetInitialGuess(self.ds, self._cache['ds'])
+            if 'djl' in self._cache:
+                self.prog.SetInitialGuess(self.djl, self._cache['djl'])
+            # Initialize all slack variables
+            for (dist, diss, fric) in zip(self._distance, self._dissipation, self._friccone):
+                dist.initializeSlackVariables()
+                diss.initializeSlackVariables()
+                fric.initializeSlackVariables()
+        else:
+            # Initialize using a linear guess
+            dx0 = self.prog.GetInitialGuess(self._dx[0])
+            dxN = np.zeros_like(dx0)
+            dx_guess = np.linspace(dx0, dxN, self.dx.shape[1]).T
+            self.prog.SetInitialGuess(self.dx, dx_guess)
+            for k, du in enumerate(self._du):
+                A, _ = self.lintraj.getDynamicsConstraint(index + k)
+                Ax = A[:, :2*self.dx.shape[0]]
+                Au = A[:, 2*self.dx.shape[0]:2*self.dx.shape[0] + du.shape[0]]
+                b = Ax.dot(dx_guess[:, k:k+2].ravel())
+                du0 = np.linalg.lstsq(Au, -b, rcond=None)[0]
+                self.prog.SetInitialGuess(du, du0)
         
     def _update_initial_constraint(self, index, x0):
         """Update the initial state constraint"""
@@ -565,6 +602,14 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             self.logger.logs[-1]['initial_state'] = x0
         index = self.lintraj.getTimeIndex(t)
         u = self.lintraj.getControl(index)
+        # Cache the results, if necessary
+        if self._guess == self.InitializationStrategy.CACHE:
+            self._cache = {'dx': result.GetSolution(self.dx),
+                            'du': result.GetSolution(self.du),
+                            'dl': result.GetSolution(self.dl),
+                            'ds': result.GetSolution(self.ds)}
+            if self.djl is not None:
+                self._cache['djl'] = result.GetSolution(self.djl)
         if result.is_success():
             print(f"MPC succeeded at time {t:0.3f}")
             du = result.GetSolution(self._du[0])
@@ -695,10 +740,16 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             return None
 
     def use_zero_guess(self):
-        self._use_zero_guess = True
+        self._guess = self.InitializationStrategy.ZERO
 
     def use_random_guess(self):
-        self._use_zero_guess = False
+        self._guess = self.InitializationStrategy.RANDOM
+
+    def use_linear_guess(self):
+        self._guess = self.InitializationStrategy.LINEAR
+
+    def use_cached_guess(self):
+        self._guess = self.InitializationStrategy.CACHE
 
 class ContactAdaptiveMPC(LinearContactMPC):
     def __init__(self, estimator, linear_traj, horizon, lcptype=mlcp.CostRelaxedPseudoLinearComplementarityConstraint):
