@@ -5,6 +5,9 @@ import pycito.utilities as utils
 from a1_foot_tracking_opt import GaitGenerator, GaitType, A1FootTrackingCost, add_base_tracking
 import a1trajopttools as opttools
 
+SAVEDIR = os.path.join('examples','a1','foot_tracking_fast_ellipse')
+
+
 def solve_forces(a1, qtraj):
     u = np.zeros((a1.multibody.num_actuators(), qtraj.shape[1]))
     fN = np.zeros((4, qtraj.shape[1]))
@@ -53,7 +56,7 @@ def a1_fast_shifted_steps(a1, numsteps=1):
     gaits[1].reversed = True
     gaits[3].reversed = True
     for gait in gaits:
-        gait.use_quartic()
+        gait.use_ellipse()
     samples = [13] + [26]*(2*numsteps) + [13]
     start, step, stop = gaits[0], gaits[1:3], gaits[3]
     for _ in range(numsteps-1):
@@ -100,7 +103,7 @@ def create_warmstart(a1, q):
 
 def a1_first_step_fast_optimization():
     # Get the footstep parameters
-    savedir = os.path.join('examples','a1','foot_tracking_fast_shift','firststep')
+    savedir = os.path.join(SAVEDIR,'firststep')
     a1 = opttools.make_a1()
     feet, _, qtraj = a1_fast_shifted_steps(a1)
     foot, q = feet[1], qtraj[1]
@@ -115,7 +118,7 @@ def a1_first_step_fast_optimization():
 
 def a1_second_step_fast_optimization():
     # Get the footstep parameters
-    savedir = os.path.join('examples','a1','foot_tracking_fast_shift','secondstep')
+    savedir = os.path.join(SAVEDIR,'secondstep')
     a1 = opttools.make_a1()
     feet, _, qtraj = a1_fast_shifted_steps(a1)
     duration = 0.25
@@ -125,7 +128,7 @@ def a1_second_step_fast_optimization():
     # Create the trajopt
     trajopt = setup_foot_tracking_gait(a1, foot, q[:6,:], duration, warmstart)
     # Add continuity constraints
-    sourcedir = os.path.join('examples','a1','foot_tracking_fast_shift','firststep','weight_1e+03','trajoptresults.pkl')
+    sourcedir = os.path.join(SAVEDIR,'firststep','weight_1e+03','trajoptresults.pkl')
     if os.path.exists(sourcedir):
         firststep = utils.load(utils.FindResource(sourcedir))
         # Add continuity constraints on forces and controls
@@ -169,7 +172,7 @@ def join_backward_euler_trajectories(dataset):
     return fulldata
 
 def a1_full_step_fast_optimization():
-    savedir = os.path.join('examples','a1','foot_tracking_fast_shift','fullstep')
+    savedir = os.path.join(SAVEDIR,'fullstep')
     a1 = opttools.make_a1()
     feet, _, qtraj = a1_fast_shifted_steps(a1)
     foot, step2 = feet[1], feet[2]
@@ -177,10 +180,9 @@ def a1_full_step_fast_optimization():
         foot[k] = np.concatenate([foot[k], step[:, 1:]], axis=1)
     q = np.concatenate([qtraj[1], qtraj[2][:, 1:]], axis=1)
     # Get the previous trajectories as a warmstart
-    sourcedir = os.path.join('examples','a1','foot_tracking_fast_shift')
     subdirs = ['firststep','secondstep']
     file = os.path.join('weight_1e+03','trajoptresults.pkl')
-    dataset = [utils.load(utils.FindResource(os.path.join(sourcedir, subdir, file))) for subdir in subdirs]
+    dataset = [utils.load(utils.FindResource(os.path.join(SAVEDIR, subdir, file))) for subdir in subdirs]
     warmstart = join_backward_euler_trajectories(dataset)
     duration = warmstart['time'][-1]
     trajopt = setup_foot_tracking_gait(a1, foot, q[:6, :], duration, warmstart)
@@ -196,7 +198,7 @@ def a1_full_step_fast_optimization():
     opttools.progressive_solve(trajopt, weights, savedir)
 
 def a1_multistep_optimization(numsteps = 10):
-    savedir = os.path.join('examples','a1','foot_tracking_fast_shift',f'multistep_{numsteps}')
+    savedir = os.path.join(SAVEDIR,f'multistep_{numsteps}')
     a1 = opttools.make_a1()
     # Get the foot trajectories
     print('loading foot trajectories')
@@ -205,7 +207,7 @@ def a1_multistep_optimization(numsteps = 10):
     q = join_configuration_trajectories(qtraj[1:-1])
     # Get the previous trajectories as a warmstart
     print('generating warmstart')
-    sourcedir = os.path.join('examples','a1','foot_tracking_fast_shift','fullstep','weight_1e+03','trajoptresults.pkl')
+    sourcedir = os.path.join(SAVEDIR,'fullstep','weight_1e+03','trajoptresults.pkl')
     dataset = [utils.load(utils.FindResource(sourcedir))]
     data = copy.deepcopy(dataset)
     for _ in range(numsteps-1):
@@ -227,7 +229,7 @@ def a1_multistep_optimization(numsteps = 10):
     opttools.progressive_solve(trajopt, weights, savedir)
 
 if __name__ == '__main__':
-    #a1_first_step_fast_optimization()
-    #a1_second_step_fast_optimization()
-    #a1_full_step_fast_optimization()
-    a1_multistep_optimization()
+    a1_first_step_fast_optimization()
+    a1_second_step_fast_optimization()
+    a1_full_step_fast_optimization()
+    #a1_multistep_optimization()

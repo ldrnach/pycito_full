@@ -6,7 +6,7 @@ October 12, 2020
 import numpy as np
 from abc import ABC, abstractmethod 
 import pycito.systems.gaussianprocess as gp
-from pydrake.autodiffutils import initializeAutoDiff, AutoDiffXd
+from pydrake.autodiffutils import InitializeAutoDiff, AutoDiffXd
 
 #TODO: Check output of local_frame. Make sure the frame matrix is normalized and the vectors are COLS and not ROWS
 
@@ -309,7 +309,7 @@ class GaussianProcessTerrain(FlatTerrain):
         return np.vstack((n, t1, t2))
         
     def posterior_gradient(self, x):
-        x_ad = initializeAutoDiff(x)
+        x_ad = InitializeAutoDiff(x)
         y_ad, _ = self.height.posterior(x_ad)
         return y_ad[0,0].derivatives()
 
