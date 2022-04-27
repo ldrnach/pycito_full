@@ -8,6 +8,7 @@ Luke Drnach
 #TODO: Test getTimeIndex when the time is the final value
 #TODO: Use the nearest state in the reference trajectory instead of the current time index
 
+
 import numpy as np
 import abc, enum
 
@@ -69,6 +70,7 @@ class ReferenceTrajectory():
         self._force = force[:nC+nF, :]
         self._slack = force[nC+nF:, :]
         self._jlimit = jointlimit
+        self._tracking_method = self.getTimeIndex 
 
     @classmethod
     def load(cls, plant, filename):
@@ -78,7 +80,11 @@ class ReferenceTrajectory():
         else:
             return cls(plant, data['time'], data['state'], data['control'], data['force'])
 
-    def getTimeIndex(self, t):
+    def getIndex(self, t, x, last_index=-1):
+        """Get the index of the trajectory for the tracking point"""
+        return self._tracking_method(t, x, last_index)
+
+    def getTimeIndex(self, t, x=None, last_index=None):
         """Return the index of the last timepoint less than the current time"""
         if t < self._time[0]:
             return 0
@@ -87,6 +93,17 @@ class ReferenceTrajectory():
         else:
             return np.argmax(self._time > t) - 1
     
+    def getNearestStateIndex(self, t, x, last_index = 0):
+        """Return the index of the nearest state in the trajectory"""
+        dist = np.sum((self._state[:, last_index:] - x[:, None])**2, axis=0)
+        return last_index + np.argmin(dist)
+
+    def getNearestPositionIndex(self, t, x, last_index = 0):
+        """Return the index of the nearest position configuration in the state trajectory"""
+        nQ = self.plant.multibody.num_positions()
+        dist = np.sum((self._state[:nQ, last_index:] - x[:nQ, None])**2, axis=0)
+        return last_index + np.argmin(dist)
+
     def getTime(self, index):
         """
         Return the time at the given index, returning the last time if the index is out of bounds
@@ -128,6 +145,18 @@ class ReferenceTrajectory():
         """
         index = min(max(0, index), self.num_timesteps-1)
         return self._jlimit[:, index]
+
+    def useNearestTime(self):
+        """Use the nearest time as the reference point for trajectory following"""
+        self._tracking_method = self.getTimeIndex
+
+    def useNearestState(self):
+        """Use the nearest state as the reference point for trajectory following"""
+        self._tracking_method = self.getNearestStateIndex
+
+    def useNearestPosition(self):
+        """Use the nearest position as the reference point for trajectory following"""
+        self._tracking_method = self.getNearestPositionIndex
 
     @property
     def num_timesteps(self):
@@ -479,7 +508,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
                 t: (1,) numpy array, time value
                 x0: (N,) numpy array, initial state vector
         """
-        index = self.lintraj.getTimeIndex(t)
+        index = self.lintraj.getIndex(t, x0)
         self._update_initial_constraint(index, x0)
         self._initialize_variables(index)
         self._update_dynamics(index)
@@ -600,7 +629,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         if self._log_enabled:
             self.logger.logs[-1]['time'] = t
             self.logger.logs[-1]['initial_state'] = x0
-        index = self.lintraj.getTimeIndex(t)
+        index = self.lintraj.getIndex(t, x0)
         u = self.lintraj.getControl(index)
         # Cache the results, if necessary
         if self._guess == self.InitializationStrategy.CACHE:
@@ -789,7 +818,7 @@ class ContactAdaptiveMPC(LinearContactMPC):
         """    
         model = self.estimator.estimate_contact(t, x, u)
         self._update_contact_model(model)
-        self._update_contact_linearization(t)
+        self._update_contact_linearization(t, x)
         return self.do_mpc(t, x)
 
     def _update_contact_model(self, model):
@@ -802,11 +831,11 @@ class ContactAdaptiveMPC(LinearContactMPC):
         # Update the autodiff version of the plant
         self.lintraj.plant.getAutoDiffXd().terrain = model
 
-    def _update_contact_linearization(self, t):
+    def _update_contact_linearization(self, t, x):
         """
             Update the contact constraints linearization used in MPC
         """
-        index = self.lintraj.getTimeIndex(t)
+        index = self.lintraj.getIndex(t, x)
         for k in range(self.horizon):
             self.lintraj._linearize_normal_distance(index + k)
             self.lintraj._linearize_friction_cone(index + k)

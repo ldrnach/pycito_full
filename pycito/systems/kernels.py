@@ -112,7 +112,7 @@ class RBFKernel(DifferentiableStationaryKernel):
     @property
     def length_scale(self):
         finite = self.weights > 0.
-        ls = np.zeros_like(self.weights)
+        ls = np.full(self.weights.shape, np.inf)
         ls[finite] = 1/self.weights[finite]
         return ls
 

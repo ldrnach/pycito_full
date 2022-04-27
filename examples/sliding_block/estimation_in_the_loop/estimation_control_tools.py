@@ -82,6 +82,7 @@ def set_controller_options(controller):
                                 "Major optimality tolerance": 1e-4,
                                 'Scale option': 1})
     controller.use_random_guess()
+    controller.lintraj.useNearestPosition()
     return controller
 
 def make_mpc_controller():

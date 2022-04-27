@@ -136,6 +136,34 @@ class ReferenceTrajectoryTest(unittest.TestCase):
         # Test when index is greater than maximum
         np.testing.assert_allclose(self.reftraj.getJointLimit(N+1), jlN, atol=1e-6, err_msg="getJointLimit does not return the final forces for index greater than maximum")
 
+    def test_get_nearest_state(self):
+        """
+        Test that we can get the index for the nearest state
+        """
+        N = self.reftraj.num_timesteps
+        test_idx = int(N/2)
+        x_test = self.reftraj.getState(test_idx)
+        t_test = self.reftraj.getTime(test_idx)
+        nearest_idx = self.reftraj.getNearestStateIndex(t_test, x_test)
+        self.assertEqual(nearest_idx, test_idx, msg='getNearestStateIndex did not return the index for the nearest state')
+        # Check that we get the same answer when we provide the "last" index
+        nearest = self.reftraj.getNearestStateIndex(t_test, x_test, last_index = nearest_idx - 1)
+        self.assertEqual(nearest_idx, test_idx, msg="getNearestStateIndex fails when last_index is provided")
+
+    def test_get_nearest_position(self):
+        """
+        Test that we can get the index for the nearest position
+        """
+        N = self.reftraj.num_timesteps
+        test_idx = int(N/2)
+        x_test = self.reftraj.getState(test_idx)
+        t_test = self.reftraj.getTime(test_idx)
+        nearest_idx = self.reftraj.getNearestPositionIndex(t_test, x_test)
+        self.assertEqual(nearest_idx, test_idx, msg='getNearestPositionIndex did not return the index for the nearest state')
+        # Check that we get the same answer when we provide the "last" index
+        nearest = self.reftraj.getNearestPositionIndex(t_test, x_test, last_index = nearest_idx - 1)
+        self.assertEqual(nearest_idx, test_idx, msg="getNearestPositionIndex fails when last_index is provided")
+
 class LinearContactTrajectoryTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
