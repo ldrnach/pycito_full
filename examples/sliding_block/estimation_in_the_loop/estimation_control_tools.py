@@ -18,6 +18,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pycito.systems.contactmodel as cm
 import pycito.controller.mpc as mpc
+import pycito.controller.mlcp as mlcp
 import pycito.controller.contactestimator as ce
 from pycito.systems.simulator import Simulator
 import pycito.utilities as utils
