@@ -842,8 +842,19 @@ class ContactAdaptiveMPC(LinearContactMPC):
         """
         index = self.lintraj.getIndex(t, x)
         for k in range(self.horizon):
-            self.lintraj._linearize_normal_distance(index + k)
-            self.lintraj._linearize_friction_cone(index + k)
+            # Update normal distance constraint
+            state, force = self.lintraj.getState(index+k), self.lintraj.getForce(index+k)
+            _, c = self.lintraj._distance.linearize(state)
+            A, _ = self.lintraj.distance_cstr[index+k]
+            self.lintraj.distance_cstr[index+k] = (A, c)
+            # Update the friction cone constraint
+            A, c = self.lintraj._friccone.linearize(state, force)
+            c -=A[:, state.shape[0]:].dot(force)
+            A_ = self.lintraj.friccone_cstr[index+k][0]
+            A[:, :state.shape[0]] = A_[:, :state.shape[0]]
+            self.lintraj.friccone_cstr[index+k] = (A, c)
+            # self.lintraj._linearize_normal_distance(index + k)
+            # self.lintraj._linearize_friction_cone(index + k)
 
     def getContactEstimationTrajectory(self):
         return self.estimator.traj
