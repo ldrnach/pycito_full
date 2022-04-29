@@ -47,30 +47,25 @@ class Simulator():
         state = np.zeros((self.plant.multibody.num_positions() + self.plant.multibody.num_velocities(), N))
         state[:, 0] = initial_state
         # Everything else
-        control = np.zeros((self.plant.multibody.num_actuators(), N))
-        force  = np.zeros((self.plant.num_contacts() + self.plant.num_friction(), N))
-        # Get the initial static control law
+        control = np.zeros((self.plant.num_actuators, N))
+        force  = np.zeros((self.plant.num_forces, N))
         control[:, 0], fN = self.plant.static_controller(state[:self.plant.multibody.num_positions(), 0])
         force[:self.plant.num_contacts(), 0] = fN
         # Run the simulation
         status = True
         for n in range(1, N):
-            control[:, n] = self.controller.get_control(time[n-1], state[:, n-1], control[:, n-1])
-            force[:, n] = self.plant.contact_impulse(self._timestep, state[:, n-1], control[:, n])
-            state[:, n] = self.plant.integrate(self._timestep, state[:, n-1], control[:, n], force[:, n])
-            force[:, n] = force[:, n] / self._timestep
+            control[:, n] = self.controller.get_control(time[n-1], state[:, n-1], control[:, n-1]) #FIX THIS. THE INDEX IS WRONG
+            state[:, n], force[:, n], status = self.integrator.integrate(self._timestep, state[:, n-1], control[:, n])     
+            force[:, n] = force[:, n]/self._timestep
             if np.any(np.isnan(state[:, n])):
                 control = control[:, :n-1]
-                force = force[:, :n-1] 
                 state = state[:, :n-1]
-                time = time[:n-1]
+                force = force[:, :n-1]
+                time = time[:, :n-1]
                 status = False
-                break            
+                break
         # Return the simulation values
-        if status:
-            return time, state, control, force, status
-        else:
-            return time[:n-1], state[:, :n-1], control[:, :n-1], force[:, :n-1], status
+        return time, state, control, force, status
         
     @property
     def timestep(self):
