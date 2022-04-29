@@ -99,6 +99,7 @@ def run_simulation(plant, controller, initial_state, duration, savedir=None):
         os.makedirs(savedir)
     # Create and run the simulation
     sim = Simulator(plant, controller)
+    sim.useTimestepping()
     tsim, xsim, usim, fsim, status = sim.simulate(initial_state, duration)
     if not status:
         print(f"Simulation faied at timestep {tsim[-1]}")
