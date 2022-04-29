@@ -8,6 +8,7 @@ February 8, 2022
 import numpy as np
 import pycito.controller.mpc as mpc
 from pycito.systems.integrators import ContactDynamicsIntegrator
+import pycito.utilities as utils
 
 class Simulator():
     def __init__(self, plant, controller):

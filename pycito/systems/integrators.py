@@ -12,7 +12,7 @@ from pydrake.all import MathematicalProgram, SnoptSolver
 
 from pycito.trajopt import constraints as cstr
 from pycito.trajopt import complementarity as cp
-
+import pycito.utilities as utils
 class ContactDynamicsIntegrator():
     def __init__(self, plant, dynamics_class = cstr.BackwardEulerDynamicsConstraint, ncp=cp.NonlinearConstantSlackComplementarity):
         self.plant = plant
@@ -49,11 +49,11 @@ class ContactDynamicsIntegrator():
         """Create a mathematical program, adding variables and constraints"""
         self.prog = MathematicalProgram()
         self._create_variables()
+        self._add_joint_limit_constraint()
         self._add_dynamics_constraint()
         self._add_contact_constraints()
         self._add_initial_conditions()
-        self._add_joint_limit_constraint()
-
+        
     def _create_variables(self):
         """Create the decision variables for the program"""
         self.x = self.prog.NewContinuousVariables(rows = self.plant.num_states, cols=2, name='states')
@@ -133,6 +133,8 @@ class ContactDynamicsIntegrator():
         # Store the forces and slacks for the next iteration
         self._last_force = result.GetSolution(self.all_forces)
         self._last_slack = result.GetSolution(self.vs)
+        if ~result.is_success():
+            utils.printProgramReport(result, self.prog, terminal=True, verbose=True)
         return x, f, result.is_success()
 
     def initialize(self, dt, x0, u):
