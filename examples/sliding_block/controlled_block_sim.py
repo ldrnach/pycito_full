@@ -33,14 +33,17 @@ def high_friction(x):
     else:
         return 0.9
 
-def plot_sim_results(plant, t, x, u, f, savedir, vis=True):
+def plot_sim_results(plant, t, x, u, f, savedir=None, vis=True):
     """Plot the block trajectories"""
-    if not os.path.exists(savedir):
+    if savedir is not None and not os.path.exists(savedir):
         os.makedirs(savedir)
     xtraj = pp.FirstOrderHold(t, x)
     utraj = pp.ZeroOrderHold(t, u)
     ftraj = pp.ZeroOrderHold(t, f)
-    plant.plot_trajectories(xtraj, utraj, ftraj, show=False, savename=os.path.join(savedir, 'sim.png'))
+    if savedir is None:
+        plant.plot_trajectories(xtraj, utraj, ftraj, show=True)
+    else:
+        plant.plot_trajectories(xtraj, utraj, ftraj, show=False, savename=os.path.join(savedir, 'sim.png'))
     # Visualize in meshcat
     if vis:
         plant.visualize(xtraj)
@@ -110,10 +113,10 @@ def flatterrain_sim():
     x0 = controller.lintraj.getState(0)
     # Run the open-loop simulation
     print("Running flat terrain open loop simulation")
-    run_simulation(block, open_loop, x0, duration = 1.5, savedir=os.path.join(SAVEDIR, 'flatterrain', 'openloop'))
+    run_simulation(block, open_loop, x0, duration = 1.5, savedir=os.path.join(SAVEDIR, 'flatterrain', 'midpoint', 'openloop'))
     # Run the mpc simulation
     print("Running flat terrain MPC simulation")
-    run_simulation(block, controller, x0, duration = 1.5, savedir=os.path.join(SAVEDIR, 'flatterrain', 'mpc'))
+    run_simulation(block, controller, x0, duration = 1.5, savedir=os.path.join(SAVEDIR, 'flatterrain', 'midpoint', 'mpc'))
 
 def lowfriction_sim():
     """Run open and closed loop simulations on terrain with low friction"""
@@ -198,8 +201,8 @@ def steppedterrain_sim():
 
 if __name__ == '__main__':
     flatterrain_sim()
-    lowfriction_sim()
-    highfriction_sim()
-    steppedterrain_sim()
-    lowfriction_special()
+    #lowfriction_sim()
+    #highfriction_sim()
+    #steppedterrain_sim()
+    #lowfriction_special()
 

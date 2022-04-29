@@ -202,5 +202,63 @@ class FrictionConeTest(unittest.TestCase):
         np.testing.assert_allclose(b, self.friccone_expected, atol=1e-7, err_msg=f"Linearization fails to evaluate the constraint accurately")
         np.testing.assert_allclose(A, self.A_expected, atol=1e-7, err_msg=f"Linearization failed to evaluate gradient accurately")
 
+class NormalDissipationTest(unittest.TestCase):
+    def setUp(self):
+        # Create a plant model
+        self.plant = FallingRod()
+        self.plant.Finalize()
+        # Create the constraint
+        self.cstr_fcn = cstr.NormalDissipationConstraint(self.plant)
+        # Create a mathematical program
+        self.prog = MathematicalProgram()
+        # Create the example states
+        self.x0 = np.zeros((6,))
+        self.x1 = np.array([1, 2, np.pi/6, 0.5, 0, 0.1])
+        self.fn = np.array([10, 5])
+        self.dissipation_expected = np.array([1/8, -1/16])
+        self.A_expected = np.array([[0.,  0., np.sqrt(3)/8, 0, 10, 10/8,  1/80, 0.],
+                                    [0.,  0., -np.sqrt(3)/16, 0, 5,-5/8,  0., -.2/16]])
+
+    def test_add_to_program(self):
+        """Check that we can add the constraint to the program"""
+        # Create decision variables
+        xvar = self.prog.NewContinuousVariables(rows=6, cols=1, name='state')
+        fnvar = self.prog.NewContinuousVariables(rows=2, cols=1, name='normal_force')
+        # Check the number of constraints before
+        numcstr_pre = len(self.prog.GetAllConstraints())
+        self.assertEqual(numcstr_pre, 0, msg=f'MathematicalProgram has constraints before constraints were added')
+        # Check adding the constraint
+        self.cstr_fcn.addToProgram(self.prog, xvar, fnvar)
+        binding = self.prog.GetAllConstraints()
+        self.assertEqual(len(binding), 1, msg='NormalDissipationConstraint.addToProgram adds an unexpected number of constraints')
+        # Check evaluating the binding
+        dvals = np.zeros((8, ))
+        out = self.prog.EvalBinding(binding[0], dvals)
+        np.testing.assert_allclose(out, np.zeros((2,)), atol=1e-7, err_msg=f"Evaluating NormalDissipationConstraint within MathematicalProgram fails at zero guess")
+
+    def test_eval_float(self):
+        """Check that we can evaluate the normal dissipation constraint with floats"""
+        dvals = np.concatenate([self.x1, self.fn], axis=0)
+        dissipation = self.cstr_fcn(dvals)
+        np.testing.assert_allclose(dissipation, self.dissipation_expected, atol=1e-7, err_msg=f"NormalDissipationConstraint does not evaluate correctly")
+
+    def test_eval_autodiff(self):
+        """Check that we can evaluate the normal dissipation constraint with autodiffs"""
+        dvals = np.concatenate([self.x1, self.fn,], axis=0)
+        dvals_ad = ad.InitializeAutoDiff(dvals)
+        dissipation_ad = self.cstr_fcn(dvals_ad)
+        # Get the values
+        dissipation_ad = np.squeeze(ad.autoDiffToValueMatrix(dissipation_ad))
+        # Check the values
+        np.testing.assert_allclose(dissipation_ad, self.dissipation_expected, atol=1e-7, err_msg=f"Evaluating NormalDissipation with autodiff type produces inaccurate results")
+
+
+    def test_linearization(self):
+        """Test the linearization of the constraint"""
+        A, b = self.cstr_fcn.linearize(self.x1, self.fn)
+        np.testing.assert_allclose(b, self.dissipation_expected, atol=1e-7, err_msg=f"Linearization fails to evaluate the constraint accurately")
+        np.testing.assert_allclose(A, self.A_expected, atol=1e-7, err_msg=f"Linearization failed to evaluate gradient accurately")
+
+
 if __name__ == "__main__":
     unittest.main()

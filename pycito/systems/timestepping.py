@@ -10,16 +10,16 @@ Note that, due to issues with pybind, TimeSteppingMultibodyPlant does NOT subcla
 Luke Drnach
 October 9, 2020
 """
+import abc
 import numpy as np
 from math import pi
-from pydrake.all import MultibodyPlant, DiagramBuilder, SceneGraph,AddMultibodyPlantSceneGraph, JacobianWrtVariable, AngleAxis, RotationMatrix, RigidTransform, MathematicalProgram, Solve
+from pydrake.all import DiagramBuilder, AddMultibodyPlantSceneGraph, JacobianWrtVariable, AngleAxis, RotationMatrix, MathematicalProgram, Solve, SnoptSolver
 from pydrake.geometry import Role, Sphere
 from pydrake.multibody.parsing import Parser
 from pycito.systems.terrain import FlatTerrain
 from pycito.utilities import FindResource, printProgramReport
-import pycito.systems.contactmodel as cm
-#TODO: Implement toAutoDiffXd method to convert to autodiff class
-
+#TODO: Implemet toAutoDiffXd method to convert to autodiff class
+#TODO: Debug simulation, implement using implicit Euler and Mathematical Programming techniques
 class TimeSteppingMultibodyPlant():
     """
     """
@@ -293,16 +293,18 @@ class TimeSteppingMultibodyPlant():
             f[:,n] = f[:,n]/h
         return (t, x, f)
 
-    def integrate(self, h, x, u, f):
+    def integrate(self, h, x, u):
+        """Semi-implicit Euler integration for multibody systems with contact"""
+        force, status = self.contact_impulse(h, x, u)
+        x_next = self.integrate_given_force(h, x, u, force)
+        return x_next, force, status
+
+    def integrate_given_force(self, h, x, u, f):
+        """Semi-implicit Euler integration for multibody systems"""
         # Get the configuration and the velocity
-        q, dq = np.split(x,2)
-        # Estimate the next configuration, assuming constant velocity
-        qhat = q + h * dq
-        # Set the context
+        q, v = np.split(x,[self.multibody.num_positions()])
         context = self.multibody.CreateDefaultContext()
-        self.multibody.SetPositions(context, qhat)
-        v = self.multibody.MapQDotToVelocity(context, dq)
-        self.multibody.SetVelocities(context, v)
+        self.multibody.SetPositionsAndVelocities(context, x)
         # Get the current system properties
         M = self.multibody.CalcMassMatrixViaInverseDynamics(context)
         C = self.multibody.CalcBiasTerm(context)
@@ -311,16 +313,16 @@ class TimeSteppingMultibodyPlant():
         Jn, Jt = self.GetContactJacobians(context) 
         J = np.vstack((Jn, Jt))
         # Calculate the next state
-        b = h * (B.dot(u) - C.dot(dq) + G) + J.transpose().dot(f)
-        v = np.linalg.solve(M,b)
-        dq += v
-        q += h * dq
+        b = h * (B.dot(u) - C.dot(v) + G) + J.transpose().dot(f)
+        v_new = np.linalg.solve(M,b)
+        velocity_next = v + v_new
+        position_next = q + h * self.multibody.MapVelocityToQDot(context, velocity_next)
         # Collect the configuration and velocity into a state vector
-        return np.concatenate((q,dq), axis=0)
+        return np.concatenate((position_next, velocity_next), axis=0)
 
     def contact_impulse(self, h, x, u):
         # Get the configuration and generalized velocity
-        q, dq = np.split(x,2)
+        q, dq = np.split(x,[self.multibody.num_positions()])
         # Estimate the configuration at the next time step
         qhat = q + h*dq
         # Get the system parameters
@@ -364,7 +366,7 @@ class TimeSteppingMultibodyPlant():
             return np.zeros(shape=(numN+numT,))
         else:
             # Strip the slack variables from the LCP solution
-            return f[0:numN + numT]
+            return f[0:numN + numT], status
 
     def get_multibody(self):
         return self.multibody
@@ -545,7 +547,7 @@ class TimeSteppingMultibodyPlant():
         # Ensure dynamics approximately satisfied
         prog.Add2NormSquaredCost(A = A, b = -G, vars=np.concatenate([u_var, l_var], axis=0))
         # Enforce normal complementarity - check for active constraints
-        active = phi < dtol
+        active = phi <= dtol
         if np.any(active):
             l_active = l_var[active]
             prog.AddBoundingBoxConstraint(np.zeros(l_active.shape), np.full(l_active.shape, np.inf), l_active)
@@ -581,9 +583,33 @@ class TimeSteppingMultibodyPlant():
 
     @property
     def has_joint_limits(self):
+        return self.num_joint_limits > 0
+
+    @property
+    def num_states(self):
+        return self.multibody.num_positions() + self.multibody.num_velocities()
+
+    @property
+    def num_actuators(self):
+        return self.multibody.num_actuators()
+
+    @property
+    def num_positions(self):
+        return self.multibody.num_positions()
+
+    @property
+    def num_velocities(self):
+        return self.multibody.num_velocities()
+
+    @property
+    def num_joint_limits(self):
         qhigh= self.multibody.GetPositionUpperLimits()
         qlow = self.multibody.GetPositionLowerLimits()
-        return np.any(np.isfinite(np.concatenate([qhigh, qlow])))
+        return np.sum(np.isfinite(np.hstack((qhigh, qlow))))
+
+    @property
+    def num_forces(self):
+        return self.num_contacts() + self.num_friction()
 
 def solve_lcp(P, q):
     prog = MathematicalProgram()

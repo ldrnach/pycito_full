@@ -25,7 +25,7 @@ class Visualizer():
 
     def addModelFromFile(self, urdf=None, name=None):
         if urdf is None:
-            return
+            return None
         if type(self.model_index) is not list:
             self.model_index = [self.model_index]
         if name is None:
@@ -41,10 +41,11 @@ class Visualizer():
         inspector = self.scenegraph.model_inspector()
         geomID = inspector.GetGeometries(frameID)
         #vis.plant.RegisterVisualGeometry(body, pose, shape, name, color)
-        illustrator = inspector.GetIllustrationProperties(geomID[0])
-        illustrator.UpdateProperty("phong","diffuse", Rgba(color[0], color[1], color[2], color[3]))
-        sourceID = self.plant.get_source_id()
-        self.scenegraph.AssignRole(sourceID, geomID[0], illustrator, RoleAssign.kReplace)
+        if len(geomID) > 0:
+            illustrator = inspector.GetIllustrationProperties(geomID[0])
+            illustrator.UpdateProperty("phong","diffuse", Rgba(color[0], color[1], color[2], color[3]))
+            sourceID = self.plant.get_source_id()
+            self.scenegraph.AssignRole(sourceID, geomID[0], illustrator, RoleAssign.kReplace)
 
     def _create_plant(self, urdf):
         self.plant = MultibodyPlant(time_step=0.0)
