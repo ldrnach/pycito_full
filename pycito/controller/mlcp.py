@@ -168,6 +168,15 @@ class PseudoLinearComplementarityConstraint():
     def cost_weight(self, val):
         warnings.warn(f"{type(self).__name__} does not have an associated cost. The value is ignored.")
 
+    @property
+    def penalty(self):
+        return None
+
+    @penalty.setter
+    def penalty(self, val):
+        """Provides a common interface for all relaxation/penalty methods"""
+        warnings.warn(f"{type(self).__name__} does not have an associated penalty parameter. The value is ignored")
+
 class CostRelaxedPseudoLinearComplementarityConstraint(PseudoLinearComplementarityConstraint):
     """
         Recasts the pseudo linear complementarity constraint using an exact penalty method. The constraint is implemented as:
@@ -213,6 +222,15 @@ class CostRelaxedPseudoLinearComplementarityConstraint(PseudoLinearComplementari
                 self._cost.evaluator().UpdateCoefficients(new_Q = self.cost_matrix, new_b = np.zeros((2*self.dim)))
         else:
             raise ValueError("cost_weight must be a nonnegative numeric value")
+
+    @property
+    def penalty(self):
+        return self._cost_weight
+
+    @penalty.setter
+    def penalty(self, val):
+        assert isinstance(val, (int, float)) and val >= 0, 'penalty must be a nonnegative scalar int or float '
+        self.cost_weight = val
 
 class VariableRelaxedPseudoLinearComplementarityConstraint(PseudoLinearComplementarityConstraint):
     """
@@ -305,6 +323,111 @@ class VariableRelaxedPseudoLinearComplementarityConstraint(PseudoLinearComplemen
             raise ValueError("cost_weight must be a nonnegative scalar")
         if self._cost is not None:
             self._cost.evaluator().UpdateCoefficients(self._cost_weight)
+
+    @property
+    def penalty(self):
+        return self._cost_weight
+
+    @penalty.setter
+    def penalty(self, val):
+        assert isinstance(val, (int, float)) and val >= 0, 'penalty must be a nonnegative scalar int or float '
+        self.cost_weight = val
+
+class ConstantRelaxedPseudoLinearComplementarityConstraint(PseudoLinearComplementarityConstraint):
+    """
+        Recasts the pseudo linear complementarity constraint using an relaxation method. The constraint is implemented as:
+            s = A*x + c
+            s >= 0
+            z >= 0
+            s*z <= r
+        where r is a constant
+    """
+    def __init__(self, A, c, relax = 0):
+        super().__init__(A, c)
+        assert isinstance(relax, (int, float)) and relax >= 0, f"relax must be a nonnegative scalar int or float"
+        self._relax = relax
+        self._cstr = None
+
+    def _add_orthogonality_constraint(self, prog, zvar, svar):
+        """
+        Imposes the constraint
+            z*s = 0
+        """
+        self._cstr = prog.AddConstraint(self._eval_orthogonality, 
+            lb = np.full((self.dim, ), -np.inf),
+            ub = self._relax * np.ones((self.dim, )),
+            vars = np.concatenate([zvar, svar], axis=0),
+            description=f"{self.name}_orthogonality")
+        return prog
+
+    @property
+    def relax(self):
+        return self._relax
+
+    @relax.setter
+    def relax(self, val):
+        assert isinstance(val, (int, float)) and val >= 0, f"relax must be a nonnegative scalar int or float"
+        self._relax = val
+        if self._cstr is not None:
+            self._cstr.evaluator().UpdateUpperBound(self._relax * np.ones((self.dim,)))
+
+    @property
+    def penalty(self):
+        return self._relax
+
+    @penalty.setter
+    def penalty(self, val):
+        assert isinstance(val, (int, float)) and val >= 0, 'penalty must be a nonnegative scalar int or float '
+        self.relax = val
+
+
+class CentralPathPseudoLinearComplementarityConstraint(PseudoLinearComplementarityConstraint):
+    """
+        Recasts the pseudo linear complementarity constraint using an relaxation method. The constraint is implemented as:
+            s = A*x + c
+            s >= 0
+            z >= 0
+            s*z = r
+        where r is a constant
+    """
+    def __init__(self, A, c, relax = 0):
+        super().__init__(A, c)
+        assert isinstance(relax, (int, float)) and relax >= 0, f"relax must be a nonnegative scalar int or float"
+        self._relax = relax
+        self._cstr = None
+
+    def _add_orthogonality_constraint(self, prog, zvar, svar):
+        """
+        Imposes the constraint
+            z*s = 0
+        """
+        self._cstr = prog.AddConstraint(self._eval_orthogonality, 
+            lb = self._relax * np.ones((self.dim, )),
+            ub = self._relax * np.ones((self.dim, )),
+            vars = np.concatenate([zvar, svar], axis=0),
+            description=f"{self.name}_orthogonality")
+        return prog
+
+    @property
+    def relax(self):
+        return self._relax
+
+    @relax.setter
+    def relax(self, val):
+        assert isinstance(val, (int, float)) and val >= 0, f"relax must be a nonnegative scalar int or float"
+        self._relax = val
+        if self._cstr is not None:
+            self._cstr.evaluator().UpdateUpperBound(self._relax * np.ones((self.dim,)))
+            self._cstr.evaluator().UpdateLowerBound(self._relax * np.ones((self.dim,)))
+
+    @property
+    def penalty(self):
+        return self._relax
+
+    @penalty.setter
+    def penalty(self, val):
+        assert isinstance(val, (int, float)) and val >= 0, 'penalty must be a nonnegative scalar int or float '
+        self.relax = val
 
 class MixedLinearComplementarityConstraint(PseudoLinearComplementarityConstraint):
     """
@@ -500,6 +623,16 @@ class VariableRelaxedMixedLinearComplementarityConstraint(MixedLinearComplementa
         if self._cost is not None:
             self._cost.evaluator().UpdateCoefficients(self._cost_weight)
 
+
+    @property
+    def penalty(self):
+        return self._cost_weight
+
+    @penalty.setter
+    def penalty(self, val):
+        assert isinstance(val, (int, float)) and val >= 0, 'penalty must be a nonnegative scalar int or float '
+        self.cost_weight = val
+
 class CostRelaxedMixedLinearComplementarity(MixedLinearComplementarityConstraint):
     """
     Recasts the mixed linear complementarity constraint using an exact penalty method. The constraint is implemented as:
@@ -545,6 +678,15 @@ class CostRelaxedMixedLinearComplementarity(MixedLinearComplementarityConstraint
                 self._cost.evaluator().UpdateCoefficients(new_Q = self.cost_matrix, new_b = np.zeros((2*self.dim)))
         else:
             raise ValueError("cost_weight must be a nonnegative numeric value")
+
+    @property
+    def penalty(self):
+        return self._cost_weight
+
+    @penalty.setter
+    def penalty(self, val):
+        assert isinstance(val, (int, float)) and val >= 0, 'penalty must be a nonnegative scalar int or float '
+        self.cost_weight = val
 
 if __name__ == "__main__":
     print("Hello from MLCP")
