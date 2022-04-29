@@ -610,6 +610,10 @@ class TimeSteppingMultibodyPlant():
         qlow = self.multibody.GetPositionLowerLimits()
         return np.sum(np.isfinite(np.hstack((qhigh, qlow))))
 
+    @property
+    def num_forces(self):
+        return self.num_contacts() + self.num_friction()
+
 def solve_lcp(P, q):
     prog = MathematicalProgram()
     x = prog.NewContinuousVariables(q.size)

@@ -7,6 +7,7 @@ February 8, 2022
 #TODO: Determine a good method for integrating the contact dynamics
 import numpy as np
 import pycito.controller.mpc as mpc
+from pycito.trajopt import complementarity as cp
 from pycito.systems.integrators import ContactDynamicsIntegrator
 import pycito.utilities as utils
 
@@ -21,14 +22,14 @@ class Simulator():
     def Uncontrolled(plant):
         return Simulator(plant, mpc.NullController(plant))
 
-    def useImplicitEuler(self):
-        self.integrator = ContactDynamicsIntegrator.ImplicitEulerIntegrator(self.plant)
+    def useImplicitEuler(self, ncp=cp.NonlinearConstantSlackComplementarity):
+        self.integrator = ContactDynamicsIntegrator.ImplicitEulerIntegrator(self.plant, ncp)
 
-    def useSemiImplicitEuler(self):
-        self.integrator = ContactDynamicsIntegrator.SemiImplicitEulerIntegrator(self.plant)
+    def useSemiImplicitEuler(self, ncp=cp.NonlinearConstantSlackComplementarity):
+        self.integrator = ContactDynamicsIntegrator.SemiImplicitEulerIntegrator(self.plant, ncp)
 
-    def useImplicitMidpoint(self):
-        self.integrator = ContactDynamicsIntegrator.ImplicitMidpointIntegrator(self.plant)
+    def useImplicitMidpoint(self, ncp=cp.NonlinearConstantSlackComplementarity):
+        self.integrator = ContactDynamicsIntegrator.ImplicitMidpointIntegrator(self.plant, ncp)
 
     def useTimestepping(self):
         self.integrator = self.plant
@@ -69,7 +70,7 @@ class Simulator():
         if status:
             return time, state, control, force, status
         else:
-            return time[:n-1], state[:, n-1], control[:, n-1], force[:, n-1], status
+            return time[:n-1], state[:, :n-1], control[:, :n-1], force[:, :n-1], status
         
     @property
     def timestep(self):
