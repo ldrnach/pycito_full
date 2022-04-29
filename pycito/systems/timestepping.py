@@ -543,7 +543,7 @@ class TimeSteppingMultibodyPlant():
         # Ensure dynamics approximately satisfied
         prog.Add2NormSquaredCost(A = A, b = -G, vars=np.concatenate([u_var, l_var], axis=0))
         # Enforce normal complementarity - check for active constraints
-        active = phi < dtol
+        active = phi <= dtol
         if np.any(active):
             l_active = l_var[active]
             prog.AddBoundingBoxConstraint(np.zeros(l_active.shape), np.full(l_active.shape, np.inf), l_active)
@@ -586,7 +586,7 @@ class TimeSteppingMultibodyPlant():
         return self.multibody.num_positions() + self.multibody.num_velocities()
 
     @property
-    def num_acutators(self):
+    def num_actuators(self):
         return self.multibody.num_actuators()
 
     @property
@@ -601,7 +601,7 @@ class TimeSteppingMultibodyPlant():
     def num_joint_limits(self):
         qhigh= self.multibody.GetPositionUpperLimits()
         qlow = self.multibody.GetPositionLowerLimits()
-        return np.sum(np.isfinite(np.row_stack(qhigh, qlow)))
+        return np.sum(np.isfinite(np.hstack((qhigh, qlow))))
 
 def solve_lcp(P, q):
     prog = MathematicalProgram()
