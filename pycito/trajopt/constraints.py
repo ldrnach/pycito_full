@@ -634,6 +634,39 @@ class RelaxedLinearConstraint():
         else:
             raise ValueError("cost_weight must be a nonnegative int or float")
 
+class NormalDissipationConstraint(MultibodyConstraint):
+    """
+    Implements a normal dissipation constraint. Ensures the normal force does not impart energy into the system
+    """
+    
+    def __init__(self, plant):
+        super(NormalDissipationConstraint, self).__init__(plant)
+        self._description = "normal_dissipation"
+
+    @property
+    def upper_bound(self):
+        return np.full((self.plant.num_contacts(), ), np.inf)
+
+    @property
+    def lower_bound(self):
+        return np.zeros((self.plant.num_contacts(), ))
+
+    def addToProgram(self, prog, state, normal_force):
+        """Thin wrapper for call syntax for MultibodyConstraint.addToProgram"""
+        return super(NormalDissipationConstraint, self).addToProgram(prog, state, normal_force)
+
+    @staticmethod
+    def eval(plant, context, state, normal_force):
+        """Evaluate the normal contact distance"""
+        # Calculate the normal distance
+        plant.multibody.SetPositionsAndVelocities(context, state)
+        Jn, _ = plant.GetContactJacobians(context)
+        v = state[plant.multibody.num_positions():]
+        return normal_force * (Jn.dot(v))
+
+    def parse(self, dvals):
+        """Returns the decision variable list"""
+        return np.split(dvals, [self.plant.num_states])
 
 if __name__ == '__main__':
     print('Hello from constraints.py!')
