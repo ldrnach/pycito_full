@@ -248,7 +248,7 @@ class NormalDissipationTest(unittest.TestCase):
         dvals_ad = ad.InitializeAutoDiff(dvals)
         dissipation_ad = self.cstr_fcn(dvals_ad)
         # Get the values
-        dissipation_ad = np.squeeze(ad.autoDiffToValueMatrix(dissipation_ad))
+        dissipation_ad = np.squeeze(ad.ExtractValue(dissipation_ad))
         # Check the values
         np.testing.assert_allclose(dissipation_ad, self.dissipation_expected, atol=1e-7, err_msg=f"Evaluating NormalDissipation with autodiff type produces inaccurate results")
 

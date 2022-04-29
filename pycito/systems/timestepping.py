@@ -17,6 +17,7 @@ from pydrake.all import DiagramBuilder, AddMultibodyPlantSceneGraph, JacobianWrt
 from pydrake.geometry import Role, Sphere
 from pydrake.multibody.parsing import Parser
 from pycito.systems.terrain import FlatTerrain
+import pycito.systems.contactmodel as cm
 from pycito.utilities import FindResource, printProgramReport
 #TODO: Implemet toAutoDiffXd method to convert to autodiff class
 #TODO: Debug simulation, implement using implicit Euler and Mathematical Programming techniques

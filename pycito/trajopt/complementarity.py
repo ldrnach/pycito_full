@@ -7,6 +7,7 @@ June 11, 2021
 import numpy as np
 import warnings
 from abc import ABC, abstractmethod
+import types
 
 #TODO: Update eval, upper_bound, lower_bound methods in CollocatedComplementarity for compatibility
 #TODO: Unittesting for CollocatedComplementarity and it's subclasses
@@ -31,7 +32,10 @@ class ComplementarityConstraint(ABC):
         self._var_slack = None
         self._slack_cost = None
         self._cost_weight = None
-        self.name = str(self.fcn)
+        if isinstance(self.fcn, types.FunctionType):
+            self.name = self.fcn.__name__
+        else:
+            self.name = str(self.fcn)
 
     def __call__(self, vars):
         """Evaluate the constraint"""
