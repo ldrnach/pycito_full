@@ -369,7 +369,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         else:
             self._jlimit_weight = None
         # Default complementarity cost weight
-        self._complementarity_weight = 1
+        self._complementarity_penalty = 1
         # Set default strategy for the initial guess
         self._guess = self.InitializationStrategy.LINEAR
         # Set the results cache
@@ -466,17 +466,17 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             self._dynamics[-1].addToProgram(self.prog, self._dx[-2], self._dx[-1], self._du[-1], self._dl[-1])
         # Initialize distance constraint
         self._distance.append(self.lcp.random(nQ+nV, nC))
-        self._distance[-1].cost_weight = self._complementarity_weight
+        self._distance[-1].penalty = self._complementarity_penalty
         self._distance[-1].name = "distance"
         self._distance[-1].addToProgram(self.prog, self._dx[-1], self._dl[-1][:nC])
         # Initialize dissipation constraint
         self._dissipation.append(self.lcp.random(nQ + nV + nC, nF))
-        self._dissipation[-1].cost_weight = self._complementarity_weight
+        self._dissipation[-1].penalty = self._complementarity_penalty
         self._dissipation[-1].name = 'dissipation'
         self._dissipation[-1].addToProgram(self.prog, np.concatenate([self._dx[-1], self._ds[-1]], axis=0), self._dl[-1][nC:nC+nF])
         # Initialize friction cone constraint
         self._friccone.append(self.lcp.random(nQ + nV + nF + nC, nC))
-        self._friccone[-1].cost_weight = self._complementarity_weight
+        self._friccone[-1].penalty = self._complementarity_penalty
         self._friccone[-1].name = 'friction cone'
         self._friccone[-1].addToProgram(self.prog, np.concatenate([self._dx[-1], self._dl[-1][:nC+nF]], axis=0), self._ds[-1])
         
@@ -720,13 +720,18 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         self._jlimit_weight = val
 
     @property
-    def complementaritycost(self):
-        return self._complementarity_weight
+    def complementarity_penalty(self):
+        return self._complementarity_penalty
 
-    @complementaritycost.setter
-    def complementaritycost(self, val):
-        assert isinstance(val, (int, float)), f"complementaritycost must be a float or an int"
-        self._complementarity_weight = val
+    @complementarity_penalty.setter
+    def complementarity_penalty(self, val):
+        assert isinstance(val, (int, float)), f"complementarity_penalty must be a float or an int"
+        self._complementarity_penalty = val
+        # Update the values in the constraints
+        for dist, diss, fric in zip(self._distance, self._dissipation, self._friccone):
+            dist.penalty = val
+            diss.penalty = val
+            fric.penalty = val
 
     @property
     def dx(self):
