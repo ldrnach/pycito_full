@@ -2,6 +2,9 @@
 Luke Drnach
 April 13, 2022
 """
+#TODO: Use the entire contact model, not just the local one
+#TODO: retune the controller to get better tracking performance
+
 
 import os
 from pycito.systems.block.block import Block
