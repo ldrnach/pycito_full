@@ -18,6 +18,7 @@ from pydrake.all import DiagramBuilder, AddMultibodyPlantSceneGraph, JacobianWrt
 from pydrake.geometry import Role, Sphere
 from pydrake.multibody.parsing import Parser
 from pycito.systems.terrain import FlatTerrain
+import pycito.systems.contactmodel as cm
 from pycito.utilities import FindResource, printProgramReport
 import pycito.systems.contactmodel as cm
 #TODO: Implement toAutoDiffXd method to convert to autodiff class
