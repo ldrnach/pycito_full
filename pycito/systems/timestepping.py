@@ -304,7 +304,6 @@ class TimeSteppingMultibodyPlant():
     def integrate(self, h, x, u):
         """Semi-implicit Euler integration for multibody systems with contact"""
         force, status = self.contact_impulse(h, x, u)
-        force  = force 
         x_next = self.integrate_given_force(h, x, u, force)
         return x_next, force, status
 
@@ -325,7 +324,7 @@ class TimeSteppingMultibodyPlant():
         b = h * (B.dot(u) - C.dot(v) + G) + J.transpose().dot(f)
         v_new = np.linalg.solve(M,b)
         velocity_next = v + v_new
-        position_next = q + h * self.multibody.MapVelocityToQDot(context, v)
+        position_next = q + h * self.multibody.MapVelocityToQDot(context, velocity_next)
         # Collect the configuration and velocity into a state vector
         return np.concatenate((position_next, velocity_next), axis=0)
 
