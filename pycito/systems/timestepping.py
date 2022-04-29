@@ -295,15 +295,11 @@ class TimeSteppingMultibodyPlant():
         return (t, x, f)
 
     def integrate(self, h, x, u, f):
+        """Semi-implicit Euler integration for multibody systems"""
         # Get the configuration and the velocity
-        q, dq = np.split(x,2)
-        # Estimate the next configuration, assuming constant velocity
-        qhat = q + h * dq
-        # Set the context
+        q, v = np.split(x,[self.multibody.num_positions()])
         context = self.multibody.CreateDefaultContext()
-        self.multibody.SetPositions(context, qhat)
-        v = self.multibody.MapQDotToVelocity(context, dq)
-        self.multibody.SetVelocities(context, v)
+        self.multibody.SetPositionsAndVelocities(context, x)
         # Get the current system properties
         M = self.multibody.CalcMassMatrixViaInverseDynamics(context)
         C = self.multibody.CalcBiasTerm(context)
@@ -312,16 +308,16 @@ class TimeSteppingMultibodyPlant():
         Jn, Jt = self.GetContactJacobians(context) 
         J = np.vstack((Jn, Jt))
         # Calculate the next state
-        b = h * (B.dot(u) - C.dot(dq) + G) + J.transpose().dot(f)
-        v = np.linalg.solve(M,b)
-        dq2 = dq + v
-        q2 = q + h * dq2
+        b = h * (B.dot(u) - C.dot(v) + G) + J.transpose().dot(f)
+        v_new = np.linalg.solve(M,b)
+        v += v_new
+        q += h * self.multibody.MapVelocityToQDot(context, v)
         # Collect the configuration and velocity into a state vector
-        return np.concatenate((q2,dq2), axis=0)
+        return np.concatenate((q,v), axis=0)
 
     def contact_impulse(self, h, x, u):
         # Get the configuration and generalized velocity
-        q, dq = np.split(x,2)
+        q, dq = np.split(x,[self.multibody.num_positions()])
         # Estimate the configuration at the next time step
         qhat = q + h*dq
         # Get the system parameters
