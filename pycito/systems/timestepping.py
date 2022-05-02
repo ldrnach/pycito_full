@@ -20,8 +20,6 @@ from pydrake.multibody.parsing import Parser
 from pycito.systems.terrain import FlatTerrain
 import pycito.systems.contactmodel as cm
 from pycito.utilities import FindResource, printProgramReport
-import pycito.systems.contactmodel as cm
-from pycito.utilities import FindResource, printProgramReport
 #TODO: Implemet toAutoDiffXd method to convert to autodiff class
 #TODO: Debug simulation, implement using implicit Euler and Mathematical Programming techniques
 class TimeSteppingMultibodyPlant():
