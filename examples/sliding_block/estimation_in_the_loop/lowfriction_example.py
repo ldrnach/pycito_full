@@ -99,6 +99,6 @@ def main_animation():
 
 
 if __name__ == '__main__':
-    main()
-    # main_ambiguity()
+    #main()
+    main_ambiguity()
     # main_animation()
