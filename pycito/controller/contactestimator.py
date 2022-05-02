@@ -10,7 +10,7 @@ February 14, 2022
 
 
 import numpy as np
-import copy
+import copy, warnings
 import matplotlib.pyplot as plt
 
 from pydrake.all import MathematicalProgram, SnoptSolver
@@ -337,6 +337,7 @@ class ContactTrajectory():
 class ContactEstimationTrajectory(ContactTrajectory):
     def __init__(self, plant, initial_state):
         super(ContactEstimationTrajectory, self).__init__()
+        self._FTOL = 1e-8
         self._plant = plant
         self._context = plant.multibody.CreateDefaultContext()
         # Store the duplication matrix
@@ -372,6 +373,53 @@ class ContactEstimationTrajectory(ContactTrajectory):
         self._append_dissipation()
         self._append_friction()
 
+    def save(self, filename):
+        # Save the estimation trajectory to the disk
+        var_dict = vars(self)
+        plant_copy = self._plant
+        context_copy = self._context
+        var_dict['_plant'] = type(self._plant).__name__
+        var_dict.pop('_context')
+        var_dict['isContactEstimationTrajectory'] = True
+        utils.save(filename, var_dict)
+        # Put the plant back in
+        self._plant = plant_copy
+        self._context = context_copy
+
+    @classmethod
+    def load(cls, plant, filename):
+        data = utils.load(utils.FindResource(filename))
+        # Type checking
+        if 'isContactEstimationTrajectory' not in data: 
+            raise ValueError(f"{filename} does not contain a ContactEstimationTrajectory")       
+        if not data['isContactEstimationTrajectory']:
+            raise ValueError(f"{filename} does not contain a ContactEstimationTrajectory")
+        if data['_plant'] != type(plant).__name__:
+            raise ValueError(f"{filename} was made with a {data['_plant']} plant model, but a {type(plant).__name__} was given")
+        # Create the new contact estimation trajectory
+        newinstance = cls(plant, data['_last_state'])
+        data.pop('isContactEstimationTrajectory')
+        data.pop('_plant')
+        for key, value in data.items():
+            setattr(newinstance, key, value)
+        return newinstance
+
+    def loadEstimatedTrajectory(self, filename):
+        """Load a ContactEstimationTrajectory and update the current instance variables"""
+        # Data type checking
+        data = utils.load(utils.FindResource(filename))
+        if 'isContactEstimationTrajectory' not in data: 
+            raise ValueError(f"{filename} does not contain a ContactEstimationTrajectory")       
+        if not data['isContactEstimationTrajectory']:
+            raise ValueError(f"{filename} does not contain a ContactEstimationTrajectory")
+        if data['_plant'] != type(self._plant).__name__:
+            raise ValueError(f"{filename} was made with a {data['_plant']} plant model, but this instance has a {type(self._plant).__name__} model")
+        # Update the current instance with the new data
+        data.pop('isContactEstimationTrajectory')
+        data.pop('_plant')
+        for key, value in data.items():
+            setattr(self, key, value)
+        
     def saveContactTrajectory(self, filename):
         """
         Saves only a copy of the ContactTrajectory superclass
@@ -442,7 +490,7 @@ class ContactEstimationTrajectory(ContactTrajectory):
         fN, fT = np.split(f, [self.num_contacts])
         FD = self._plant.friction_discretization_matrix()
         fT = FD.T.dot(FD.dot(fT))
-        fT[fT < 0] = 0
+        fT[fT < self._FTOL] = 0
         f = np.concatenate([fN, fT], axis=0)
         self._forces.append(f)
         # Add the feasibility guess
@@ -493,7 +541,9 @@ class ContactEstimationTrajectory(ContactTrajectory):
         fN, fT = np.split(self._forces[-1], [self.num_contacts])
         fc = np.diag(mu).dot(fN) - self._D.dot(fT)
         mu_err = np.zeros_like(mu)
-        mu_err[fc < 0 and fN > 0] = -fc[fc < 0 and fN > 0]/fN[fc < 0 and fN > 0]
+        err_index = fc < 0 and fN > 0
+        if np.any(err_index):
+            mu_err[fc < 0 and fN > 0] = -fc[fc < 0 and fN > 0]/fN[fc < 0 and fN > 0]
         self._friction_error.append(mu_err)
         # Update the feasibility to ensure the nonlinear constraint is trivially satisfied
         g = self._slacks[-1]
@@ -654,10 +704,15 @@ class ContactModelEstimator(OptimizationMixin):
         # Cost weights
         self._relax_cost_weight = 1.
         self._force_cost_weight = 1.
+        self._distance_cost_weight = 1.
+        self._friction_cost_weight = 1.
         self._solver = SnoptSolver()
 
     def estimate_contact(self, t, x, u):
         # Append new samples
+        if t <= self.traj._time[-1]:
+            return self.get_contact_model_at_time(t)
+
         self.traj.append_sample(t, x, u)
         # Create contact estimation problem 
         print(f"Creating contact estimation problem")
@@ -666,6 +721,23 @@ class ContactModelEstimator(OptimizationMixin):
         result = self.solve()
         self.update_trajectory(t, result)
         return self.get_updated_contact_model(result)
+
+    def get_contact_model_at_time(self, t):
+        """Get the contact model at the specified index"""
+        index = self.traj.getTimeIndex(t)
+        model = copy.deepcopy(self.traj.contact_model)
+        start = max(0, index - self.maxhorizon)
+        Kd, Kf = self.traj.getContactKernels(start, index + 1)
+        cpts = np.column_stack(self.traj.get_contacts(start, index + 1))
+        forces = np.column_stack(self.traj.get_forces(start, index + 1))
+        derr = np.row_stack(self.traj.get_distance_error(start, index + 1))
+        ferr = np.row_stack(self.traj.get_friction_error(start, index + 1))
+        # Calculate model weights
+        dweights = np.linalg.lstsq(Kd, derr, rcond=None)[0]
+        fc_weights = np.linalg.lstsq(Kf, ferr, rcond=None)[0]
+        fc_weights = self._variables_to_friction_weights(fc_weights, forces)
+        model.add_samples(cpts, dweights, fc_weights)
+        return model
 
     def update_trajectory(self, t, result):
         """
@@ -696,7 +768,9 @@ class ContactModelEstimator(OptimizationMixin):
         """
         fN = forces[:self.traj.num_contacts,:].reshape(-1)
         fc_weights = np.zeros_like(fweights)
-        fc_weights[fN > 0] = fweights[fN > 0]/fN[fN > 0]
+        err_index = fN > self.traj._FTOL 
+        if np.any(err_index):
+            fc_weights[err_index] = fweights[err_index]/fN[err_index]
         return fc_weights
 
     def get_updated_contact_model(self, result):
@@ -772,9 +846,9 @@ class ContactModelEstimator(OptimizationMixin):
         self._distance_weights = self._prog.NewContinuousVariables(rows = dvars, name='distance_weights')
         self._friction_weights = self._prog.NewContinuousVariables(rows = fvars, name='friction_weights')
         # Add the quadratic costs
-        self._distance_cost = self._prog.AddQuadraticCost(self._distance_kernel, np.zeros((dvars,)), self._distance_weights)
+        self._distance_cost = self._prog.AddQuadraticCost(self._distance_kernel * self._distance_cost_weight, np.zeros((dvars,)), self._distance_weights)
         self._distance_cost.evaluator().set_description('Distance Error Cost')
-        self._friction_cost = self._prog.AddQuadraticCost(self._friction_kernel, np.zeros((fvars,)), self._friction_weights)
+        self._friction_cost = self._prog.AddQuadraticCost(self._friction_kernel * self._friction_cost_weight, np.zeros((fvars,)), self._friction_weights)
         self._friction_cost.evaluator().set_description('Friction Error Cost')
 
     def _initialize_weights(self):
@@ -907,6 +981,30 @@ class ContactModelEstimator(OptimizationMixin):
             self._force_cost.evaluator().UpdateCoefficients(val * np.ones(allforceshape))
 
     @property
+    def distancecost(self):
+        return self._distance_cost_weight
+
+    @distancecost.setter
+    def distancecost(self, val):
+        assert isinstance(val, (int, float)) and val >= 0, 'val must be a nonnegative float or nonnegative int'
+        self._distance_cost_weight = val
+        # Update cost in the program
+        if self._distance_cost is not None:
+            self._distance_cost.evaluator().UpdateCoefficients(val * self._distance_kernel, np.zeros((self._distance_kernel.shape[0], )))
+
+    @property
+    def frictioncost(self):
+        return self._friction_cost_weight
+
+    @frictioncost.setter
+    def frictioncost(self, val):
+        assert isinstance(val, (int, float)) and val >= 0, 'val must be a nonnegative float or nonnegative int'
+        self._friction_cost_weight = val
+        # update the cost in the program
+        if self._friction_cost is not None:
+            self._friction_cost.evaluator().UpdateCoefficients(val * self._friction_kernel, np.zeros((self._friction_kernel.shape[0], )))
+
+    @property
     def forces(self):
         if self._normal_forces is not []:
             fN = np.column_stack(self._normal_forces)
@@ -929,15 +1027,32 @@ class ContactModelEstimator(OptimizationMixin):
         else:
             return None
 
-    @property
-    def slacks(self):
-        pass
+class ContactModelEstimatorNonlinearFrictionCone(ContactModelEstimator):
+    def _add_friction_cone_constraints(self, index):
+        """Add and initialize the friction cone constraints"""
+        # Get the appropriate kernel slice
+        kstart, kstop = self.kernelslice(index)
+        # Get the friction cone constraints
+        D, mu = self.traj.getFrictionConstraint(self._startptr+index)
+        self._fric_cstr.append(SemiparametricFrictionConeConstraint(mu, self._friction_kernel[kstart:kstop, :], D))
+        self._fric_cstr[-1].addToProgram(self.prog,
+            xvars = np.concatenate([self._friction_weights, self._normal_forces[-1], self._friction_forces[-1]], axis=0),
+            zvars = self._velocity_slacks[-1],
+            rvars = self._relaxation_vars[-1])
+
+    def _variables_to_friction_weights(self, fweights, forces):
+        """
+            Calculate the friction coefficient weights from solution variables
+        """
+        return fweights
 
 class EstimatedContactModelRectifier(OptimizationMixin):
-    def __init__(self, esttraj):
+    def __init__(self, esttraj, surf_max=np.inf, fric_max = np.inf):
         super().__init__()
         assert isinstance(esttraj, ContactEstimationTrajectory), "EstimatedContactModelRectifier must be initialized with a ContactEstimationTrajectory object"
         self.traj = esttraj
+        self.surf_max = surf_max
+        self.fric_max = fric_max
         self._setup()
 
     def _setup(self):
@@ -953,6 +1068,7 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         self._add_distance_constraints()
         self._add_friction_constraints()
         self._add_relaxation_constraint()
+        self._initialize()
         self.costs = []
 
     def _add_variables(self):
@@ -968,12 +1084,12 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         fN = np.concatenate([force[:self.traj.num_contacts] for force in self.traj._forces], axis=0)
         # Add the distance nonnegativity constraint
         self.prog.AddLinearConstraint(A = self.Kd, 
-                                    lb = dist0, 
-                                    ub = np.full(dist0.shape, np.inf), 
+                                    lb = -dist0, 
+                                    ub = np.full(dist0.shape, self.surf_max) - dist0, 
                                     vars = self.dweights).evaluator().set_description('Distance Nonnegativity')
         # Add the orthogonality constraint
         A = np.concatenate([fN * self.Kd, -self.D], axis=1)
-        b = fN * dist0
+        b = fN * dist0  
         self.prog.AddLinearConstraint(A = A, 
                                     lb = -np.full(dist0.shape[0], np.inf), 
                                     ub = -b, 
@@ -996,7 +1112,7 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         fN = np.concatenate(fN_all, axis=0)
         self.prog.AddLinearConstraint(A = fN * self.Kf, 
                                     lb = -b, 
-                                    ub = np.full(b.shape[0], np.inf),
+                                    ub = np.full(b.shape[0], self.fric_max) - b,
                                     vars = self.fweights).evaluator().set_description('Friction Cone Nonnegativity')
         # Setup the orthogonality constraint
         sV = np.concatenate(self.traj._slacks, axis=0)
@@ -1017,6 +1133,19 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         relax = np.expand_dims(self.relax, axis=1)
         self.prog.AddBoundingBoxConstraint(np.zeros(f.shape), f, relax).evaluator().set_description('Feasibility Limits')
 
+    def _initialize(self):
+        """Initialize the decision variables"""
+        derr = np.concatenate(self.traj.get_distance_error(0, self.traj.num_timesteps), axis=0)
+        ferr = np.concatenate(self.traj.get_friction_error(0, self.traj.num_timesteps), axis=0)
+        relax = np.concatenate(self.traj.get_feasibility(0, self.traj.num_timesteps), axis=0)
+        # Convert to kernel weights
+        dweight = np.linalg.lstsq(self.Kd, derr, rcond=None)[0]
+        fweight = np.linalg.lstsq(self.Kf, ferr, rcond=None)[0]
+        # Set initial guess
+        self.prog.SetInitialGuess(self.dweights, dweight)
+        self.prog.SetInitialGuess(self.fweights, fweight)
+        self.prog.SetInitialGuess(self.relax, relax)
+
     def _add_quadratic_cost(self):
         """Add the quadratic cost terms used in global model optimization"""
         # Create the costs
@@ -1027,11 +1156,12 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         # Store the cost terms in case we need to remove them later
         self.costs.extend([distance_cost, friction_cost])
 
-    def _add_linear_cost(self):
+    def _add_linear_cost(self, maximize=False):
         """Add the linear cost terms used in ambiguity set optimization"""
+        coeff = (-1)**maximize
         # Create the costs
-        distance_cost = self.prog.AddLinearCost(np.sum(self.Kd, axis=0), self.dweights)
-        friction_cost = self.prog.AddLinearCost(np.sum(self.Kf, axis=0), self.fweights)
+        distance_cost = self.prog.AddLinearCost(coeff * np.sum(self.Kd, axis=0), self.dweights)
+        friction_cost = self.prog.AddLinearCost(coeff * np.sum(self.Kf, axis=0), self.fweights)
         distance_cost.evaluator().set_description('Linear Distance Cost')
         friction_cost.evaluator().set_description('Linear Friction Cost')
         # Keep the bindings in case we need to remove them later
@@ -1043,11 +1173,19 @@ class EstimatedContactModelRectifier(OptimizationMixin):
             self.prog.RemoveCost(cost)
 
     def solve_ambiguity(self):
-        """Solve the ambiguity set optimization"""
-        #TODO - Determine whether the upper or lower limits for distance, friction are always infinite
+        """
+        Solve the ambiguity set optimization
+        
+        """
+        # Lower bound optimization
         self._clear_costs()
-        self._add_linear_cost()
-        return self.solve()
+        self._add_linear_cost(maximize=False)
+        lb = self.solve()
+        # Upper bound optimization
+        self._clear_costs()
+        self._add_linear_cost(maximize=True)
+        ub = self.solve()
+        return lb, ub
 
     def solve_global_model(self):
         """Solve the global model optimization problem"""
@@ -1055,6 +1193,35 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         self._add_quadratic_cost()
         return self.solve()
 
+    def solve_global_model_with_ambiguity(self):
+        """
+        Solve both the global model optimization and the ambiguity model optimization
+        
+        Returns a SemiparametricContactModelWithAmbiguity
+        """
+        global_model = self.solve_global_model()
+        if not global_model.is_success():
+            warnings.warn('Failed to solve global contact model optimization. Results may be inaccurate')
+        lb, ub = self.solve_ambiguity()
+        if not lb.is_success():
+            warnings.warn('Failed to solve lower bound contact model optimization. Results may be inaccurate')
+        if not ub.is_success():
+            warnings.warn('Failed to solve upper bound contact model. Results may be inaccurate')
+        # Get and check the results
+        surf_global = global_model.GetSolution(self.dweights)
+        fric_global = global_model.GetSolution(self.fweights)
+        surf_lb = lb.GetSolution(self.dweights)
+        surf_ub = ub.GetSolution(self.dweights)
+        fric_lb = lb.GetSolution(self.fweights)
+        fric_ub = ub.GetSolution(self.fweights)
+        # Create the model with ambiguity information
+        model = copy.deepcopy(self.traj.contact_model)
+        model = model.toSemiparametricModelWithAmbiguity()
+        cpts = np.concatenate(self.traj.get_contacts(0, self.traj.num_timesteps), axis=1)
+        model.add_samples(cpts, surf_global, fric_global)
+        model.set_upper_bound(surf_ub, fric_ub)
+        model.set_lower_bound(surf_lb, fric_lb)
+        return model
 
 class ContactEstimationPlotter():
     def __init__(self, traj):
@@ -1098,6 +1265,8 @@ class ContactEstimationPlotter():
         axs.plot(t, f, linewidth=1.5, color='black')
         axs.set_xlabel('Time (s)')
         axs.set_ylabel('Feasibility')
+        axs.set_yscale('symlog', linthresh=1e-6)
+        axs.grid(True)
         fig.tight_layout()
         return fig, axs
 

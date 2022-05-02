@@ -531,16 +531,37 @@ class LinearImplicitDynamics():
         assert A.shape[0] == b.shape[0], "A and b must have the same number of rows"
         self.A = A
         self.b = b
-
+        self._cstr = None
+    
     def __eq__(self, obj):
         """Equality operator for LinearImplicitDynamics"""
         return type(self) is type(obj) and np.array_equal(self.A, obj.A) and np.array_equal(self.b, obj.b)
 
+    @classmethod
+    def random(cls, in_dim, out_dim):
+        """
+        Return a random constraint
+        
+        """
+        rng = np.random.default_rng()
+        return cls(rng.random((out_dim, in_dim)), rng.random(out_dim,))
+
     def addToProgram(self, prog, *args):
         dvars = np.concatenate(args)
         assert self.A.shape[1] == dvars.shape[0], f"Expected {self.A.shape[1]} variables, but {dvars.shape[0]} were given"
-        prog.AddLinearEqualityConstraint(Aeq = self.A, beq = -self.b, vars=dvars).evaluator().set_description('linear_dynamics')
+        self._cstr = prog.AddLinearEqualityConstraint(Aeq = self.A, beq = -self.b, vars=dvars)
+        self._cstr.evaluator().set_description('linear_dynamics')
         return prog
+
+    def updateCoefficients(self, A_new, b_new):
+        """Update the coefficients in the constraints"""
+        assert A_new.shape == self.A.shape, f"Expect A_new to have shape {self.A.shape}"
+        assert b_new.shape == self.b.shape, f"Expect b_new to have shape {self.b.shape}"
+        self.A = A_new
+        self.b = b_new
+        if self._cstr is not None:
+            self._cstr.evaluator().UpdateCoefficients(A_new, -b_new)
+
 
 class RelaxedLinearConstraint():
     """

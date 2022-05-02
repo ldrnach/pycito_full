@@ -1,6 +1,6 @@
 import numpy as np
 from collections import defaultdict
-import re
+import re, time
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FormatStrFormatter
 
@@ -15,6 +15,14 @@ class OptimizationMixin():
         self._prog = MathematicalProgram()
         self._solver = None
         self.solver_options = {}
+        self._logger = OptimizationLogger(self)
+        self._log_enabled = False
+
+    def enableLogging(self):
+        self._log_enabled = True
+
+    def disableLogging(self):
+        self._log_enabled = False
 
     def useIpoptSolver(self):
         self.solver = IpoptSolver()
@@ -41,7 +49,13 @@ class OptimizationMixin():
         for key, value in self.solver_options.items():
             self.prog.SetSolverOption(self.solver.solver_id(), key, value)
         # Solve and return the solution
-        return self.solver.Solve(self.prog)
+        start = time.perf_counter()
+        result =  self.solver.Solve(self.prog)
+        elapsed = time.perf_counter() - start        
+        if self._log_enabled:
+            self._logger.log(result, elapsed)
+
+        return result
 
     def get_decision_variable_dictionary(self):
         """
@@ -160,6 +174,10 @@ class OptimizationMixin():
     def prog(self):
         return self._prog
 
+    @property
+    def logger(self):
+        return self._logger
+
 class OptimizationLogger():
     def __init__(self, problem):
         assert issubclass(type(problem), OptimizationMixin), 'problem must inherit from OptimizationMixin'
@@ -185,10 +203,12 @@ class OptimizationLogger():
         logger.logs, logger.guess_logs = data[0], data[1]
         return logger
 
-    def log(self, results):
+    def log(self, results, elapsed=None):
         """Log the results of calling the optimization program"""
         self.logs.append(self.problem.result_to_dict(results))
         self.guess_logs.append(self.problem.initial_guess_dictionary())
+        if elapsed is not None:
+            self.logs[-1]['solvetime'] = elapsed
 
     def plot(self, show = False, savename=None):
         """
@@ -237,7 +257,7 @@ class OptimizationLogger():
         axs.set_xlabel('Problem Number')
         axs.set_yscale('symlog', linthresh=1e-6)
         axs.grid(True)
-        axs.legend()
+        axs.legend(frameon=False)
         axs.yaxis.set_major_formatter(FormatStrFormatter('%.2e'))
         return fig, axs
 
@@ -257,7 +277,7 @@ class OptimizationLogger():
         axs.set_xlabel('Problem Number')
         axs.set_yscale('symlog', linthresh=1e-6)
         axs.grid(True)
-        axs.legend()
+        axs.legend(frameon=False)
         return fig, axs
 
     def cost_log_array(self):
@@ -266,7 +286,6 @@ class OptimizationLogger():
         for key in costs.keys():
             costs[key] = np.asarray(costs[key])
         return costs
-
 
     def constraint_log_array(self):
         """Return all the constraint violations as a dictionary of arrays"""

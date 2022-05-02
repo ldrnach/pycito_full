@@ -136,6 +136,34 @@ class ReferenceTrajectoryTest(unittest.TestCase):
         # Test when index is greater than maximum
         np.testing.assert_allclose(self.reftraj.getJointLimit(N+1), jlN, atol=1e-6, err_msg="getJointLimit does not return the final forces for index greater than maximum")
 
+    def test_get_nearest_state(self):
+        """
+        Test that we can get the index for the nearest state
+        """
+        N = self.reftraj.num_timesteps
+        test_idx = int(N/2)
+        x_test = self.reftraj.getState(test_idx)
+        t_test = self.reftraj.getTime(test_idx)
+        nearest_idx = self.reftraj.getNearestStateIndex(t_test, x_test)
+        self.assertEqual(nearest_idx, test_idx, msg='getNearestStateIndex did not return the index for the nearest state')
+        # Check that we get the same answer when we provide the "last" index
+        nearest = self.reftraj.getNearestStateIndex(t_test, x_test, last_index = nearest_idx - 1)
+        self.assertEqual(nearest_idx, test_idx, msg="getNearestStateIndex fails when last_index is provided")
+
+    def test_get_nearest_position(self):
+        """
+        Test that we can get the index for the nearest position
+        """
+        N = self.reftraj.num_timesteps
+        test_idx = int(N/2)
+        x_test = self.reftraj.getState(test_idx)
+        t_test = self.reftraj.getTime(test_idx)
+        nearest_idx = self.reftraj.getNearestPositionIndex(t_test, x_test)
+        self.assertEqual(nearest_idx, test_idx, msg='getNearestPositionIndex did not return the index for the nearest state')
+        # Check that we get the same answer when we provide the "last" index
+        nearest = self.reftraj.getNearestPositionIndex(t_test, x_test, last_index = nearest_idx - 1)
+        self.assertEqual(nearest_idx, test_idx, msg="getNearestPositionIndex fails when last_index is provided")
+
 class LinearContactTrajectoryTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -143,8 +171,7 @@ class LinearContactTrajectoryTest(unittest.TestCase):
         plant = A1VirtualBase()
         plant.Finalize()
         filename = os.path.join("pycito",'tests','data','a1_step.pkl')
-        cls.lcptype = mlcp.CostRelaxedPseudoLinearComplementarityConstraint
-        cls.lintraj = mpc.LinearizedContactTrajectory.load(plant, filename, cls.lcptype)
+        cls.lintraj = mpc.LinearizedContactTrajectory.load(plant, filename)
     
     def test_get_dynamics(self):
         """
@@ -155,8 +182,6 @@ class LinearContactTrajectoryTest(unittest.TestCase):
         # Check the expected number of linearized dynamics constraints
         N = self.lintraj.num_timesteps
         self.assertEqual(len(self.lintraj.dynamics_cstr), N-1, msg=f"Unexpected number of linearized dynamics constraints")
-        # Check the linearized dynamics object
-        self.assertTrue(isinstance(self.lintraj.getDynamicsConstraint(int(N/2)), cstr.LinearImplicitDynamics), msg='getDynamicsConstraint does not return the correct type')
         # Check for index clipping
         self.assertEqual(self.lintraj.getDynamicsConstraint(N+1), self.lintraj.dynamics_cstr[-1], msg="getDynamicsConstraint does not return final constraint for indices greater than maximum")
         self.assertEqual(self.lintraj.getDynamicsConstraint(-1), self.lintraj.dynamics_cstr[0], msg="getDynamicsConstraint does not return initial constraint for indices less than 0")
@@ -170,8 +195,6 @@ class LinearContactTrajectoryTest(unittest.TestCase):
         # Check the expected number of linearized distance constraints
         N = self.lintraj.num_timesteps
         self.assertEqual(len(self.lintraj.distance_cstr), N, msg=f"Unexpected number of linearized distance constraints")
-        # Check the linearized dynamics object
-        self.assertTrue(isinstance(self.lintraj.getDistanceConstraint(int(N/2)), self.lcptype), msg='getDistanceConstraint does not return the correct type')
         # Check for index clipping
         self.assertEqual(self.lintraj.getDistanceConstraint(N+1), self.lintraj.distance_cstr[-1], msg="getDistanceConstraint does not return final constraint for indices greater than maximum")
         self.assertEqual(self.lintraj.getDistanceConstraint(-1), self.lintraj.distance_cstr[0], msg="getDistanceConstraint does not return initial constraint for indices less than 0")
@@ -185,8 +208,6 @@ class LinearContactTrajectoryTest(unittest.TestCase):
         # Check the expected number of linearized dynamics constraints
         N = self.lintraj.num_timesteps
         self.assertEqual(len(self.lintraj.dissipation_cstr), N, msg=f"Unexpected number of linearized dissipation constraints")
-        # Check the linearized dynamics object
-        self.assertTrue(isinstance(self.lintraj.getDissipationConstraint(int(N/2)), self.lcptype), msg='getDissipationConstraint does not return the correct type')
         # Check for index clipping
         self.assertEqual(self.lintraj.getDissipationConstraint(N+1), self.lintraj.dissipation_cstr[-1], msg="getDissipationConstraint does not return final constraint for indices greater than maximum")
         self.assertEqual(self.lintraj.getDissipationConstraint(-1), self.lintraj.dissipation_cstr[0], msg="getDissipationConstraint does not return initial constraint for indices less than 0")
@@ -200,8 +221,6 @@ class LinearContactTrajectoryTest(unittest.TestCase):
         # Check the expected number of linearized friction cone constraints
         N = self.lintraj.num_timesteps
         self.assertEqual(len(self.lintraj.friccone_cstr), N, msg=f"Unexpected number of linearized friction cone constraints")
-        # Check the linearized dynamics object
-        self.assertTrue(isinstance(self.lintraj.getFrictionConeConstraint(int(N/2)), self.lcptype), msg='getFrictionConeConstraint does not return the correct type')
         # Check for index clipping
         self.assertEqual(self.lintraj.getFrictionConeConstraint(N+1), self.lintraj.friccone_cstr[-1], msg="getFrictionConeConstraint does not return final constraint for indices greater than maximum")
         self.assertEqual(self.lintraj.getFrictionConeConstraint(-1), self.lintraj.friccone_cstr[0], msg="getFrictionConeConstraint does not return initial constraint for indices less than 0")
@@ -215,11 +234,10 @@ class LinearContactTrajectoryTest(unittest.TestCase):
         # Check the expected number of linearized dynamics constraints
         N = self.lintraj.num_timesteps
         self.assertEqual(len(self.lintraj.joint_limit_cstr), N, msg=f"Unexpected number of linearized joint limit constraints")
-        # Check the linearized dynamics object
-        self.assertTrue(isinstance(self.lintraj.getJointLimitConstraint(int(N/2)), self.lcptype), msg='getJointLimitConstraint does not return the correct type')
         # Check for index clipping
         self.assertEqual(self.lintraj.getJointLimitConstraint(N+1), self.lintraj.joint_limit_cstr[-1], msg="getJointLimitConstraint does not return final constraint for indices greater than maximum")
         self.assertEqual(self.lintraj.getJointLimitConstraint(-1), self.lintraj.joint_limit_cstr[0], msg="getJointLimitConstraint does not return initial constraint for indices less than 0")
+
 class LinearContactMPCTest(unittest.TestCase):
     @classmethod
     #TODO: Check joint limit implementation
@@ -418,8 +436,8 @@ class LinearTrajectoryVerificationTest(unittest.TestCase):
         A_expected = np.column_stack([Ax_0, Ax_1, Au, Al])
         b_expected = -Al.dot(self.l[:-1, 1])
         # Check the dynamics parameters
-        np.testing.assert_allclose(self.lintraj.dynamics_cstr[0].A, A_expected, atol=1e-8, err_msg="Linear dynamics A matrix is inaccurate")
-        np.testing.assert_allclose(self.lintraj.dynamics_cstr[0].b, b_expected, atol=1e-8, err_msg="Linear dynamics c vector is inaccurate")
+        np.testing.assert_allclose(self.lintraj.dynamics_cstr[0][0], A_expected, atol=1e-8, err_msg="Linear dynamics A matrix is inaccurate")
+        np.testing.assert_allclose(self.lintraj.dynamics_cstr[0][1], b_expected, atol=1e-8, err_msg="Linear dynamics c vector is inaccurate")
 
     def test_linear_distance(self):
         """Verify that the normal distance parameters are accurate"""
@@ -427,10 +445,10 @@ class LinearTrajectoryVerificationTest(unittest.TestCase):
         c_expected_0 = np.array([self.x[1, 0] - 0.5])
         c_expected_1 = np.array([self.x[1, 1] - 0.5])
         # Check the linearized distance parameters
-        np.testing.assert_allclose(self.lintraj.distance_cstr[0].A, A_expected, atol=1e-8, err_msg="Linearized distance constraint A matrix is inaccurate at index 0")
-        np.testing.assert_allclose(self.lintraj.distance_cstr[1].A, A_expected, atol=1e-8, err_msg="Linearized distance constraint A matrix is inaccurate at index 1")
-        np.testing.assert_allclose(self.lintraj.distance_cstr[0].c, c_expected_0, atol=1e-8, err_msg="Linearized distance constraint c vector is inaccurate at index 0")
-        np.testing.assert_allclose(self.lintraj.distance_cstr[1].c, c_expected_1, atol=1e-8, err_msg="Linearized distance constraint c vector is inaccurate at index 1")
+        np.testing.assert_allclose(self.lintraj.distance_cstr[0][0], A_expected, atol=1e-8, err_msg="Linearized distance constraint A matrix is inaccurate at index 0")
+        np.testing.assert_allclose(self.lintraj.distance_cstr[1][0], A_expected, atol=1e-8, err_msg="Linearized distance constraint A matrix is inaccurate at index 1")
+        np.testing.assert_allclose(self.lintraj.distance_cstr[0][1], c_expected_0, atol=1e-8, err_msg="Linearized distance constraint c vector is inaccurate at index 0")
+        np.testing.assert_allclose(self.lintraj.distance_cstr[1][1], c_expected_1, atol=1e-8, err_msg="Linearized distance constraint c vector is inaccurate at index 1")
 
     def test_linear_dissipation(self):
         """Verify that the linearized dissipation parameters are accurate"""
@@ -447,10 +465,10 @@ class LinearTrajectoryVerificationTest(unittest.TestCase):
         A_expected_1 = np.column_stack([np.zeros((4,2)), Jt, e.T])
         c_expected_1 = Jt.dot(self.x[2:, 1])
         # Check the linearized dissipation parameters
-        np.testing.assert_allclose(self.lintraj.dissipation_cstr[0].A, A_expected_0, atol=1e-8, err_msg="Linearized dissipation constraint A matrix is inaccurate at index 0")
-        np.testing.assert_allclose(self.lintraj.dissipation_cstr[1].A, A_expected_1, atol=1e-8, err_msg="Linearized dissipation constraint A matrix is inaccurate at index 1")
-        np.testing.assert_allclose(self.lintraj.dissipation_cstr[0].c, c_expected_0, atol=1e-8, err_msg="Linearized dissipation constraint c vector is inaccurate at index 0")
-        np.testing.assert_allclose(self.lintraj.dissipation_cstr[1].c, c_expected_1, atol=1e-8, err_msg="Linearized dissipation constraint c vector is inaccurate at index 1")
+        np.testing.assert_allclose(self.lintraj.dissipation_cstr[0][0], A_expected_0, atol=1e-8, err_msg="Linearized dissipation constraint A matrix is inaccurate at index 0")
+        np.testing.assert_allclose(self.lintraj.dissipation_cstr[1][0], A_expected_1, atol=1e-8, err_msg="Linearized dissipation constraint A matrix is inaccurate at index 1")
+        np.testing.assert_allclose(self.lintraj.dissipation_cstr[0][1], c_expected_0, atol=1e-8, err_msg="Linearized dissipation constraint c vector is inaccurate at index 0")
+        np.testing.assert_allclose(self.lintraj.dissipation_cstr[1][1], c_expected_1, atol=1e-8, err_msg="Linearized dissipation constraint c vector is inaccurate at index 1")
     
     def test_linear_friction(self):
         """Verify that the linear friction cone parameters are accurate"""
@@ -460,10 +478,10 @@ class LinearTrajectoryVerificationTest(unittest.TestCase):
         A_expected = np.column_stack([np.zeros((1,4)), mu, -e])
         c_expected = np.zeros((1,))
         # Check the linearized friction cone parameters
-        np.testing.assert_allclose(self.lintraj.friccone_cstr[0].A, A_expected, atol=1e-8, err_msg="Linearized friction cone constraint A matrix is inaccurate at index 0")
-        np.testing.assert_allclose(self.lintraj.friccone_cstr[1].A, A_expected, atol=1e-8, err_msg="Linearized friction cone constraint A matrix is inaccurate at index 1")
-        np.testing.assert_allclose(self.lintraj.friccone_cstr[0].c, c_expected, atol=1e-8, err_msg="Linearized friction cone constraint c vector is inaccurate at index 0")
-        np.testing.assert_allclose(self.lintraj.friccone_cstr[1].c, c_expected, atol=1e-8, err_msg="Linearized friction cone constraint c vector is inaccurate at index 1")
+        np.testing.assert_allclose(self.lintraj.friccone_cstr[0][0], A_expected, atol=1e-8, err_msg="Linearized friction cone constraint A matrix is inaccurate at index 0")
+        np.testing.assert_allclose(self.lintraj.friccone_cstr[1][0], A_expected, atol=1e-8, err_msg="Linearized friction cone constraint A matrix is inaccurate at index 1")
+        np.testing.assert_allclose(self.lintraj.friccone_cstr[0][1], c_expected, atol=1e-8, err_msg="Linearized friction cone constraint c vector is inaccurate at index 0")
+        np.testing.assert_allclose(self.lintraj.friccone_cstr[1][1], c_expected, atol=1e-8, err_msg="Linearized friction cone constraint c vector is inaccurate at index 1")
 
 class LinearMPCVerificationTest(unittest.TestCase):
     @classmethod

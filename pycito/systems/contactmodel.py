@@ -8,9 +8,14 @@ February 16, 2022
 #TODO: rewrite models to always return numpy arrays
 #TODO: Integrate with Timestepping
 import numpy as np
-import abc
+import abc, warnings, copy
+import matplotlib.pyplot as plt
+from functools import partial
+
 import pycito.systems.kernels as kernels
-from copy import deepcopy
+import pycito.decorators as deco
+
+from pydrake.all import MathematicalProgram, Solve
 
 def householderortho3D(normal):
     """
@@ -144,8 +149,8 @@ class SemiparametricModel(DifferentiableModel):
         samples = np.atleast_2d(samples)
         assert samples.shape[1] == weights.shape[0], 'there must be as many weights as there are samples'
         if self._sample_points is not None:
-            assert samples.shape[1] == self._sample_points.shape[1], 'new samples must have the same number of features as the existing samples'
-            self._sample_points = np.concatenate([self._sample_points, samples], axis=0)
+            assert samples.shape[0] == self._sample_points.shape[0], 'new samples must have the same number of features as the existing samples'
+            self._sample_points = np.concatenate([self._sample_points, samples], axis=1)
             self._kernel_weights = np.concatenate([self._kernel_weights, weights], axis=0)
         else:
             self._sample_points = samples
@@ -252,6 +257,56 @@ class _ContactModel(abc.ABC):
         """
         raise NotImplementedError
 
+    def find_surface_zaxis_zeros(self, pts):       
+        # Setup the mathematical program
+        soln = np.copy(pts)
+        guess = pts[2:,0]
+        for k, pt in enumerate(pts.transpose()):
+            prog = MathematicalProgram()
+            zvar = prog.NewContinuousVariables(rows=1, name='z')
+            # Find the smallest modification
+            prog.AddQuadraticErrorCost(np.eye(1), pt[2:], vars=zvar)
+            # Constrain the surface to evaluate to zero
+            pt_cstr = lambda z, x=pt[0], y=pt[1]: self.eval_surface(np.concatenate([np.array([x, y]), z], axis=0))
+            prog.AddConstraint(pt_cstr, lb = np.zeros((1,)), ub = np.zeros((1,)), vars = zvar, description='zeroset')
+            # Solve the program
+            prog.SetInitialGuess(zvar, guess)
+            result = Solve(prog)
+            if not result.is_success():
+                warnings.warn(f"find_surface_zaxis_zeros did not solve successfully. Results may be inaccurate")
+            soln[2,k] = result.GetSolution(zvar)
+            guess = soln[2:,k]
+        return soln
+
+    @deco.showable_fig
+    @deco.saveable_fig
+    def plot2D(self, pts, axs=None, label=None):
+        """
+        Plot the contact model in 2D coordinates. Currently, plot2D requires a full 3D point specification, but plots the z-axis values of the terrain along the x-axis (the y-values are ignored).
+
+        plot2D first finds the closest zeros of the contact surface model, and then plots the corresponding (x,z) value pair. plot2D also evaluates the friction coefficient at the given (x,y,z) triples
+
+        Arguments:
+            pts: (3,N) numpy array, points "close to" the contact model surface
+
+        """
+        # Get the figure and axis handles
+        if axs is None:
+            fig, axs = plt.subplots(2,1)
+        else:
+            plt.sca(axs[0])
+            fig = plt.gcf()
+        # Evaluate the contact models
+        surf_pts = self.find_surface_zaxis_zeros(pts)
+        fric_pts = np.concatenate([self.eval_friction(pt) for pt in pts.transpose()], axis=0)
+        # Make the plots
+        axs[0].plot(surf_pts[0], surf_pts[2], linewidth=1.5, label=label)
+        axs[0].set_ylabel('Contact Height (m)')
+        axs[1].plot(pts[0,:], fric_pts, linewidth=1.5, label=label)
+        axs[1].set_ylabel('Friction Coefficient')
+        axs[1].set_xlabel('Position (m)')
+        return fig, axs
+
 class ContactModel(_ContactModel):
     def __init__(self, surface, friction):
         assert issubclass(type(surface), DifferentiableModel), 'surface must be a subclass of DifferentiableModel'
@@ -355,10 +410,9 @@ class SemiparametricContactModel(ContactModel):
             friction_length (float): the length scale value for the friction PseudoHuber kernel
             delta (float): the delta value for the friction PseudoHuber kernel
         """
-        surf = SemiparametricModel.FlatModelWithRBFKernel(location = height, length_scale = height_length, reg = reg)
+        surf = SemiparametricModel.FlatPriorWithRBFKernel(location = height, length_scale = height_length, reg = reg)
         fric = SemiparametricModel.ConstantPriorWithHuberKernel(const = friction, length_scale = friction_length, delta = delta, reg = reg)
         return cls(surf, fric)
-
 
     def add_samples(self, sample_points, surface_weights, friction_weights):
         """
@@ -368,6 +422,15 @@ class SemiparametricContactModel(ContactModel):
         self.surface.add_samples(sample_points, surface_weights)
         self.friction.add_samples(sample_points, friction_weights)
 
+    def get_sample_points(self):
+        return self.surface._sample_points
+
+    def get_surface_weights(self):
+        return self.surface._kernel_weights
+
+    def get_friction_weights(self):
+        return self.friction._kernel_weights
+
     @property
     def surface_kernel(self):
         return self.surface.kernel
@@ -375,6 +438,89 @@ class SemiparametricContactModel(ContactModel):
     @property
     def friction_kernel(self):
         return self.friction.kernel
+
+    def toSemiparametricModelWithAmbiguity(self):
+        """
+        Upcast model to SemiparametricContactModelWithAmbiguity
+        """
+        model = SemiparametricContactModelWithAmbiguity(self.surface, self.friction)
+        if model.get_sample_points() is not None:
+            model.add_samples(model.get_sample_points(), model.get_surface_weights(), model.get_friction_weights())
+        return model
+
+class SemiparametricContactModelWithAmbiguity(SemiparametricContactModel):
+    def __init__(self, surface, friction):
+        super().__init__(surface, friction)
+        self.lower_bound = SemiparametricContactModel(copy.deepcopy(surface), copy.deepcopy(friction))
+        self.upper_bound = SemiparametricContactModel(copy.deepcopy(surface), copy.deepcopy(friction))
+
+    def add_samples(self, sample_points, surface_weights, friction_weights):
+        """
+        Add samples to the semiparametric model
+
+        """
+        super().add_samples(sample_points, surface_weights, friction_weights)
+        self.lower_bound.add_samples(sample_points, surface_weights, friction_weights)
+        self.upper_bound.add_samples(sample_points, surface_weights, friction_weights)
+
+    def set_lower_bound(self, surface_weights, friction_weights):
+        """
+        Set the weights in the lower bound model
+
+        """
+        self.lower_bound.surface._kernel_weights = surface_weights
+        self.lower_bound.friction._kernel_weights = friction_weights
+
+    def set_upper_bound(self, surface_weights, friction_weights):
+        """
+        Set the weights in the upper bound model
+
+        """
+        self.upper_bound.surface._kernel_weights = surface_weights
+        self.upper_bound.friction._kernel_weights = friction_weights
+    
+    @deco.showable_fig
+    @deco.saveable_fig
+    def plot2D(self, pts, axs=None, label=None):
+        """
+        Plot the contact model in 2D coordinates. Currently, plot2D requires a full 3D point specification, but plots the z-axis values of the terrain along the x-axis (the y-values are ignored).
+
+        plot2D first finds the closest zeros of the contact surface model, and then plots the corresponding (x,z) value pair. plot2D also evaluates the friction coefficient at the given (x,y,z) triples
+
+        Arguments:
+            pts: (3,N) numpy array, points "close to" the contact model surface
+        """
+        # Get the figure and axis handles
+        if axs is None:
+            fig, axs = plt.subplots(2,1)
+        else:
+            plt.sca(axs[0])
+            fig = plt.gcf()
+        # Evaluate the contact models
+        surf_pts = self.find_surface_zaxis_zeros(pts)
+        fric_pts = np.concatenate([self.eval_friction(pt) for pt in pts.transpose()], axis=0)
+        # Evaluate the upper and lower bound models
+        # Note that the upper_bound model produces the greatest distance to the terrain, and is therefore the lower bound on the terrain location, and vice versa for the lower_bound model
+        surf_ub = self.lower_bound.find_surface_zaxis_zeros(pts)
+        fric_lb = np.concatenate([self.lower_bound.eval_friction(pt) for pt in pts.transpose()], axis=0)
+        surf_lb = self.upper_bound.find_surface_zaxis_zeros(pts)
+        fric_ub = np.concatenate([self.upper_bound.eval_friction(pt) for pt in pts.transpose()], axis=0)
+
+        # Make the plots
+        surf_line = axs[0].plot(surf_pts[0], surf_pts[2], linewidth=1.5, label=label)
+        surf_limits = axs[0].get_ylim()
+        axs[0].fill_between(surf_pts[0], surf_lb[2], surf_ub[2], alpha=0.2, color=surf_line[-1].get_color())
+        axs[0].set_ylim(surf_limits)
+        axs[0].set_ylabel('Contact Height (m)')
+        
+        fric_line = axs[1].plot(pts[0,:], fric_pts, linewidth=1.5, label=label)
+        fric_limits = axs[1].get_ylim()
+        axs[1].fill_between(pts[0,:], fric_lb, fric_ub, alpha=0.2, color=fric_line[-1].get_color())
+        axs[1].set_ylim(fric_limits)
+        axs[1].set_ylabel('Friction Coefficient')
+        axs[1].set_xlabel('Position (m)')
+        return fig, axs
+
 
 if __name__ == '__main__':
     print("Hello from contactmodel.py!")

@@ -12,11 +12,14 @@ October 9, 2020
 """
 import abc
 import numpy as np
+import copy
 from math import pi
 from pydrake.all import DiagramBuilder, AddMultibodyPlantSceneGraph, JacobianWrtVariable, AngleAxis, RotationMatrix, MathematicalProgram, Solve, SnoptSolver
 from pydrake.geometry import Role, Sphere
 from pydrake.multibody.parsing import Parser
 from pycito.systems.terrain import FlatTerrain
+import pycito.systems.contactmodel as cm
+from pycito.utilities import FindResource, printProgramReport
 import pycito.systems.contactmodel as cm
 from pycito.utilities import FindResource, printProgramReport
 #TODO: Implemet toAutoDiffXd method to convert to autodiff class
@@ -50,11 +53,11 @@ class TimeSteppingMultibodyPlant():
         self._autodiff_ptr = None
 
     def __deepcopy__(self):
-        copy = TimeSteppingMultibodyPlant(file=self.files[0], terrain=self.terrain.__deepcopy__(), dlevel=1)
+        new_copy = TimeSteppingMultibodyPlant(file=self.files[0], terrain=copy.deepcopy(self.terrain), dlevel=1)
         if len(self.files) > 1:
             for file in self.files[1:]:
-                copy.add_model(file)
-        return copy
+                new_copy.add_model(file)
+        return new_copy
 
     def str(self):
         """ String describing the timestepping plant"""

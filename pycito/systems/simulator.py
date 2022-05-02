@@ -49,21 +49,23 @@ class Simulator():
         # Everything else
         control = np.zeros((self.plant.num_actuators, N))
         force  = np.zeros((self.plant.num_forces, N))
+        control[:, 0], fN = self.plant.static_controller(state[:self.plant.multibody.num_positions(), 0])
+        force[:self.plant.num_contacts(), 0] = fN
         # Run the simulation
         status = True
-        n = 1
-        while n < N and status:
-            control[:, n-1] = self.controller.get_control(time[n-1], state[:, n-1]) #FIX THIS. THE INDEX IS WRONG
-            state[:, n], force[:, n], status = self.integrator.integrate(self._timestep, state[:, n-1], control[:, n-1])     
+        for n in range(1, N):
+            control[:, n] = self.controller.get_control(time[n-1], state[:, n-1], control[:, n-1]) #FIX THIS. THE INDEX IS WRONG
+            state[:, n], force[:, n], status = self.integrator.integrate(self._timestep, state[:, n-1], control[:, n])     
+            force[:, n] = force[:, n]/self._timestep
             if np.any(np.isnan(state[:, n])):
+                control = control[:, :n-1]
+                state = state[:, :n-1]
+                force = force[:, :n-1]
+                time = time[:, :n-1]
                 status = False
                 break
-            n += 1
         # Return the simulation values
-        if status:
-            return time, state, control, force, status
-        else:
-            return time[:n-1], state[:, :n-1], control[:, :n-1], force[:, :n-1], status
+        return time, state, control, force, status
         
     @property
     def timestep(self):
