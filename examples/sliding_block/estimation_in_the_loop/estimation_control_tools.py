@@ -240,6 +240,40 @@ def compare_estimated_contact_model(estimated, true, pts, savedir, name='estimat
     fig.savefig(os.path.join(savedir, name + FIG_EXT), dpi=fig.dpi, bbox_inches='tight')
     plt.close(fig)
 
+def compare_contact_model_outputs(true, estimated, savedir, name='ambiguitymodelerrors'):
+    print(f"Generating contact model error plot")
+
+    # Get the x-values
+    x = estimated.surface._sample_points
+    # Plot out the true model distance and friction coefficients
+    dist, fric = get_distance_and_friction(true, x)
+    est_dist, est_fric = get_distance_and_friction(estimated, x)
+    dist_lb, fric_lb = get_distance_and_friction(estimated.lower_bound, x)
+    dist_ub, fric_ub = get_distance_and_friction(estimated.upper_bound, x)
+    # Plot the distances
+    fig, axs = plt.subplots(2,1)
+    axs[0].plot(x[0,:], dist, linewidth=1.5, label='True')
+    est_line = axs[0].plot(x[0,:], est_dist, ':', linewidth=1.5,  label='Estimated')
+    axs[0].fill_between(x[0,:], dist_lb, dist_ub, alpha=0.3, color=est_line[-1].get_color())
+    axs[0].legend(frameon=False)
+    axs[0].set_ylabel('Contact Distance (m)')
+    # Plot the frictions
+    axs[1].plot(x[0,:], fric, linewidth=1.5)
+    axs[1].plot(x[0,:], est_fric, ':', linewidth=1.5)
+    axs[1].fill_between(x[0,:], fric_lb, fric_ub, alpha=0.3, color=est_line[-1].get_color())
+    axs[1].set_ylabel('Friction Coefficient')
+    axs[1].set_xlabel('Position (m)')
+    fig.tight_layout()
+    fig.savefig(os.path.join(savedir, name+FIG_EXT), dpi=fig.dpi, bbox_inches='tight')
+    plt.close(fig)
+
+def get_distance_and_friction(model, pts):
+    """Get the distsance and friction coefficients from the model"""
+    dist = [model.eval_surface(pt) for pt in pts.T]
+    fric = [model.eval_friction(pt) for pt in pts.T]
+    return np.concatenate(dist, axis=0), np.concatenate(fric, axis=0)
+
+
 def get_x_samples(sim, sampling=100):
     xvals = sim['state'][0,:]
     pt0 = np.zeros((3,))
@@ -248,7 +282,7 @@ def get_x_samples(sim, sampling=100):
     return np.linspace(pt0, ptN, sampling).transpose()
 
 def run_ambiguity_optimization(esttraj):
-    rectifier = ce.EstimatedContactModelRectifier(esttraj, surf_max = 100, fric_max = 10)
+    rectifier = ce.EstimatedContactModelRectifier(esttraj, surf_max = 10, fric_max = 2)
     rectifier.useSnoptSolver()
     rectifier.setSolverOptions({'Major feasibility tolerance': 1e-6,
                                 'Major optimality tolerance': 1e-6})
