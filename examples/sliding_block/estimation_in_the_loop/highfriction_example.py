@@ -101,5 +101,5 @@ def main_animation():
 
 
 if __name__ == '__main__':
-    main()
-    #main_animation()
+    #main()
+    main_ambiguity()
