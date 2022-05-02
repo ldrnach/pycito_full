@@ -248,11 +248,13 @@ def get_x_samples(sim, sampling=100):
     return np.linspace(pt0, ptN, sampling).transpose()
 
 def run_ambiguity_optimization(esttraj):
-    rectifier = ce.EstimatedContactModelRectifier(esttraj, surf_max = 100, fric_max = 100)
+    rectifier = ce.EstimatedContactModelRectifier(esttraj, surf_max = 100, fric_max = 10)
     rectifier.useSnoptSolver()
     rectifier.setSolverOptions({'Major feasibility tolerance': 1e-6,
                                 'Major optimality tolerance': 1e-6})
+    print(f"Running ambiguity optimization")
     ambi_model = rectifier.solve_global_model_with_ambiguity()
+    print(f"Finished ambiguity optimization")
     return ambi_model
 
 def load_estimation_trajectory(loaddir):

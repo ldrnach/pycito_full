@@ -70,7 +70,7 @@ def main_ambiguity():
     model = campctools.run_ambiguity_optimization(traj)
     data = utils.load(os.path.join(TARGET, 'campcsim.pkl'))
     pts = campctools.get_x_samples(data, sampling=1000)
-    campctools.compare_estimated_contact_model(model, plant.terrain, pts, savedir=TARGET, name='contactmodelwithambiguity')
+    #campctools.compare_estimated_contact_model(model, plant.terrain, pts, savedir=TARGET, name='contactmodelwithambiguity')
     # Save the contact model
     utils.save(os.path.join(TARGET, 'contactambiguity.pkl'), model)
 

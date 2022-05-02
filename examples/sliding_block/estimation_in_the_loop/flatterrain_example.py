@@ -90,4 +90,4 @@ def main_animation():
     mpc_animation.animate(mpclogs, savename=os.path.join(TARGET, MPCANIMATIONNAME))
 
 if __name__ == '__main__':
-    main()
+    main_ambiguity()
