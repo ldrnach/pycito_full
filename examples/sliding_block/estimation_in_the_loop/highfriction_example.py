@@ -59,6 +59,9 @@ def main():
     utils.save(os.path.join(TARGET, 'mpcsim.pkl'), mpc_sim)
     utils.save(os.path.join(TARGET, 'campcsim.pkl'), campc_sim)
     # Run the ambiguity optimization
+    # Save the reference trajectories for debugging
+    mpc_controller.lintraj.save(os.path.join(TARGET, 'mpc_reference.pkl'))
+    campc_controller.lintraj.save(os.path.join(TARGET, 'campc_reference.pkl'))
     # ambi_model = campctools.run_ambiguity_optimization(campc_controller.getContactEstimationTrajectory())
     # campctools.compare_estimated_contact_model(ambi_model, true_plant.terrain, pts, savedir=TARGET, name='contactmodelwithambiguity')
     # # Save the contact model
