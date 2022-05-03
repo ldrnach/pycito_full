@@ -7,6 +7,47 @@ February 22, 2022
 import numpy as np
 import abc
 
+class KernelBase(abc.ABC):
+    def __call__(self, X, Y=None):
+        """Evaluate the Kernel matrix"""
+        if Y is None:
+            return self.eval(X, X)
+        else:
+            return self.eval(X, Y)
+
+    @staticmethod
+    def _reshape_inputs(X, Y):
+        return np.reshape(X, (X.shape[0], -1)), np.reshape(Y, (Y.shape[0], -1))
+
+    @abc.abstractmethod
+    def eval(self, x, y):
+        """
+        Return the kernel matrix calculated from two example datapoints
+    
+        Arguments:
+            x: (n_features, n_samples_x) array of example vectors
+            y: (n_features, n_samples_y) array of example vectors
+        
+        Returns:
+            K: (n_samples_x, n_samples_y) array of kernel values
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def gradient(self, x, y):
+        """
+        Evaluate the gradient of the kernel
+        
+        Arguments:
+            x: (n_features, 1) array. This is argument for which the gradient is calculated
+            y: (n_features, n_samples_y) array. This is an example point
+        
+        Return values:
+            grad: (n_samples_y, n_features) array of gradients with respect to the input x
+        """
+        raise NotImplementedError
+
+
 class DifferentiableStationaryKernel(abc.ABC):
     def __init__(self, weights=1., reg=0.):
         super().__init__()
@@ -116,7 +157,6 @@ class RBFKernel(DifferentiableStationaryKernel):
         ls[finite] = 1/self.weights[finite]
         return ls
 
-
 class PseudoHuberKernel(DifferentiableStationaryKernel):
     def __init__(self, length_scale=1.0, delta=1.0, reg=0.):
         super().__init__(reg=reg)
@@ -153,6 +193,130 @@ class PseudoHuberKernel(DifferentiableStationaryKernel):
         p = self._pseudohuber(d)
         dK = 1/(self._length_scale * p) * K
         return - np.diag(dK.flatten()).dot((x - y).transpose())
+
+class LinearKernel(KernelBase):
+    """
+    Implements a weighted linear kernel function:
+        k(x,y) = y^T * W * x + c
+    where:
+        W is a matrix of weights of the same dimensions as x and y 
+        c is a scalar offset parameter    
+    """
+
+    def __init__(self, weights=np.ones((1,)), offset=1):
+        super().__init__()
+        self.weights = weights
+        self.offset = offset
+
+    def eval(self, x, y):
+        """
+        Return the kernel matrix calculated from two example datapoints
+    
+        Arguments:
+            x: (n_features, n_samples_x) array of example vectors
+            y: (n_features, n_samples_y) array of example vectors
+        
+        Returns:
+            K: (n_samples_x, n_samples_y) array of kernel values
+        """
+        x, y = self._reshape_inputs(x, y)
+        K = x.T.dot(self.weights.dot(y))
+        return K + self.offset
+
+    def gradient(self, x, y):
+        """
+        Evaluate the gradient of the kernel
+        
+        Arguments:
+            x: (n_features, 1) array. This is argument for which the gradient is calculated
+            y: (n_features, n_samples_y) array. This is an example point
+        
+        Return values:
+            grad: (n_samples_y, n_features) array of gradients with respect to the input x
+        """
+        x, y = self._reshape_inputs(x, y)
+        return y.T.dot(self.weights)
+
+class HyperbolicTangentKernel(LinearKernel):
+    """
+    A hyperbolic tangent kernel function:
+        k(x,y) = tanh(y^T * W * x + c)
+    where:
+        W is a matrix of weights of the same dimensions as x and y 
+        c is a scalar offset parameter    
+    """
+    def __init__(self, weights, offset=1.):
+        super().__init__(weights, offset)
+        
+    def eval(self, x, y):
+        """
+        Return the kernel matrix calculated from two example datapoints
+    
+        Arguments:
+            x: (n_features, n_samples_x) array of example vectors
+            y: (n_features, n_samples_y) array of example vectors
+        
+        Returns:
+            K: (n_samples_x, n_samples_y) array of kernel values
+        """
+        K = super().eval(x, y)
+        return np.tanh(K)
+
+    def gradient(self, x, y):
+        """
+        Evaluate the gradient of the kernel
+        
+        Arguments:
+            x: (n_features, 1) array. This is argument for which the gradient is calculated
+            y: (n_features, n_samples_y) array. This is an example point
+        
+        Return values:
+            grad: (n_samples_y, n_features) array of gradients with respect to the input x
+        """
+        dK = super().gradient(x, y)
+        K = self.eval(x, y)
+        return (1 - K**2).T * dK
+
+class PolynomialKernel(LinearKernel):
+    """
+    A hyperbolic tangent kernel function:
+        k(x,y) = tanh(y^T * W * x + c)
+    where:
+        W is a matrix of weights of the same dimensions as x and y 
+        c is a scalar offset parameter    
+    """
+    def __init__(self, weights, offset=1, degree=2):
+        super().__init__(weights, offset)
+        self.degree = degree
+
+    def eval(self, x, y):
+        """
+        Return the kernel matrix calculated from two example datapoints
+    
+        Arguments:
+            x: (n_features, n_samples_x) array of example vectors
+            y: (n_features, n_samples_y) array of example vectors
+        
+        Returns:
+            K: (n_samples_x, n_samples_y) array of kernel values
+        """
+        K = super().eval(x, y)
+        return K ** self.degree
+
+    def gradient(self, x, y):
+        """
+        Evaluate the gradient of the kernel
+        
+        Arguments:
+            x: (n_features, 1) array. This is argument for which the gradient is calculated
+            y: (n_features, n_samples_y) array. This is an example point
+        
+        Return values:
+            grad: (n_samples_y, n_features) array of gradients with respect to the input x
+        """
+        dK = super().gradient(x, y)
+        K = super().eval(x, y)
+        return self.degree * K.T ** (self.degree - 1) * dK
 
 if __name__ == '__main__':
     print("Hello from kernels.py!")
