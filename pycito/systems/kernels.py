@@ -52,10 +52,9 @@ class KernelBase(abc.ABC):
         """
         raise NotImplementedError
 
-class DifferentiableStationaryKernel(abc.ABC):
-    def __init__(self, weights=1., reg=0.):
+class StationaryKernel(abc.ABC):
+    def __init__(self, weights=1.):
         super().__init__()
-        assert isinstance(reg, (int, float)) and reg >= 0., 'reg must be a nonnegative integer or float'
         if isinstance(weights, (int, float)):
             self.weights = np.array([weights])
         elif isinstance(weights, list):
@@ -64,16 +63,13 @@ class DifferentiableStationaryKernel(abc.ABC):
             self.weights = weights
         else:
             raise TypeError(f"weights must be an int or float, or a list or array of ints and floats")
-        
-        self.reg = reg
 
     def __call__(self, X, Y = None):
         """
         Evaluate the kernel matrix
         """
         if Y is None:
-            K = self.eval(X, X)
-            return K + self.reg * np.eye(K.shape[0])
+            return self.eval(X, X)
         else:
             return self.eval(X, Y)
 
@@ -94,7 +90,7 @@ class DifferentiableStationaryKernel(abc.ABC):
         """
         assert X.shape[0] == Y.shape[0], f'example vectors x and y must have the same first dimension'
         assert self.weights.shape[0] == 1 or self.weights.shape[0] == X.shape[0], f"Provided {self.weights.shape[0]} weights and got {X.shape[0]} features"
-        X, Y = DifferentiableStationaryKernel._reshape_inputs(X, Y)
+        X, Y = StationaryKernel._reshape_inputs(X, Y)
         D3 = X.T[:, None] - Y.T
         D3 = D3 * self.weights[None, None, :]
         return np.sum(D3**2, axis=-1)
@@ -117,13 +113,9 @@ class DifferentiableStationaryKernel(abc.ABC):
     def _eval_stationary(self, sq_dist):
         raise NotImplementedError
 
-    @abc.abstractmethod
-    def gradient(self, x, y):
-        raise NotImplementedError
-
-class RBFKernel(DifferentiableStationaryKernel):
-    def __init__(self, length_scale = 1.0, reg=0.):
-        super().__init__(weights = 1/length_scale, reg = reg)
+class RBFKernel(StationaryKernel):
+    def __init__(self, length_scale = 1.0):
+        super().__init__(weights = 1/length_scale)
         self._scale = -1/(2*length_scale **2)
 
     def _eval_stationary(self, distances):
@@ -161,9 +153,9 @@ class RBFKernel(DifferentiableStationaryKernel):
         ls[finite] = 1/self.weights[finite]
         return ls
 
-class PseudoHuberKernel(DifferentiableStationaryKernel):
-    def __init__(self, length_scale=1.0, delta=1.0, reg=0.):
-        super().__init__(reg=reg)
+class PseudoHuberKernel(StationaryKernel):
+    def __init__(self, length_scale=1.0, delta=1.0):
+        super().__init__()
         assert length_scale > 0, 'length_scale must be positive'
         assert delta > 0, 'delta must be positive'
         self._length_scale =  length_scale
@@ -458,6 +450,18 @@ class CompositeKernel(KernelBase):
         """
         X, Y = self._reshape_inputs(x, y)
         return sum([kernel.gradient(X, Y) for kernel in self.kernels])
+
+class RegularizedRBFKernel(CompositeKernel):
+    def __init__(self, length_scale = 1.0, reg = 0.):
+        rbf = RBFKernel(length_scale = length_scale)
+        noise = WhiteNoiseKernel(noise = reg)
+        super().__init__(rbf, noise)
+
+class RegularizedPseudoHuberKernel(CompositeKernel):
+    def __init__(self, length_scale = 1.0, delta = 1.0, reg = 0.):
+        ph  = PseudoHuberKernel(length_scale = length_scale, delta = delta)
+        noise = WhiteNoiseKernel(noise = reg)
+        super().__init__(ph, noise)
 
 if __name__ == '__main__':
     print("Hello from kernels.py!")
