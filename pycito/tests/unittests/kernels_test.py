@@ -155,6 +155,176 @@ class PsuedoHuberKernelTest(unittest.TestCase):
         gradKxy = self.kernel.eval(x_ad, self.y)
         np.testing.assert_allclose(dKxy, ad.ExtractGradient(gradKxy), atol=1e-6, err_msg=f"Evaluating gradient fails when first input is autodiff, second input is multiple vectors")
 
+class LinearKernelTest(unittest.TestCase):
+    """Unittests for the LinearKernel Class"""
+    def setUp(self):
+        W = np.eye(2)
+        offset = np.ones((1,))
+        self.kernel = kernels.LinearKernel(weights = W, offset = offset)
+        self.x = np.array([[1., 0.], [0., 1.], [-1., 1.]]).T
+        self.y = np.array([[2., -1.], [-3., 2.]]).T
+        self.Kxy_expected = np.array([[3., 0., -2.],[-2., 3., 6.]]).T
+        self.Kxx_expected = np.array([[2., 1., 0.], [1., 2., 2.], [0., 2., 3.]]).T
+
+    def test_eval(self):
+        """Check the evaluation of the kernel function"""
+        Kxy = self.kernel.eval(self.x, self.y)
+        np.testing.assert_allclose(Kxy, self.Kxy_expected, atol=1e-12, err_msg=f"Asymmetric Kernel evaluation produces incorrect kernel matrix")
+        Kxx = self.kernel.eval(self.x, self.x)
+        np.testing.assert_allclose(Kxx, self.Kxx_expected, atol=1e-12, err_msg=f"Symmetric Kernel evaluation produces incorrect kernel matrix")
+
+    def test_gradient(self):
+        """Test evaluation of the kernel gradients"""
+        x_ad = np.squeeze(ad.InitializeAutoDiff(self.x[:, 2]))
+        # Test evaluating the kernel gradient with a single y-sample
+        k_ad = self.kernel.eval(x_ad, self.y[:, 0])
+        dk_ad = ad.ExtractGradient(k_ad)
+        dk = self.kernel.gradient(self.x[:, 2], self.y[:, 0])
+        np.testing.assert_allclose(dk, dk_ad, atol=1e-6, err_msg=f"Gradient calculation does not match gradient calculated by autodiff for single y-vector")
+        # Test that we can evaluate the kernel gradient with multiple y-samples
+        k_ad = self.kernel.eval(x_ad, self.y)
+        dk_ad = ad.ExtractGradient(k_ad)
+        # Evaluate the gradient directly
+        dk = self.kernel.gradient(self.x[:, 2], self.y)
+        np.testing.assert_allclose(dk, dk_ad, atol=1e-6, err_msg=f"Gradient calculation does not match gradient calcuated by autodiff for multiple y-vectors")
+
+    def test_eval_autodiff(self):
+        """ Test evaluating the kernel when one of the inputs is an autodiff type"""
+        x_ad = ad.InitializeAutoDiff(self.x[:, 0])
+        # Test with a single sample y-point
+        Kxy_ad = self.kernel.eval(x_ad, self.y[:, 0])
+        np.testing.assert_allclose(ad.ExtractValue(Kxy_ad), self.Kxy_expected[:1, :1], atol=1e-6, err_msg=f"Kernel evaluation fails when first argument is autodiff, second argument is vector")
+        # Test with multiple input sample y-points
+        Kxy_ad = self.kernel.eval(x_ad, self.y)
+        np.testing.assert_allclose(ad.ExtractValue(Kxy_ad), self.Kxy_expected[:1,:], atol=1e-6, err_msg=f"Kernel evaluation fails when first argument is autodiff, second argument is array")
+
+    def test_gradient_autodiff(self):
+        """Test evaluating the kernel gradient when one of the inputs is an autodiff type"""
+        x_ad = ad.InitializeAutoDiff(self.x[:, 0])
+        # Test with a single y-point
+        dKxy_ad  =self.kernel.gradient(x_ad, self.y[:, 0])
+        dKxy = ad.ExtractValue(dKxy_ad)
+        gradKxy = self.kernel.eval(x_ad, self.y[:, 0])
+        np.testing.assert_allclose(dKxy, ad.ExtractGradient(gradKxy), atol=1e-6, err_msg=f"Evaluating gradient fails when first input is autodiff, second input is a single vector")
+        # Test with multiple y-points
+        dKxy_ad = self.kernel.gradient(x_ad, self.y)
+        dKxy = ad.ExtractValue(dKxy_ad)
+        gradKxy = self.kernel.eval(x_ad, self.y)
+        np.testing.assert_allclose(dKxy, ad.ExtractGradient(gradKxy), atol=1e-6, err_msg=f"Evaluating gradient fails when first input is autodiff, second input is multiple vectors")
+    
+class HyperbolicKernelTest(unittest.TestCase):
+    """Unittests for the HyperbolicTangentKernel Class"""
+    def setUp(self):
+        W = np.eye(2)
+        offset = np.ones((1,))
+        self.kernel = kernels.HyperbolicTangentKernel(weights=W, offset=offset)
+        self.x = np.array([[1, 0], [0, 1], [-1, 1]]).T
+        self.y = np.array([[2, -1], [-3, 2]]).T
+        self.Kxy_expected = np.tanh(np.array([[3., 0., -2.],[-2., 3., 6.]])).T
+        self.Kxx_expected = np.tanh(np.array([[2., 1., 0.], [1., 2., 2.], [0., 2., 3.]])).T
+
+    def test_eval(self):
+        """Check the evaluation of the kernel function"""
+        Kxy = self.kernel.eval(self.x, self.y)
+        np.testing.assert_allclose(Kxy, self.Kxy_expected, atol=1e-12, err_msg=f"Asymmetric Kernel evaluation produces incorrect kernel matrix")
+        Kxx = self.kernel.eval(self.x, self.x)
+        np.testing.assert_allclose(Kxx, self.Kxx_expected, atol=1e-12, err_msg=f"Symmetric Kernel evaluation produces incorrect kernel matrix")
+
+    def test_gradient(self):
+        """Test evaluation of the kernel gradients"""
+        x_ad = np.squeeze(ad.InitializeAutoDiff(self.x[:, 2]))
+        # Test evaluating the kernel gradient with a single y-sample
+        k_ad = self.kernel.eval(x_ad, self.y[:, 0])
+        dk_ad = ad.ExtractGradient(k_ad)
+        dk = self.kernel.gradient(self.x[:, 2], self.y[:, 0])
+        np.testing.assert_allclose(dk, dk_ad, atol=1e-6, err_msg=f"Gradient calculation does not match gradient calculated by autodiff for single y-vector")
+        # Test that we can evaluate the kernel gradient with multiple y-samples
+        k_ad = self.kernel.eval(x_ad, self.y)
+        dk_ad = ad.ExtractGradient(k_ad)
+        # Evaluate the gradient directly
+        dk = self.kernel.gradient(self.x[:, 2], self.y)
+        np.testing.assert_allclose(dk, dk_ad, atol=1e-6, err_msg=f"Gradient calculation does not match gradient calcuated by autodiff for multiple y-vectors")
+
+    def test_eval_autodiff(self):
+        """ Test evaluating the kernel when one of the inputs is an autodiff type"""
+        x_ad = ad.InitializeAutoDiff(self.x[:, 0])
+        # Test with a single sample y-point
+        Kxy_ad = self.kernel.eval(x_ad, self.y[:, 0])
+        np.testing.assert_allclose(ad.ExtractValue(Kxy_ad), self.Kxy_expected[:1, :1], atol=1e-6, err_msg=f"Kernel evaluation fails when first argument is autodiff, second argument is vector")
+        # Test with multiple input sample y-points
+        Kxy_ad = self.kernel.eval(x_ad, self.y)
+        np.testing.assert_allclose(ad.ExtractValue(Kxy_ad), self.Kxy_expected[:1,:], atol=1e-6, err_msg=f"Kernel evaluation fails when first argument is autodiff, second argument is array")
+
+    def test_gradient_autodiff(self):
+        """Test evaluating the kernel gradient when one of the inputs is an autodiff type"""
+        x_ad = ad.InitializeAutoDiff(self.x[:, 0])
+        # Test with a single y-point
+        dKxy_ad  =self.kernel.gradient(x_ad, self.y[:, 0])
+        dKxy = ad.ExtractValue(dKxy_ad)
+        gradKxy = self.kernel.eval(x_ad, self.y[:, 0])
+        np.testing.assert_allclose(dKxy, ad.ExtractGradient(gradKxy), atol=1e-6, err_msg=f"Evaluating gradient fails when first input is autodiff, second input is a single vector")
+        # Test with multiple y-points
+        dKxy_ad = self.kernel.gradient(x_ad, self.y)
+        dKxy = ad.ExtractValue(dKxy_ad)
+        gradKxy = self.kernel.eval(x_ad, self.y)
+        np.testing.assert_allclose(dKxy, ad.ExtractGradient(gradKxy), atol=1e-6, err_msg=f"Evaluating gradient fails when first input is autodiff, second input is multiple vectors")
+
+class PolynoimalKernelTest(unittest.TestCase):
+    """Unittest for the PolynomialKernel Class"""
+    def setUp(self):
+        W = np.eye(2)
+        offset = np.ones((1,))
+        self.kernel = kernels.PolynomialKernel(weights=W, offset=offset, degree=2)
+        self.x = np.array([[1, 0], [0, 1], [-1, 1]]).T
+        self.y = np.array([[2, -1], [-3, 2]]).T
+        self.Kxy_expected = np.array([[3., 0., -2.],[-2., 3., 6.]]).T**2
+        self.Kxx_expected = np.array([[2., 1., 0.], [1., 2., 2.], [0., 2., 3.]]).T**2
+
+    def test_eval(self):
+        """Check the evaluation of the kernel function"""
+        Kxy = self.kernel.eval(self.x, self.y)
+        np.testing.assert_allclose(Kxy, self.Kxy_expected, atol=1e-12, err_msg=f"Asymmetric Kernel evaluation produces incorrect kernel matrix")
+        Kxx = self.kernel.eval(self.x, self.x)
+        np.testing.assert_allclose(Kxx, self.Kxx_expected, atol=1e-12, err_msg=f"Symmetric Kernel evaluation produces incorrect kernel matrix")
+
+    def test_gradient(self):
+        """Test evaluation of the kernel gradients"""
+        x_ad = np.squeeze(ad.InitializeAutoDiff(self.x[:, 2]))
+        # Test evaluating the kernel gradient with a single y-sample
+        k_ad = self.kernel.eval(x_ad, self.y[:, 0])
+        dk_ad = ad.ExtractGradient(k_ad)
+        dk = self.kernel.gradient(self.x[:, 2], self.y[:, 0])
+        np.testing.assert_allclose(dk, dk_ad, atol=1e-6, err_msg=f"Gradient calculation does not match gradient calculated by autodiff for single y-vector")
+        # Test that we can evaluate the kernel gradient with multiple y-samples
+        k_ad = self.kernel.eval(x_ad, self.y)
+        dk_ad = ad.ExtractGradient(k_ad)
+        # Evaluate the gradient directly
+        dk = self.kernel.gradient(self.x[:, 2], self.y)
+        np.testing.assert_allclose(dk, dk_ad, atol=1e-6, err_msg=f"Gradient calculation does not match gradient calcuated by autodiff for multiple y-vectors")
+
+    def test_eval_autodiff(self):
+        """ Test evaluating the kernel when one of the inputs is an autodiff type"""
+        x_ad = ad.InitializeAutoDiff(self.x[:, 0])
+        # Test with a single sample y-point
+        Kxy_ad = self.kernel.eval(x_ad, self.y[:, 0])
+        np.testing.assert_allclose(ad.ExtractValue(Kxy_ad), self.Kxy_expected[:1, :1], atol=1e-6, err_msg=f"Kernel evaluation fails when first argument is autodiff, second argument is vector")
+        # Test with multiple input sample y-points
+        Kxy_ad = self.kernel.eval(x_ad, self.y)
+        np.testing.assert_allclose(ad.ExtractValue(Kxy_ad), self.Kxy_expected[:1,:], atol=1e-6, err_msg=f"Kernel evaluation fails when first argument is autodiff, second argument is array")
+
+    def test_gradient_autodiff(self):
+        """Test evaluating the kernel gradient when one of the inputs is an autodiff type"""
+        x_ad = ad.InitializeAutoDiff(self.x[:, 0])
+        # Test with a single y-point
+        dKxy_ad  =self.kernel.gradient(x_ad, self.y[:, 0])
+        dKxy = ad.ExtractValue(dKxy_ad)
+        gradKxy = self.kernel.eval(x_ad, self.y[:, 0])
+        np.testing.assert_allclose(dKxy, ad.ExtractGradient(gradKxy), atol=1e-6, err_msg=f"Evaluating gradient fails when first input is autodiff, second input is a single vector")
+        # Test with multiple y-points
+        dKxy_ad = self.kernel.gradient(x_ad, self.y)
+        dKxy = ad.ExtractValue(dKxy_ad)
+        gradKxy = self.kernel.eval(x_ad, self.y)
+        np.testing.assert_allclose(dKxy, ad.ExtractGradient(gradKxy), atol=1e-6, err_msg=f"Evaluating gradient fails when first input is autodiff, second input is multiple vectors")   
 
 if __name__ == '__main__':
     unittest.main()
