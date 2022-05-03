@@ -8,6 +8,9 @@ import numpy as np
 import abc
 
 class KernelBase(abc.ABC):
+    def __init__(self):
+        super().__init__()
+
     def __call__(self, X, Y=None):
         """Evaluate the Kernel matrix"""
         if Y is None:
@@ -30,8 +33,10 @@ class KernelBase(abc.ABC):
         
         Returns:
             K: (n_samples_x, n_samples_y) array of kernel values
+        
+        _eval is an internal method, and assumes the inputs are specified correctly. 
+        See also: eval
         """
-        raise NotImplementedError
 
     @abc.abstractmethod
     def gradient(self, x, y):
@@ -46,7 +51,6 @@ class KernelBase(abc.ABC):
             grad: (n_samples_y, n_features) array of gradients with respect to the input x
         """
         raise NotImplementedError
-
 
 class DifferentiableStationaryKernel(abc.ABC):
     def __init__(self, weights=1., reg=0.):
@@ -317,6 +321,143 @@ class PolynomialKernel(LinearKernel):
         dK = super().gradient(x, y)
         K = super().eval(x, y)
         return self.degree * K.T ** (self.degree - 1) * dK
+
+class ConstantKernel(KernelBase):
+    def __init__(self, const=1.):
+        super().__init__()
+        self.const = const
+
+    def eval(self, x, y):
+        """
+        (Internal Method)
+        Return the kernel matrix calculated from two example datapoints
+    
+        Arguments:
+            x: (n_features, n_samples_x) array of example vectors
+            y: (n_features, n_samples_y) array of example vectors
+        
+        Returns:
+            K: (n_samples_x, n_samples_y) array of kernel values
+        """
+        x, y = self._reshape_inputs(x, y)
+        return self.const + 0 * x.T.dot(y) 
+
+    def gradient(self, x, y):
+        """
+        Evaluate the gradient of the kernel
+        
+        Arguments:
+            x: (n_features, 1) array. This is argument for which the gradient is calculated
+            y: (n_features, n_samples_y) array. This is an example point
+        
+        Return values:
+            grad: (n_samples_y, n_features) array of gradients with respect to the input x
+        """
+        x, y = self._reshape_inputs(x, y)
+        return 0 * y.T * x.T
+
+    @property
+    def const(self):
+        return self._const
+
+    @const.setter
+    def const(self, val):
+        assert isinstance(val, (int, float)) and val > 0, f"const must be a nonnegative int or float"
+        self._const = val
+
+class WhiteNoiseKernel(KernelBase):
+    def __init__(self, noise=1.0):
+        super().__init__()
+        self.noise = noise
+
+    def __call__(self, X, Y=None):
+        """Evaluate the kernel matrix"""
+        if Y is None:
+            X, _ = self._reshape_inputs(X, X)
+            return self.noise * np.eye(X.shape[1])
+        else:
+            X, Y = self._reshape_inputs(X, Y)
+            return np.zeros((X.shape[1], Y.shape[1]))
+
+    def eval(self, x, y):
+        """
+        (Internal Method)
+        Return the kernel matrix calculated from two example datapoints
+    
+        Arguments:
+            x: (n_features, n_samples_x) array of example vectors
+            y: (n_features, n_samples_y) array of example vectors
+        
+        Returns:
+            K: (n_samples_x, n_samples_y) array of kernel values
+        """
+        x, y = self._reshape_inputs(x, y)
+        return  0 * x.T.dot(y) 
+
+    def gradient(self, x, y):
+        """
+        Evaluate the gradient of the kernel
+        
+        Arguments:
+            x: (n_features, 1) array. This is argument for which the gradient is calculated
+            y: (n_features, n_samples_y) array. This is an example point
+        
+        Return values:
+            grad: (n_samples_y, n_features) array of gradients with respect to the input x
+        """
+        x, y = self._reshape_inputs(x, y)
+        return 0 * y.T * x.T
+   
+    @property
+    def noise(self):
+        """White noise regularization parameter"""
+        return self._noise
+
+    @noise.setter
+    def noise(self, val):
+        """White noise regularization parameter setter"""
+        assert isinstance(val, (int, float)) and val >=0, f"reg must be a nonnegative int or float"
+        self._noise = val    
+
+class CompositeKernel(KernelBase):
+    def __init__(self, *args):
+        assert len(args) >= 1, 'Must provide at least one kernel to CompositeKernel'
+        for kernel in args:
+            assert issubclass(type(kernel), KernelBase), f"{type(kernel)} is not a defined kernel"
+        self.kernels = args
+
+    def __call__(self, X, Y):
+        """Evaluate the kernel matrix"""
+        return sum(kernel(X, Y) for kernel in self.kernels)
+
+    def eval(self, x, y):
+        """
+        (Internal Method)
+        Return the kernel matrix calculated from two example datapoints
+    
+        Arguments:
+            x: (n_features, n_samples_x) array of example vectors
+            y: (n_features, n_samples_y) array of example vectors
+        
+        Returns:
+            K: (n_samples_x, n_samples_y) array of kernel values
+        """
+        X, Y = self._reshape_inputs(x, y)
+        return sum([kernel.eval(X, Y) for kernel in self.kernels])
+
+    def gradient(self, x, y):
+        """
+        Evaluate the gradient of the kernel
+        
+        Arguments:
+            x: (n_features, 1) array. This is argument for which the gradient is calculated
+            y: (n_features, n_samples_y) array. This is an example point
+        
+        Return values:
+            grad: (n_samples_y, n_features) array of gradients with respect to the input x
+        """
+        X, Y = self._reshape_inputs(x, y)
+        return sum([kernel.gradient(X, Y) for kernel in self.kernels])
 
 if __name__ == '__main__':
     print("Hello from kernels.py!")
