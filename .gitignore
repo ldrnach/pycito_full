@@ -4,6 +4,7 @@ __init__.pyc
 # Editors
 .vscode/
 # Files
+*.pyc
 *.png
 *.pdf
 *.mp4
