@@ -298,13 +298,19 @@ class A1(TimeSteppingMultibodyPlant):
         fig, axs = plt.subplots(3,1)
         legs = ['FR', 'FL', 'BR', 'BL']
         labels = ['Normal', 'Friction-1', 'Friction-2']
-        for k in range(3):
-            for n in range(4):
-                axs[k].plot(t, f[n + 4*k,:], linewidth=1.5, label=legs[n])
-            axs[k].set_ylabel(labels[k])
+        for k in range(4):
+            axs[0].plot(t, f[k,:], linewidth=1.5, label=legs[k])
+            axs[1].plot(t, f[4 + 2*k, :], linewidth=1.5, label=legs[k])
+            axs[2].plot(t, f[5 + 2 *k, :], linewidth=1.5, label=legs[k])
+        for k, label in enumerate(labels):
+            axs[k].set_ylabel(label)
+        # for k in range(3):
+        #     for n in range(4):
+        #         axs[k].plot(t, f[n + 4*k,:], linewidth=1.5, label=legs[n])
+        #     axs[k].set_ylabel(labels[k])
         axs[-1].set_xlabel('Time (s)')
         axs[0].set_title('Reaction Forces')
-        axs[0].legend()
+        axs[0].legend(frameon=False)
         return fig, axs
 
     @deco.showable_fig
