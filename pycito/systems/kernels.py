@@ -52,7 +52,7 @@ class KernelBase(abc.ABC):
         """
         raise NotImplementedError
 
-class StationaryKernel(abc.ABC):
+class StationaryKernel(KernelBase):
     def __init__(self, weights=1.):
         super().__init__()
         if isinstance(weights, (int, float)):
@@ -232,6 +232,23 @@ class LinearKernel(KernelBase):
         """
         x, y = self._reshape_inputs(x, y)
         return y.T.dot(self.weights)
+
+    @property
+    def weights(self):
+        return self._weights
+
+    @weights.setter
+    def weights(self, val):
+        if isinstance(val, (int, float)):
+            self._weights = np.array([[val]])
+        elif isinstance(val, np.ndarray):
+            if val.ndim == 1:
+                self._weights = np.diag(val)
+            else:
+                assert val.ndim == 2 and val.shape[0] == val.shape[1], "weights must be a square matrix or list of ints or floats"
+                self._weights = val
+        else:
+            raise ValueError("weights must be either a square matrix, a 1D array, or a scalar")
 
 class HyperbolicTangentKernel(LinearKernel):
     """
@@ -452,16 +469,34 @@ class CompositeKernel(KernelBase):
         return sum([kernel.gradient(X, Y) for kernel in self.kernels])
 
 class RegularizedRBFKernel(CompositeKernel):
-    def __init__(self, length_scale = 1.0, reg = 0.):
+    def __init__(self, length_scale = 1.0, noise = 0.):
         rbf = RBFKernel(length_scale = length_scale)
-        noise = WhiteNoiseKernel(noise = reg)
+        noise = WhiteNoiseKernel(noise = noise)
         super().__init__(rbf, noise)
 
 class RegularizedPseudoHuberKernel(CompositeKernel):
-    def __init__(self, length_scale = 1.0, delta = 1.0, reg = 0.):
+    def __init__(self, length_scale = 1.0, delta = 1.0, noise = 0.):
         ph  = PseudoHuberKernel(length_scale = length_scale, delta = delta)
-        noise = WhiteNoiseKernel(noise = reg)
+        noise = WhiteNoiseKernel(noise = noise)
         super().__init__(ph, noise)
+
+class RegularizedLinearKernel(CompositeKernel):
+    def __init__(self, weights, offset, noise):
+        lin = LinearKernel(weights, offset)
+        reg = WhiteNoiseKernel(noise)
+        super().__init__(lin, reg)
+
+class RegularizedHyperbolicKernel(CompositeKernel):
+    def __init__(self, weights, offset, noise):
+        hk = HyperbolicTangentKernel(weights, offset)
+        reg = WhiteNoiseKernel(noise)
+        super().__init__(hk, reg)
+
+class RegularizedPolynomialKernel(CompositeKernel):
+    def __init__(self, weights, offset, degree, noise):
+        pk = PolynomialKernel(weights, offset, degree)
+        reg = WhiteNoiseKernel(noise)
+        super().__init__(pk, reg)
 
 if __name__ == '__main__':
     print("Hello from kernels.py!")
