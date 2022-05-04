@@ -19,7 +19,7 @@ import pycito.utilities as utils
 import pycito.trajopt.constraints as cstr
 import pycito.controller.mlcp as mlcp
 from pycito.controller.optimization import OptimizationMixin
-from pycito.controller.contactestimator import ContactModelEstimator
+from pycito.controller.contactestimator import ContactModelEstimator, EstimatedContactModelRectifier
 
 class _ControllerBase(abc.ABC):
     def __init__(self, plant):
@@ -791,6 +791,9 @@ class ContactAdaptiveMPC(LinearContactMPC):
         super().__init__(linear_traj, horizon, lcptype)
         assert isinstance(estimator, ContactModelEstimator), f"estimator must be an instance of ContactModelEstimator"
         self.estimator = estimator
+        self._use_global = False
+        self._dist_max = 10
+        self._fric_max = 2
 
     def enableLogging(self):
         """Enable solution logging for both the estimator and the controller"""
@@ -823,9 +826,20 @@ class ContactAdaptiveMPC(LinearContactMPC):
                 u: (M, ) the updated current control
         """    
         model = self.estimator.estimate_contact(t, x, u)
+        if self._use_global:
+            model = self._get_global_contact_model()
         self._update_contact_model(model)
         self._update_contact_linearization(t, x)
         return self.do_mpc(t, x)
+
+    def _get_global_contact_model(self):
+        """
+        Calculate and return the global contact model
+        """
+        rectifier = EstimatedContactModelRectifier(self.getContactEstimationTrajectory(), surf_max=self._dist_max, fric_max=self._fric_max)
+        model = rectifier.get_global_model()
+        return model
+
 
     def _update_contact_model(self, model):
         """Update the contact model used in the linear trajectory
@@ -854,11 +868,33 @@ class ContactAdaptiveMPC(LinearContactMPC):
             A_ = self.lintraj.friccone_cstr[index+k][0]
             A[:, :state.shape[0]] = A_[:, :state.shape[0]]
             self.lintraj.friccone_cstr[index+k] = (A, c)
-            # self.lintraj._linearize_normal_distance(index + k)
-            # self.lintraj._linearize_friction_cone(index + k)
 
     def getContactEstimationTrajectory(self):
         return self.estimator.traj
+
+    def useLocalModel(self):
+        self._use_global = False
+
+    def useGlobalModel(self):
+        self._use_global = True
+
+    @property
+    def global_dist_max(self):
+        return self._dist_max
+
+    @global_dist_max.setter
+    def global_dist_max(self, val):
+        assert isinstance(val, (int, float)) and val > 0, 'distance maximum must be a nonzero int or float'
+        self._dist_max = val
+
+    @property
+    def global_fric_max(self):
+        return self._fric_max
+
+    @global_fric_max.setter
+    def global_fric_max(self, val):
+        assert isinstance(val, (int, float)) and val > 0, 'friction maximum must be a nonzero int or float'
+        self._fric_max = val
 
 if __name__ == "__main__":
     print("Hello from MPC!")

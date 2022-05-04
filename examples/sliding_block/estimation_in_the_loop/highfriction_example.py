@@ -14,7 +14,7 @@ from pycito.controller.optimization import OptimizationLogger
 import pycito.systems.kernels as kernels 
 
 SIM_DURATION = 1.5
-TARGET = os.path.join('examples','sliding_block','estimation_in_the_loop','high_friction','phkernel')
+TARGET = os.path.join('examples','sliding_block','estimation_in_the_loop','high_friction','phkernel_tuning')
 ANIMATION_NAME = 'campc_animation.mp4'
 MPCANIMATIONNAME = 'mpc_animation.mp4'
 
@@ -33,6 +33,7 @@ def make_highfriction_model():
 def main():
     campctools.run_estimation_control(make_highfriction_model(), 
                                     kernel = kernels.RegularizedPseudoHuberKernel(length_scale=np.array([0.1, 0.1, np.inf]), delta=0.1, noise = 0.01),
+                                    use_global=False,
                                     savedir = TARGET)
 
 def main_ambiguity():
@@ -69,5 +70,4 @@ def main_animation():
 
 
 if __name__ == '__main__':
-    #main()
     main_ambiguity()

@@ -6,12 +6,14 @@ from examples.sliding_block.estimation_in_the_loop.stepterrain_example import ma
 import examples.sliding_block.estimation_in_the_loop.estimation_control_tools as campctools
 from pycito.utilities import load
 from pycito.controller.optimization import OptimizationLogger
+from pycito.controller.contactestimator import EstimatedContactModelRectifier
 
-SOURCE = os.path.join("examples","sliding_block","estimation_in_the_loop","stepterrain",'phkernel')
+SOURCE = os.path.join("examples","sliding_block","estimation_in_the_loop","stepterrain",'phkernel_global')
 REFDATA = 'campcsim.pkl'
 ESTRAJ = 'estimatedtrajectory.pkl'
 LOGDATA = os.path.join('campc_logs','EstimationLogs.pkl')
 INDEX = 100
+GLOBAL_MODEL = True
 
 truemodel = make_stepterrain_model()
 refmodel = campctools.make_block_model()
@@ -40,12 +42,18 @@ simbox = campcsim['state'][:2,INDEX]
 axs.add_patch(Rectangle((simbox[0] - 0.5, simbox[1] - 0.5), 1, 1, edgecolor='black', facecolor='green'))
 # Plot the estimated contact model height
 estraj = campctools.load_estimation_trajectory(SOURCE)
-logs = OptimizationLogger.load(os.path.join(SOURCE, LOGDATA)).logs
-cpts = np.concatenate(estraj.get_contacts(INDEX - 5, INDEX), axis=1)
-dweight = logs[INDEX]['distance_weights']
-fweight = logs[INDEX]['friction_weights']
-sp_contact = estraj.contact_model
-sp_contact.add_samples(cpts, dweight, fweight)
+if GLOBAL_MODEL:
+    subtraj = estraj.subset(0, INDEX)
+    rectifier = EstimatedContactModelRectifier(subtraj, surf_max = 10, fric_max = 2)
+    sp_contact = rectifier.get_global_model()
+else:
+    logs = OptimizationLogger.load(os.path.join(SOURCE, LOGDATA)).logs
+    cpts = np.concatenate(estraj.get_contacts(INDEX - 5, INDEX), axis=1)
+    dweight = logs[INDEX]['distance_weights']
+    fweight = logs[INDEX]['friction_weights']
+    sp_contact = estraj.contact_model
+    sp_contact.add_samples(cpts, dweight, fweight)
+
 sp_terrain = sp_contact.find_surface_zaxis_zeros(terrain_samples)
 axs.plot(sp_terrain[0,:], sp_terrain[2,:], linewidth=1.5, color='blue' )
 
