@@ -23,6 +23,7 @@ import pycito.controller.contactestimator as ce
 from pycito.systems.simulator import Simulator
 import pycito.utilities as utils
 from pycito.systems.block.block import Block
+from pycito.systems import kernels as kernels
 
 FIG_EXT = '.png'
 MPC_HORIZON = 5
@@ -35,13 +36,51 @@ CONTROLLOGFIG = 'mpclogs' + FIG_EXT
 CONTROLLOGNAME = 'mpclogs.pkl'
 ESTIMATELOGFIG = 'EstimationLogs' + FIG_EXT
 ESTIMATELOGNAME = 'EstimationLogs.pkl'
+SIM_DURATION = 1.5
+ANIMATION_NAME = 'campc_animation.mp4'
+MPCANIMATIONNAME = 'mpc_animation.mp4'
 
-def make_semiparametric_block_model():
+def run_estimation_control(true_plant, kernel=None, savedir=None):
+    if savedir is None:
+        savedir = os.getcwd()
+    if not os.path.exists(savedir):
+        os.makedirs(savedir)
+    # Make the plant and controller models
+    mpc_controller = make_mpc_controller()
+    mpc_controller.enableLogging()
+    campc_controller = make_estimator_controller(kernel)
+    campc_controller.enableLogging()
+    # Run the simulation
+    initial_state = mpc_controller.lintraj.getState(0)
+    mpc_sim = run_simulation(true_plant, mpc_controller, initial_state, duration=SIM_DURATION)
+    campc_sim = run_simulation(true_plant, campc_controller, initial_state, duration=SIM_DURATION)
+    # Plot and save the results
+    plot_trajectory_comparison(mpc_sim, campc_sim, savename=savedir)
+    # Plot the estimated contact model
+    plot_terrain_errors(campc_controller, savedir=savedir)
+    save_estimated_terrain(campc_controller, savedir=savedir)
+    estimated_model = get_contact_model(campc_controller)
+    pts = get_x_samples(campc_sim, sampling=1000)
+    compare_estimated_contact_model(estimated_model, true_plant.terrain, pts, savedir=savedir)
+    compare_forces(campc_sim, campc_controller, savedir=savedir)
+    # Plot the mpc and campc logs
+    plot_mpc_logs(mpc_controller, savedir = os.path.join(savedir, 'mpc_logs'))
+    save_mpc_logs(mpc_controller, savedir = os.path.join(savedir, 'mpc_logs'))
+    plot_campc_logs(campc_controller, savedir=os.path.join(savedir,'campc_logs'))
+    save_campc_logs(campc_controller, savedir=os.path.join(savedir, 'campc_logs'))
+    # Save the simulation data
+    utils.save(os.path.join(savedir, 'mpcsim.pkl'), mpc_sim)
+    utils.save(os.path.join(savedir, 'campcsim.pkl'), campc_sim)
+
+def make_semiparametric_block_model(kernel=None):
+    if kernel is None:
+        kernel = kernels.RegularizedRBFKernel(length_scale=np.array([0.1, 0.1, np.inf]), noise= 0.01)
+    # Construct the surface model
+    surface = cm.SemiparametricModel(cm.FlatModel(location=  0.), copy.deepcopy(kernel))
+    friction = cm.SemiparametricModel(cm.ConstantModel(const = 0.5), copy.deepcopy(kernel))
     block = Block()
     block.Finalize()
-    block.terrain = cm.SemiparametricContactModel.FlatSurfaceWithRBFKernel(friction = 0.5,
-                                                                         length_scale = np.array([0.1, 0.1, np.inf]),    
-                                                                         reg=0.01)
+    block.terrain = cm.SemiparametricContactModel(surface, friction)
     return block 
 
 def make_block_model():
@@ -49,12 +88,12 @@ def make_block_model():
     block.Finalize()
     return block
 
-def make_estimator_controller():
-    block = make_semiparametric_block_model()
+def make_estimator_controller(kernel=None):
+    block = make_semiparametric_block_model(kernel)
     reftraj = mpc.LinearizedContactTrajectory.load(block, REFSOURCE)
     # Create the estimator
     x0 = reftraj.getState(0)
-    block2 = make_semiparametric_block_model()
+    block2 = make_semiparametric_block_model(kernel)
     esttraj = ce.ContactEstimationTrajectory(block2, x0)
     estimator = ce.ContactModelEstimator(esttraj, ESTIMATION_HORIZON)
     # Set the estimator solver parameters

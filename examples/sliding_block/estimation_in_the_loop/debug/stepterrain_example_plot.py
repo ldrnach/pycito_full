@@ -7,7 +7,7 @@ import examples.sliding_block.estimation_in_the_loop.estimation_control_tools as
 from pycito.utilities import load
 from pycito.controller.optimization import OptimizationLogger
 
-SOURCE = os.path.join("examples","sliding_block","estimation_in_the_loop","stepterrain")
+SOURCE = os.path.join("examples","sliding_block","estimation_in_the_loop","stepterrain",'phkernel')
 REFDATA = 'campcsim.pkl'
 ESTRAJ = 'estimatedtrajectory.pkl'
 LOGDATA = os.path.join('campc_logs','EstimationLogs.pkl')
@@ -44,9 +44,9 @@ logs = OptimizationLogger.load(os.path.join(SOURCE, LOGDATA)).logs
 cpts = np.concatenate(estraj.get_contacts(INDEX - 5, INDEX), axis=1)
 dweight = logs[INDEX]['distance_weights']
 fweight = logs[INDEX]['friction_weights']
-sp_block = campctools.make_semiparametric_block_model()
-sp_block.terrain.add_samples(cpts, dweight, fweight)
-sp_terrain = sp_block.terrain.find_surface_zaxis_zeros(terrain_samples)
+sp_contact = estraj.contact_model
+sp_contact.add_samples(cpts, dweight, fweight)
+sp_terrain = sp_contact.find_surface_zaxis_zeros(terrain_samples)
 axs.plot(sp_terrain[0,:], sp_terrain[2,:], linewidth=1.5, color='blue' )
 
 
