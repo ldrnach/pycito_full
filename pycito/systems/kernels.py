@@ -155,10 +155,8 @@ class RBFKernel(StationaryKernel):
 
 class PseudoHuberKernel(StationaryKernel):
     def __init__(self, length_scale=1.0, delta=1.0):
-        super().__init__()
-        assert length_scale > 0, 'length_scale must be positive'
+        super().__init__(weights  = 1/length_scale)
         assert delta > 0, 'delta must be positive'
-        self._length_scale =  length_scale
         self._delta = delta
 
     def _pseudohuber(self, dist): 
@@ -169,7 +167,7 @@ class PseudoHuberKernel(StationaryKernel):
         Evaluate the kernel using the distance between the two sample points
         """
         p = self._pseudohuber(dist)
-        return np.exp(-self._delta ** 2 / self._length_scale * (p - 1))
+        return np.exp(-self._delta ** 2 * (p - 1))
 
     def gradient(self, x, y):
         """
@@ -187,8 +185,15 @@ class PseudoHuberKernel(StationaryKernel):
         assert d.shape[0] == 1, "gradient calculation supports only a single vector as first input"
         K = self._eval_stationary(d)
         p = self._pseudohuber(d)
-        dK = 1/(self._length_scale * p) * K
-        return - np.diag(dK.flatten()).dot((x - y).transpose())
+        dK = 1/p* K
+        return - np.diag(dK.flatten()).dot(self.weights * (x - y).transpose())
+
+    @property
+    def length_scale(self):
+        finite = self.weights > 0.
+        ls = np.full(self.weights.shape, np.inf)
+        ls[finite] = 1/self.weights[finite]
+        return ls
 
 class LinearKernel(KernelBase):
     """
