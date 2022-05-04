@@ -435,7 +435,7 @@ class CompositeKernel(KernelBase):
             assert issubclass(type(kernel), KernelBase), f"{type(kernel)} is not a defined kernel"
         self.kernels = args
 
-    def __call__(self, X, Y):
+    def __call__(self, X, Y=None):
         """Evaluate the kernel matrix"""
         return sum(kernel(X, Y) for kernel in self.kernels)
 
