@@ -1244,6 +1244,20 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         model.set_lower_bound(surf_lb, fric_lb)
         return model
 
+    def get_global_model(self):
+        """"Solve and return the global contact model"""
+        g_model = self.solve_global_model()
+        if not g_model.is_success():
+            warnings.warn('Failed to solve global contact model optimization. Results may be inaccurate')
+        # Get and check the results
+        surf_global = g_model.GetSolution(self.dweights)
+        fric_global = g_model.GetSolution(self.fweights)
+        model = copy.deepcopy(self.traj.contact_model)
+        cpts = np.concatenate(self.traj.get_contacts(0, self.traj.num_timesteps), axis=1)
+        model.add_samples(cpts, surf_global, fric_global)
+        return model
+
+
 class ContactEstimationPlotter():
     def __init__(self, traj):
         assert isinstance(traj, ContactEstimationTrajectory), 'ContactEstimationPlotter requires a ContactEstimationTrajectory object'

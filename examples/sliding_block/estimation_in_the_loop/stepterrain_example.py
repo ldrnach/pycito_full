@@ -9,15 +9,15 @@ April 13, 2022
 import os
 import numpy as np
 from pycito.systems.block.block import Block
-import estimation_control_tools as campctools
+from . import estimation_control_tools as campctools
 import pycito.systems.terrain as terrain
 import pycito.utilities as utils
-import campc_animation_tools as animator
+from . import campc_animation_tools as animator
 from pycito.controller.optimization import OptimizationLogger
 import pycito.systems.kernels as kernels 
 
 SIM_DURATION = 1.5
-TARGET = os.path.join('examples','sliding_block','estimation_in_the_loop','stepterrain','phkernel')
+TARGET = os.path.join('examples','sliding_block','estimation_in_the_loop','stepterrain','phkernel_global')
 ANIMATION_NAME = 'campc_animation.mp4'
 MPCANIMATIONNAME = 'mpc_animation.mp4'
 
@@ -30,6 +30,7 @@ def make_stepterrain_model():
 def main():
     campctools.run_estimation_control(make_stepterrain_model(), 
                                     kernel = kernels.RegularizedPseudoHuberKernel(length_scale=np.array([.1, .1, np.inf]), delta = 10., noise = 0.01),
+                                    use_global = True,
                                     savedir = TARGET)
 
 def main_ambiguity():
@@ -65,4 +66,4 @@ def main_animation():
 
 
 if __name__ == '__main__':
-    main_ambiguity()
+    main()

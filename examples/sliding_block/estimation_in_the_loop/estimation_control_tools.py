@@ -40,7 +40,7 @@ SIM_DURATION = 1.5
 ANIMATION_NAME = 'campc_animation.mp4'
 MPCANIMATIONNAME = 'mpc_animation.mp4'
 
-def run_estimation_control(true_plant, kernel=None, savedir=None):
+def run_estimation_control(true_plant, kernel=None, use_global=False, savedir=None):
     if savedir is None:
         savedir = os.getcwd()
     if not os.path.exists(savedir):
@@ -48,7 +48,7 @@ def run_estimation_control(true_plant, kernel=None, savedir=None):
     # Make the plant and controller models
     mpc_controller = make_mpc_controller()
     mpc_controller.enableLogging()
-    campc_controller = make_estimator_controller(kernel)
+    campc_controller = make_estimator_controller(kernel, use_global)
     campc_controller.enableLogging()
     # Run the simulation
     initial_state = mpc_controller.lintraj.getState(0)
@@ -88,7 +88,7 @@ def make_block_model():
     block.Finalize()
     return block
 
-def make_estimator_controller(kernel=None):
+def make_estimator_controller(kernel=None, use_global=False):
     block = make_semiparametric_block_model(kernel)
     reftraj = mpc.LinearizedContactTrajectory.load(block, REFSOURCE)
     # Create the estimator
@@ -106,6 +106,8 @@ def make_estimator_controller(kernel=None):
                                 "Major optimality tolerance": 1e-4})
     # Create the overall controller
     controller = mpc.ContactAdaptiveMPC(estimator, reftraj, MPC_HORIZON)
+    if use_global:
+        controller.useGlobalModel()
     # Tune the controller
     controller = set_controller_options(controller)
 
@@ -332,7 +334,9 @@ def run_ambiguity_optimization(esttraj):
 
 def load_estimation_trajectory(loaddir):
     block = make_semiparametric_block_model()
-    return ce.ContactEstimationTrajectory.load(block, os.path.join(loaddir, 'estimatedtrajectory.pkl'))
+    estraj = ce.ContactEstimationTrajectory.load(block, os.path.join(loaddir, 'estimatedtrajectory.pkl'))
+    estraj._plant.terrain = estraj.contact_model
+    return estraj
 
 if __name__ == '__main__':
     print("Heelo from estimation_control_tools.py!")
