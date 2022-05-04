@@ -304,10 +304,6 @@ class A1(TimeSteppingMultibodyPlant):
             axs[2].plot(t, f[5 + 2 *k, :], linewidth=1.5, label=legs[k])
         for k, label in enumerate(labels):
             axs[k].set_ylabel(label)
-        # for k in range(3):
-        #     for n in range(4):
-        #         axs[k].plot(t, f[n + 4*k,:], linewidth=1.5, label=legs[n])
-        #     axs[k].set_ylabel(labels[k])
         axs[-1].set_xlabel('Time (s)')
         axs[0].set_title('Reaction Forces')
         axs[0].legend(frameon=False)
