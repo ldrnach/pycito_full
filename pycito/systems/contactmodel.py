@@ -112,8 +112,8 @@ class FlatModel(DifferentiableModel):
 
 class SemiparametricModel(DifferentiableModel):
     def __init__(self, prior, kernel):
-        assert issubclass(type(prior), DifferentiableModel), "prior must be a concrete implementation of DifferentiablePrior"
-        assert issubclass(type(kernel), kernels.DifferentiableStationaryKernel), "kernel must be a concrete implementation of DifferentiableStationaryKernel"
+        assert issubclass(type(prior), DifferentiableModel), "prior must be a concrete implementation of DifferentiableModel"
+        assert issubclass(type(kernel), kernels.KernelBase), "kernel must be a concrete implementation of KernelBase"
         self.prior = prior
         self.kernel = kernel
         self._kernel_weights = None
@@ -121,22 +121,22 @@ class SemiparametricModel(DifferentiableModel):
 
     @classmethod
     def ConstantPriorWithRBFKernel(cls, const=0, length_scale=1, reg=0.):
-        return cls(prior = ConstantModel(const = const), kernel=kernels.RBFKernel(length_scale=length_scale, reg=reg))
+        return cls(prior = ConstantModel(const = const), kernel=kernels.RegularizedRBFKernel(length_scale=length_scale, noise=reg))
 
     @classmethod
     def FlatPriorWithRBFKernel(cls, location = 0., direction = np.array([0, 0, 1]), length_scale = 1., reg=0.):
         return cls(prior = FlatModel(location = location, direction = direction),
-                    kernel = kernels.RBFKernel(length_scale=length_scale, reg=reg))
+                    kernel = kernels.RegularizedRBFKernel(length_scale=length_scale, noise=reg))
 
     @classmethod
     def ConstantPriorWithHuberKernel(cls, const=0, length_scale=1, delta=1, reg=0.):
         return cls(prior = ConstantModel(const = const),
-                    kernel = kernels.PseudoHuberKernel(length_scale=length_scale, delta=delta, reg=reg))
+                    kernel = kernels.RegularizedPseudoHuberKernel(length_scale=length_scale, delta=delta, noise=reg))
     
     @classmethod
     def FlatPriorWithHuberKernel(cls, location = 0, direction = np.array([0, 0, 1]), length_scale = 1., delta = 1, reg=0.):
         return cls(prior = FlatModel(location, direction),
-                    kernel = kernels.PseudoHuberKernel(length_scale, delta, reg=reg))
+                    kernel = kernels.RegularizedPseudoHuberKernel(length_scale, delta, noise=reg))
 
     def add_samples(self, samples, weights):
         """
