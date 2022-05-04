@@ -5,7 +5,7 @@ import pycito.utilities as utils
 from a1_foot_tracking_opt import GaitGenerator, GaitType, A1FootTrackingCost, add_base_tracking
 import a1trajopttools as opttools
 
-SAVEDIR = os.path.join('examples','a1','foot_tracking_fast_ellipse')
+SAVEDIR = os.path.join('examples','a1','foot_tracking_ellipse')
 
 
 def solve_forces(a1, qtraj):
@@ -38,26 +38,31 @@ def setup_foot_tracking_gait(a1, foot_ref, base_ref, duration, warmstart, option
     trajopt = opttools.add_control_difference_cost(trajopt, weight=1e-2)
     # Add small cost on force difference
     trajopt = opttools.add_force_difference_cost(trajopt, weight=1e-2)
+    # Add a small cost on the velocity
+    trajopt = opttools.add_velocity_difference_cost(trajopt, weight=1e-3)
+    # Add a small cost on the force symmetry
+    trajopt = opttools.add_force_symmetry_cost(trajopt, weight=1e-3)
     # Update the solver options
     if options:
         trajopt.setSolverOptions(options)
     return trajopt
 
 def a1_fast_shifted_steps(a1, numsteps=1):
+    dt = 0.01
     generator = GaitGenerator(a1)
     #Starting configuration
     q0 = a1.standing_pose()
     q0, _ = a1.standing_pose_ik(base_pose = q0[:6], guess=q0)
     # Make the gait types
-    gaits = [GaitType(stride_length=0.1, duration = 0.125), 
-            GaitType(stride_length=0.2, duration=0.25),
-            GaitType(stride_length=0.2, duration=0.25),
-            GaitType(stride_length=0.1, duration = 0.125)]
+    gaits = [GaitType(stride_length=0.1, step_height=0.05, duration = 0.2), 
+            GaitType(stride_length=0.2, step_height=0.05, duration=0.4),
+            GaitType(stride_length=0.2, step_height=0.05, duration=0.4),
+            GaitType(stride_length=0.1, step_height = 0.05, duration = 0.2)]
     gaits[1].reversed = True
     gaits[3].reversed = True
     for gait in gaits:
         gait.use_ellipse()
-    samples = [13] + [26]*(2*numsteps) + [13]
+    samples = [int(gait.duration / dt + 1) for gait in gaits]
     start, step, stop = gaits[0], gaits[1:3], gaits[3]
     for _ in range(numsteps-1):
         step.extend(step)
@@ -107,7 +112,7 @@ def a1_first_step_fast_optimization():
     a1 = opttools.make_a1()
     feet, _, qtraj = a1_fast_shifted_steps(a1)
     foot, q = feet[1], qtraj[1]
-    duration = 0.25
+    duration = 0.4
     # Create the warmstart dictionary
     warmstart = create_warmstart(a1, q)
     # Create the trajopt
@@ -121,7 +126,7 @@ def a1_second_step_fast_optimization():
     savedir = os.path.join(SAVEDIR,'secondstep')
     a1 = opttools.make_a1()
     feet, _, qtraj = a1_fast_shifted_steps(a1)
-    duration = 0.25
+    duration = 0.4
     foot, q = feet[2], qtraj[2]
     # Generate the warmstart
     warmstart = create_warmstart(a1, q)
