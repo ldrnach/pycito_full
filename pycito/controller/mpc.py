@@ -10,7 +10,7 @@ Luke Drnach
 
 
 import numpy as np
-import abc, enum
+import abc, enum, copy
 
 from pydrake.all import MathematicalProgram, SnoptSolver, OsqpSolver
 from pydrake.all import PiecewisePolynomial as pp
@@ -18,6 +18,7 @@ from pydrake.all import PiecewisePolynomial as pp
 import pycito.utilities as utils
 import pycito.trajopt.constraints as cstr
 import pycito.controller.mlcp as mlcp
+import pycito.systems.contactmodel as cm
 from pycito.controller.optimization import OptimizationMixin
 from pycito.controller.contactestimator import ContactModelEstimator, EstimatedContactModelRectifier
 
@@ -839,6 +840,29 @@ class ContactAdaptiveMPC(LinearContactMPC):
         model = rectifier.get_global_model()
         return model
 
+    def _get_global_piecewise_model(self, model):
+        """
+            Calculate and return a piecewise global contact model
+        """
+        traj = self.getContactEstimationTrajectory()
+        # Store the existing model, distance, and friction coefficients
+        dist_err = copy.deepcopy(traj._distance_error)
+        fric_err = copy.deepcopy(traj._friction_error)
+        dist_old = copy.deepcopy(traj._distance_cstr)
+        fric_old = copy.deepcopy(traj._friction_cstr)
+        # Update the distance constraints, friction coefficients, and etc
+        for k, cpt in enumerate(traj._contactpoints):
+            dk = model.surface.kernel(cpt).dot(model.get_surface_weights())
+            df = model.friction.kernel(cpt).dot(model.get_friction_weights())
+        
+
+        # Restore the previous values
+        traj._distance_error = dist_err
+        traj._friction_err = fric_err
+        traj._distance_cstr = dist_old
+        traj._friction_cstr = fric_old
+
+        return piecewise_model
 
     def _update_contact_model(self, model):
         """Update the contact model used in the linear trajectory
