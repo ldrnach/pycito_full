@@ -850,18 +850,32 @@ class ContactAdaptiveMPC(LinearContactMPC):
         fric_err = copy.deepcopy(traj._friction_error)
         dist_old = copy.deepcopy(traj._distance_cstr)
         fric_old = copy.deepcopy(traj._friction_cstr)
+        model_old = traj.contact_model
         # Update the distance constraints, friction coefficients, and etc
+        surface_weights = model.get_surface_weights()
+        friction_weights = model.get_friction_weights()
+        dataset = model.get_sample_points()
         for k, cpt in enumerate(traj._contactpoints):
-            dk = model.surface.kernel(cpt).dot(model.get_surface_weights())
-            df = model.friction.kernel(cpt).dot(model.get_friction_weights())
-        
-
+            dk = model.surface_kernel(dataset, cpt).dot(surface_weights)
+            df = model.friction_kernel(dataset, cpt).dot(friction_weights)
+            traj._distance_error[k] -= dk
+            traj._friction_error[k] -= df
+            traj._distance_cstr[k] += dk
+            traj._friction_cstr[k] += df
+        # Create a nested contact model
+        traj.contact_model = cm.SemiparametricContactModel(
+            surface = cm.SemiparametricModel(model_old.surface, self.surface_gkernel),
+            friction = cm.SemiparametricModel(model_old.friction, self.friction_gkernel)
+        )
+        rectifier = EstimatedContactModelRectifier(self.getContactEstimationTrajectory(), surf_max=self._dist_max, fric_max=self._fric_max)
+        piecewise_model = rectifier.get_global_model()
         # Restore the previous values
         traj._distance_error = dist_err
         traj._friction_err = fric_err
         traj._distance_cstr = dist_old
         traj._friction_cstr = fric_old
-
+        traj.contact_model = model_old
+        # Return the model
         return piecewise_model
 
     def _update_contact_model(self, model):
