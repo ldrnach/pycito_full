@@ -2,18 +2,25 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
-from examples.sliding_block.estimation_in_the_loop.stepterrain_example import make_stepterrain_model
+from pycito.systems.block.block import Block
+import pycito.systems.terrain as terrain
 import examples.sliding_block.estimation_in_the_loop.estimation_control_tools as campctools
 from pycito.utilities import load
 from pycito.controller.optimization import OptimizationLogger
 from pycito.controller.contactestimator import EstimatedContactModelRectifier
 
-SOURCE = os.path.join("examples","sliding_block","estimation_in_the_loop","stepterrain",'phkernel_global')
+SOURCE = os.path.join("examples","sliding_block","estimation_in_the_loop","stepterrain",'rbfkernel_tuned_global')
 REFDATA = 'campcsim.pkl'
 ESTRAJ = 'estimatedtrajectory.pkl'
 LOGDATA = os.path.join('campc_logs','EstimationLogs.pkl')
-INDEX = 100
+INDEX = 80
 GLOBAL_MODEL = True
+
+def make_stepterrain_model():
+    stepterrain = terrain.StepTerrain(step_height = -0.5, step_location=2.5)
+    block = Block(terrain = stepterrain)
+    block.Finalize()
+    return block
 
 truemodel = make_stepterrain_model()
 refmodel = campctools.make_block_model()
@@ -60,4 +67,5 @@ axs.plot(sp_terrain[0,:], sp_terrain[2,:], linewidth=1.5, color='blue' )
 
 axs.legend(frameon=False)
 axs.set_aspect('equal')
+fig.savefig(os.path.join(SOURCE, 'LocalModelIllustration.png'), dpi=fig.dpi, bbox_inches='tight')
 plt.show()
