@@ -123,7 +123,7 @@ class ContactDynamicsIntegrator():
         self._timestep_constraint.evaluator().UpdateLowerBound(dt)
         self._timestep_constraint.evaluator().UpdateUpperBound(dt)
         # Solve
-        self.initialize(dt, x0, u)
+        self.initialize_from_timestepping(dt, x0, u)
         for key, value in self.solveroption.items():
             self.prog.SetSolverOption(self.solver.solver_id(), key, value)
         result = self.solver.Solve(self.prog)
@@ -162,6 +162,15 @@ class ContactDynamicsIntegrator():
             _, Jt = self.plant.GetContactJacobians(context)
             vmax = np.max(Jt.dot(v))
             self.prog.SetInitialGuess(self.vs, vmax * np.ones((self.plant.num_contacts(), )))
+
+    def initialize_from_timestepping(self, dt, x0, u):
+        x, f, _ = self.plant.integrate(dt, x0, u)
+        self.prog.SetInitialGuess(self.dt, dt)
+        self.prog.SetInitialGuess(self.u, u)
+        self.prog.SetInitialGuess(self.x[:, 0], x0)
+        self.prog.SetInitialGuess(self.x[:, 1], x)
+        self.prog.SetInitialGuess(self.fn, f[:self.plant.num_contacts()]/dt)
+        self.prog.SetInitialGuess(self.ft, f[self.plant.num_contacts():]/dt)
 
     @property
     def forces(self):
