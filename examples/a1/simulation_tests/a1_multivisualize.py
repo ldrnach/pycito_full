@@ -59,8 +59,8 @@ def make_a1_multivisualizer(datasets, colors):
     vis.visualize_trajectory(xtraj)
 
 if __name__ == '__main__':
-    reference = utils.load(os.path.join('data','a1','a1_step.pkl'))
-    sim = utils.load(os.path.join('examples','a1','simulation_tests','timestepping_2','simdata.pkl'))
+    reference = utils.load(os.path.join('data','a1','ellipse_foot_tracking','fast','fullstep','weight_1e+03','trajoptresults.pkl'))
+    sim = utils.load(os.path.join('examples','a1','simulation_tests','fullstep','timestepping','simdata.pkl'))
     sim['time'] = sim['time'][:-1]
     sim['state'] = sim['state'][:,:-1]
     colors = [np.array([0.8, 0.8, 0.8, 0.4]), None]
