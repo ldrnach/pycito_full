@@ -15,6 +15,7 @@ from pydrake.all import PiecewisePolynomial as PP
 import pycito.utilities as utils
 import a1trajopttools as opttools
 
+SAVEDIR = os.path.join('examples','a1','ellipse_foot_tracking','slow')
 class A1FootTrackingCost():
     def __init__(self, a1, weight, traj):
         # Save the plant
@@ -161,14 +162,14 @@ def make_a1_step_trajectories(a1):
     q0 = a1.standing_pose()
     q0, _ = a1.standing_pose_ik(base_pose = q0[:6], guess=q0)
     # Make the gait types
-    gaits = [GaitType(stride_length=0.1, duration = 0.25), 
-            GaitType(stride_length=0.2, duration=0.5),
-            GaitType(stride_length=0.2, duration=0.5),
+    gaits = [GaitType(stride_length=0.125, duration = 0.25), 
+            GaitType(stride_length=0.25, duration=0.5),
+            GaitType(stride_length=0.25, duration=0.5),
             GaitType(stride_length=0.1, duration = 0.25)]
     gaits[1].reversed = True
     gaits[3].reversed = True
     for gait in gaits:
-        gait.use_quartic()
+        gait.use_ellipse()
     samples = [26, 51, 51, 26]
     # Make the gait trajectories
     step = []
@@ -242,6 +243,10 @@ def setup_foot_tracking_gait(a1, foot_ref, base_ref, duration, warmstart, option
     trajopt = opttools.add_control_difference_cost(trajopt, weight=1e-2)
     # Add small cost on force difference
     trajopt = opttools.add_force_difference_cost(trajopt, weight=1e-2)
+    # Add a small cost on the force symmetry
+    trajopt = opttools.add_force_symmetry_cost(trajopt, weight=1e-3)
+    # Add a small cost on the velocity
+    trajopt = opttools.add_velocity_difference_cost(trajopt, weight=1e-2)
     # Update the solver options
     if options:
         trajopt.setSolverOptions(options)
@@ -257,11 +262,10 @@ def optimize_foot_tracking_gait(a1, foot_ref, base_ref, duration, warmstart, sav
     opttools.progressive_solve(trajopt, weights, savedir)
 
 def main_step_optimization():
-    savedir = os.path.join('examples','a1','foot_tracking_gait')
-    parts = ['start_step','first_step','second_step','last_step']
+    parts = ['first_step','second_step']
     a1 = opttools.make_a1()
     feet, _, qtraj = make_a1_step_trajectories(a1)
-    durations = [0.25, 0.5, 0.5, 0.25]
+    durations = [0.5, 0.5]
     warmstart = {'state': None,
                 'control': None,
                 'force': None,
@@ -272,7 +276,7 @@ def main_step_optimization():
         warmstart['force'] = np.zeros((2*a1.num_contacts() + a1.num_friction(), fN.shape[1]))
         warmstart['force'][:fN.shape[0], :] = fN
         warmstart['state'] = np.concatenate([q, np.zeros((a1.multibody.num_velocities(), q.shape[1]))], axis=0)
-        optimize_foot_tracking_gait(a1, foot, q[:6, :], duration, warmstart, os.path.join(savedir, filepart))
+        optimize_foot_tracking_gait(a1, foot, q[:6, :], duration, warmstart, os.path.join(SAVEDIR, filepart))
 
 """ For full gait optimization """
 def getdatakeys():
@@ -281,9 +285,9 @@ def getdatakeys():
 def load_full_gait():
     sources = ['start_step','first_step','second_step','last_step']
     datakeys = getdatakeys()
-    fullgait = utils.load(os.path.join('examples','a1','foot_tracking_gait', sources[0],'weight_1e+03','trajoptresults.pkl'))
+    fullgait = utils.load(os.path.join(SAVEDIR, sources[0],'weight_1e+03','trajoptresults.pkl'))
     for source in sources[1:]:
-        file = os.path.join('examples','a1','foot_tracking_gait', source,'weight_1e+03','trajoptresults.pkl')
+        file = os.path.join(SAVEDIR, source,'weight_1e+03','trajoptresults.pkl')
         data = utils.load(file)
         for key in datakeys:
             fullgait[key] = np.concatenate([fullgait[key], data[key][:, 1:]], axis=1)
@@ -321,7 +325,7 @@ def concatenate_foot_trajectories(feet):
 
 def main_fullgait_optimization():
     # Get the foot reference trajectory
-    savedir = os.path.join('examples','a1','foot_tracking_gait','fullgait')
+    savedir = os.path.join(SAVEDIR,'fullgait')
     a1 = opttools.make_a1()
     feet, _, qtraj = make_a1_step_trajectories(a1)
     # Concatenate the foot trajectories together
@@ -344,8 +348,8 @@ def main_contiguous_second_stride_optimization():
     """
     Optimize for the second stride where all variables are continuous with the first stride
     """
-    firststep = utils.load(utils.FindResource(os.path.join('examples','a1','foot_tracking_gait','first_step','weight_1e+03','trajoptresults.pkl')))
-    savedir = os.path.join('examples','a1','foot_tracking_gait','second_step_continuous')
+    firststep = utils.load(utils.FindResource(os.path.join(SAVEDIR,'first_step','weight_1e+03','trajoptresults.pkl')))
+    savedir = os.path.join(SAVEDIR,'fullstep')
     a1 = opttools.make_a1()
     feet, _, qtraj =  make_a1_step_trajectories(a1)
     feet = feet[2]

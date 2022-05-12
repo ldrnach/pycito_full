@@ -10,6 +10,7 @@ from pycito.systems.A1.a1 import A1VirtualBase
 from pycito.trajopt import contactimplicit as ci
 import os, time
 import pycito.utilities as utils
+import matplotlib.pyplot as plt
 
 def make_a1():
     a1 = A1VirtualBase()
@@ -163,6 +164,29 @@ def add_force_difference_cost(trajopt, weight):
     trajopt.add_quadratic_differenced_cost(Q, vars=trajopt.l[:nF, :], name='ForceDifference')
     return trajopt
 
+def add_force_symmetry_cost(trajopt, weight):
+    """
+    Add a quadratic cost on the difference in normal force between different feet
+    """
+    Q = np.array([[1, 0, -1, 0],
+                [0, 1, 0, -1],
+                [-1, 0, 1, 0],
+                [0, -1, 0, 1]])
+    Q = weight*Q
+    nF = trajopt.numN
+    trajopt.add_quadratic_running_cost(Q, np.zeros((nF,)), vars=trajopt.l[:nF,:], name='ForceSymmetry')
+    return trajopt
+
+def add_velocity_difference_cost(trajopt, weight):
+    """
+    Add a quadratic cost on the difference in velocity in successive timesteps
+    """
+    nQ = trajopt.plant_f.multibody.num_positions()
+    nV = trajopt.plant_f.multibody.num_velocities()
+    Q = weight * np.eye(nV)
+    trajopt.add_quadratic_differenced_cost(Q, vars=trajopt.x[nQ:, :], name='VelocityDifference')
+    return trajopt
+
 def add_boundary_constraints(trajopt, x0, xf):
     """
     Add boundary constraints to the trajopt
@@ -191,3 +215,4 @@ def progressive_solve(trajopt, weights, savedir):
         trajopt.printer.save_and_clear(savename=os.path.join(savedir_this, 'CostsAndConstraints.png'))
         # Pause and allow python to clear figures and the like
         time.sleep(1.0)
+    plt.close('all')

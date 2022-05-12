@@ -516,6 +516,8 @@ class TimeSteppingMultibodyPlant():
         
         Arguments:
             qref: (N,) numpy array, the static pose to be maintained
+            dtol: float, tolerance at which to consider distance = 0. (optional, default=1e-6)
+            verbose: bool, set to true to print a detailed report when the solver fails
 
         Return Values:
             u: (M,) numpy array, actuations to best achieve static pose
@@ -566,7 +568,7 @@ class TimeSteppingMultibodyPlant():
                 printProgramReport(result, prog)
             return (u, f)
         else:
-            print(f"Optimization failed. Returning zeros")
+            print(f"Optimization failed using {result.get_solver_id().name()}. Returning zeros")
             if verbose:
                 printProgramReport(result,prog)
             return (np.zeros(u_var.shape), np.zeros(l_var.shape))
