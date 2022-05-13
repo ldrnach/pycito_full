@@ -15,7 +15,7 @@ SOURCE = os.path.join("examples","sliding_block","estimation_in_the_loop","stept
 REFDATA = 'campcsim.pkl'
 ESTRAJ = 'estimatedtrajectory.pkl'
 LOGDATA = os.path.join('campc_logs','EstimationLogs.pkl')
-INDEX = 53
+INDEX = 10
 GLOBAL_MODEL = False
 
 def make_stepterrain_model():
