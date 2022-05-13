@@ -40,7 +40,7 @@ SIM_DURATION = 1.5
 ANIMATION_NAME = 'campc_animation.mp4'
 MPCANIMATIONNAME = 'mpc_animation.mp4'
 
-def run_estimation_control(true_plant, kernel=None, use_global=False, savedir=None):
+def run_estimation_control(true_plant, spcontact=None, use_global=False, savedir=None):
     if savedir is None:
         savedir = os.getcwd()
     if not os.path.exists(savedir):
@@ -48,7 +48,7 @@ def run_estimation_control(true_plant, kernel=None, use_global=False, savedir=No
     # Make the plant and controller models
     mpc_controller = make_mpc_controller()
     mpc_controller.enableLogging()
-    campc_controller = make_estimator_controller(kernel, use_global)
+    campc_controller = make_estimator_controller(spcontact, use_global)
     campc_controller.enableLogging()
     # Run the simulation
     initial_state = mpc_controller.lintraj.getState(0)
@@ -72,15 +72,22 @@ def run_estimation_control(true_plant, kernel=None, use_global=False, savedir=No
     utils.save(os.path.join(savedir, 'mpcsim.pkl'), mpc_sim)
     utils.save(os.path.join(savedir, 'campcsim.pkl'), campc_sim)
 
-def make_semiparametric_block_model(kernel=None):
-    if kernel is None:
-        kernel = kernels.RegularizedRBFKernel(length_scale=np.array([0.1, 0.1, np.inf]), noise= 0.01)
-    # Construct the surface model
-    surface = cm.SemiparametricModel(cm.FlatModel(location=  0.), copy.deepcopy(kernel))
-    friction = cm.SemiparametricModel(cm.ConstantModel(const = 0.5), copy.deepcopy(kernel))
+def make_semiparametric_contact_model(dist_kernel = None, fric_kernel = None):
+    if dist_kernel is None:
+        dist_kernel = kernels.RegularizedRBFKernel(length_scale= np.array([0.1, 0.1, np.inf]), noise = 0.1)
+    if fric_kernel is None:
+        fric_kernel = kernels.RegularizedRBFKernel(length_scale = np.array([0.1, 0.1, np.inf]), noise = 0.1)
+    return cm.SemiparametricContactModel(
+        surface = cm.SemiparametricModel(cm.FlatModel(location = 0), copy.deepcopy(dist_kernel)),
+        friction = cm.SemiparametricModel(cm.ConstantModel(const = 0.5), copy.deepcopy(fric_kernel))
+    )
+
+def make_semiparametric_block_model(sp_contact=None):
+    if sp_contact is None:
+        sp_contact = make_semiparametric_contact_model()
     block = Block()
     block.Finalize()
-    block.terrain = cm.SemiparametricContactModel(surface, friction)
+    block.terrain = copy.deepcopy(sp_contact)
     return block 
 
 def make_block_model():
@@ -88,12 +95,12 @@ def make_block_model():
     block.Finalize()
     return block
 
-def make_estimator_controller(kernel=None, use_global=False):
-    block = make_semiparametric_block_model(kernel)
+def make_estimator_controller(sp_contact=None, use_global=False):
+    block = make_semiparametric_block_model(sp_contact)
     reftraj = mpc.LinearizedContactTrajectory.load(block, REFSOURCE)
     # Create the estimator
     x0 = reftraj.getState(0)
-    block2 = make_semiparametric_block_model(kernel)
+    block2 = make_semiparametric_block_model(sp_contact)
     esttraj = ce.ContactEstimationTrajectory(block2, x0)
     estimator = ce.ContactModelEstimator(esttraj, ESTIMATION_HORIZON)
     # Set the estimator solver parameters
