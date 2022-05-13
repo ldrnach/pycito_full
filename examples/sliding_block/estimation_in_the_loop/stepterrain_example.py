@@ -17,7 +17,7 @@ from pycito.controller.optimization import OptimizationLogger
 import pycito.systems.kernels as kernels 
 
 SIM_DURATION = 1.5
-TARGET = os.path.join('examples','sliding_block','estimation_in_the_loop','stepterrain','linearkernel_tuned')
+TARGET = os.path.join('examples','sliding_block','estimation_in_the_loop','stepterrain','centeredaffinekernel_tuned')
 ANIMATION_NAME = 'campc_animation.mp4'
 MPCANIMATIONNAME = 'mpc_animation.mp4'
 
@@ -28,11 +28,18 @@ def make_stepterrain_model():
     return block
 
 def main():
-    W  =np.zeros((3,3))
-    W[0,0] = 10
-    W[1,1] = 10
+    W = np.zeros((3,3))
+    W[0,0] = 0.1
+    W[1,1] = 0.1
+    surfkernel = kernels.CompositeKernel(
+        kernels.CenteredLinearKernel(W),
+        kernels.ConstantKernel(1),
+        kernels.WhiteNoiseKernel(0.01)
+    )
+    frickernel = kernels.RegularizedConstantKernel(1, 0.01)
+    sp_contact = campctools.make_semiparametric_contact_model(surfkernel, frickernel)
     campctools.run_estimation_control(make_stepterrain_model(), 
-                                    kernel = kernels.RegularizedLinearKernel(weights=W, offset=1, noise = 0.01),
+                                    sp_contact,
                                     use_global=False,
                                     savedir = TARGET)
 
@@ -69,4 +76,4 @@ def main_animation():
 
 
 if __name__ == '__main__':
-    main()
+    main_animation()
