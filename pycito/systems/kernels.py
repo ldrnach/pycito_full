@@ -19,8 +19,8 @@ class KernelBase(abc.ABC):
             return self.eval(X, Y)
 
     @staticmethod
-    def _reshape_inputs(X, Y):
-        return np.reshape(X, (X.shape[0], -1)), np.reshape(Y, (Y.shape[0], -1))
+    def _reshape_inputs(*args):
+        return [np.reshape(X, (X.shape[0], -1)) for X in args] 
 
     @abc.abstractmethod
     def eval(self, x, y):
@@ -72,10 +72,6 @@ class StationaryKernel(KernelBase):
             return self.eval(X, X)
         else:
             return self.eval(X, Y)
-
-    @staticmethod
-    def _reshape_inputs(X, Y):
-        return np.reshape(X, (X.shape[0], -1)), np.reshape(Y, (Y.shape[0], -1))
 
     def _squared_distance(self, X, Y):
         """
@@ -255,6 +251,48 @@ class LinearKernel(KernelBase):
         else:
             raise ValueError("weights must be either a square matrix, a 1D array, or a scalar")
 
+class CenteredLinearKernel(LinearKernel):
+    """
+    Implements a weighted, centered linear kernel function:
+        k(x,y) = (x-c)^T * W * (y - c)
+    where:
+        W is a matrix of weights of the same dimensions as x and y 
+        c is a scalar offset parameter, determined as the average value of y    
+    """
+    def __init__(self, weights=np.ones((1,))):
+        super().__init__(weights, offset = 0)
+
+    def eval(self, x, y):
+        """
+        Return the kernel matrix calculated from two example datapoints
+    
+        Arguments:
+            x: (n_features, n_samples_x) array of example vectors
+            y: (n_features, n_samples_y) array of example vectors
+        
+        Returns:
+            K: (n_samples_x, n_samples_y) array of kernel values
+        """
+        x, y = self._reshape_inputs(x, y)
+        c, = self._reshape_inputs(np.mean(y, axis=1))
+        K = (x - c).T.dot(self.weights.dot(y - c))
+        return K
+
+    def gradient(self, x, y):
+        """
+        Evaluate the gradient of the kernel
+        
+        Arguments:
+            x: (n_features, 1) array. This is argument for which the gradient is calculated
+            y: (n_features, n_samples_y) array. This is an example point
+        
+        Return values:
+            grad: (n_samples_y, n_features) array of gradients with respect to the input x
+        """
+        x, y = self._reshape_inputs(x, y)
+        c, = self._reshape_inputs(np.mean(y, axis=1))
+        return (y-c).T.dot(self.weights)
+
 class HyperbolicTangentKernel(LinearKernel):
     """
     A hyperbolic tangent kernel function:
@@ -387,7 +425,7 @@ class WhiteNoiseKernel(KernelBase):
     def __call__(self, X, Y=None):
         """Evaluate the kernel matrix"""
         if Y is None:
-            X, _ = self._reshape_inputs(X, X)
+            X, = self._reshape_inputs(X)
             return self.noise * np.eye(X.shape[1])
         else:
             X, Y = self._reshape_inputs(X, Y)
@@ -502,6 +540,14 @@ class RegularizedPolynomialKernel(CompositeKernel):
         pk = PolynomialKernel(weights, offset, degree)
         reg = WhiteNoiseKernel(noise)
         super().__init__(pk, reg)
+
+class RegularizedConstantKernel(CompositeKernel):
+    def __init__(self, const, noise):
+        super().__init__(ConstantKernel(const = const), WhiteNoiseKernel(noise=noise))
+
+class RegularizedCenteredLinearKernel(CompositeKernel):
+    def __init__(self, weights, noise):
+        super().__init__(CenteredLinearKernel(weights), WhiteNoiseKernel(noise))
 
 if __name__ == '__main__':
     print("Hello from kernels.py!")
