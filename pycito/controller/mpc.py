@@ -791,9 +791,11 @@ class ContactAdaptiveMPC(LinearContactMPC):
         super().__init__(linear_traj, horizon, lcptype)
         assert isinstance(estimator, ContactModelEstimator), f"estimator must be an instance of ContactModelEstimator"
         self.estimator = estimator
-        self._use_global = False
+        self._resolve_contact_model = self._get_local_contact_model
         self._dist_max = 10
         self._fric_max = 2
+        self.surface_gkernel = None
+        self.friction_gkernel = None
 
     def enableLogging(self):
         """Enable solution logging for both the estimator and the controller"""
@@ -826,19 +828,21 @@ class ContactAdaptiveMPC(LinearContactMPC):
                 u: (M, ) the updated current control
         """    
         model = self.estimator.estimate_contact(t, x, u)
-        if self._use_global:
-            model = self._get_global_contact_model()
+        model = self._resolve_contact_model(model)
         self._update_contact_model(model)
         self._update_contact_linearization(t, x)
         return self.do_mpc(t, x)
 
-    def _get_global_contact_model(self):
+    def _get_local_contact_model(self, model):
+        return model
+
+    def _get_global_contact_model(self, model):
         """
         Calculate and return the global contact model
         """
         rectifier = EstimatedContactModelRectifier(self.getContactEstimationTrajectory(), surf_max=self._dist_max, fric_max=self._fric_max)
-        model = rectifier.get_global_model()
-        return model
+        gmodel = rectifier.get_global_model()
+        return gmodel
 
     def _get_global_piecewise_model(self, model):
         """
@@ -856,8 +860,8 @@ class ContactAdaptiveMPC(LinearContactMPC):
         friction_weights = model.get_friction_weights()
         dataset = model.get_sample_points()
         for k, cpt in enumerate(traj._contactpoints):
-            dk = model.surface_kernel(dataset, cpt).dot(surface_weights)
-            df = model.friction_kernel(dataset, cpt).dot(friction_weights)
+            dk = model.surface_kernel(cpt, dataset).dot(surface_weights)
+            df = model.friction_kernel(cpt, dataset).dot(friction_weights)
             traj._distance_error[k] -= dk
             traj._friction_error[k] -= df
             traj._distance_cstr[k] += dk
@@ -868,6 +872,9 @@ class ContactAdaptiveMPC(LinearContactMPC):
             friction = cm.SemiparametricModel(model_old.friction, self.friction_gkernel)
         )
         rectifier = EstimatedContactModelRectifier(self.getContactEstimationTrajectory(), surf_max=self._dist_max, fric_max=self._fric_max)
+        rectifier.useSnoptSolver()
+        rectifier.setSolverOptions({'Major feasibility tolerance': 1e-4,
+                                    'Major optimality tolerance': 1e-4})
         piecewise_model = rectifier.get_global_model()
         # Restore the previous values
         traj._distance_error = dist_err
@@ -910,10 +917,13 @@ class ContactAdaptiveMPC(LinearContactMPC):
         return self.estimator.traj
 
     def useLocalModel(self):
-        self._use_global = False
+        self._resolve_contact_model = self._get_local_contact_model
 
     def useGlobalModel(self):
-        self._use_global = True
+        self._resolve_contact_model = self._get_global_contact_model
+
+    def usePiecewiseModel(self):
+        self._resolve_contact_model = self._get_global_piecewise_model
 
     @property
     def global_dist_max(self):
@@ -932,6 +942,22 @@ class ContactAdaptiveMPC(LinearContactMPC):
     def global_fric_max(self, val):
         assert isinstance(val, (int, float)) and val > 0, 'friction maximum must be a nonzero int or float'
         self._fric_max = val
+
+    @property
+    def global_surface_kernel(self):
+        return self.surface_gkernel
+
+    @global_surface_kernel.setter
+    def global_surface_kernel(self, val):
+        self.surface_gkernel = val
+
+    @property
+    def global_friction_kernel(self):
+        return self.friction_gkernel
+
+    @global_friction_kernel.setter
+    def global_friction_kernel(self, val):
+        self.friction_gkernel = val
 
 if __name__ == "__main__":
     print("Hello from MPC!")
