@@ -9,8 +9,6 @@ from pycito.utilities import load
 from pycito.controller.optimization import OptimizationLogger
 from pycito.controller.contactestimator import EstimatedContactModelRectifier
 
-#TODO: Debug why the linear kernel seems to pass near origin a lot - doesn't give a good linear fit
-
 SOURCE = os.path.join("examples","sliding_block","estimation_in_the_loop","stepterrain",'linearkernel_tuned')
 REFDATA = 'campcsim.pkl'
 ESTRAJ = 'estimatedtrajectory.pkl'
