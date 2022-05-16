@@ -7,6 +7,7 @@ April 13, 2022
 
 
 import os
+from re import L
 import numpy as np
 from pycito.systems.block.block import Block
 import estimation_control_tools as campctools
@@ -17,7 +18,7 @@ from pycito.controller.optimization import OptimizationLogger
 import pycito.systems.kernels as kernels 
 
 SIM_DURATION = 1.5
-TARGET = os.path.join('examples','sliding_block','estimation_in_the_loop','stepterrain','centeredaffinekernel_tuned')
+TARGET = os.path.join('examples','sliding_block','estimation_in_the_loop','stepterrain','centeredaffinekernel_piecewise')
 ANIMATION_NAME = 'campc_animation.mp4'
 MPCANIMATIONNAME = 'mpc_animation.mp4'
 
@@ -28,19 +29,18 @@ def make_stepterrain_model():
     return block
 
 def main():
-    W = np.zeros((3,3))
-    W[0,0] = 0.1
-    W[1,1] = 0.1
+    W = np.diag([0.1, 0.1, 0.0])
     surfkernel = kernels.CompositeKernel(
         kernels.CenteredLinearKernel(W),
         kernels.ConstantKernel(1),
         kernels.WhiteNoiseKernel(0.01)
     )
     frickernel = kernels.RegularizedConstantKernel(1, 0.01)
+    globalkernel = kernels.RegularizedPseudoHuberKernel(length_scale=np.array([0.1, 0.1, np.inf]), delta=0.1, noise=0.01)
     sp_contact = campctools.make_semiparametric_contact_model(surfkernel, frickernel)
-    campctools.run_estimation_control(make_stepterrain_model(), 
+    campctools.run_piecewise_estimation_control(make_stepterrain_model(), 
                                     sp_contact,
-                                    use_global=False,
+                                    globalkernel,
                                     savedir = TARGET)
 
 def main_ambiguity():

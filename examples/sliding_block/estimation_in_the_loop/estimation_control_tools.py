@@ -40,6 +40,44 @@ SIM_DURATION = 1.5
 ANIMATION_NAME = 'campc_animation.mp4'
 MPCANIMATIONNAME = 'mpc_animation.mp4'
 
+def run_piecewise_estimation_control(true_plant, spcontact=None, global_kernel=None, savedir=None):
+    if savedir is None:
+        savedir = os.getcwd()
+    if not os.path.exists(savedir):
+        os.makedirs(savedir)   
+    if global_kernel is None:
+        global_kernel = kernels.RegularizedRBFKernel(length_scale= np.array([0.1, 0.1, np.inf]), noise = 0.1)
+    # Make the plant and controller models
+    mpc_controller = make_mpc_controller()
+    mpc_controller.enableLogging()
+    campc_controller = make_estimator_controller(spcontact)
+    campc_controller.enableLogging()
+    campc_controller.global_surface_kernel = global_kernel
+    campc_controller.global_friction_kernel = copy.deepcopy(global_kernel)
+    campc_controller.usePiecewiseModel()
+
+    # Run the simulation
+    initial_state = mpc_controller.lintraj.getState(0)
+    mpc_sim = run_simulation(true_plant, mpc_controller, initial_state, duration=SIM_DURATION)
+    campc_sim = run_simulation(true_plant, campc_controller, initial_state, duration=SIM_DURATION)
+    # Plot and save the results
+    plot_trajectory_comparison(mpc_sim, campc_sim, savename=savedir)
+    # Plot the estimated contact model
+    plot_terrain_errors(campc_controller, savedir=savedir)
+    save_estimated_terrain(campc_controller, savedir=savedir)
+    estimated_model = campc_controller.lintraj.plant.terrain
+    pts = get_x_samples(campc_sim, sampling=1000)
+    compare_estimated_contact_model(estimated_model, true_plant.terrain, pts, savedir=savedir)
+    compare_forces(campc_sim, campc_controller, savedir=savedir)
+    # Plot the mpc and campc logs
+    plot_mpc_logs(mpc_controller, savedir = os.path.join(savedir, 'mpc_logs'))
+    save_mpc_logs(mpc_controller, savedir = os.path.join(savedir, 'mpc_logs'))
+    plot_campc_logs(campc_controller, savedir=os.path.join(savedir,'campc_logs'))
+    save_campc_logs(campc_controller, savedir=os.path.join(savedir, 'campc_logs'))
+    # Save the simulation data
+    utils.save(os.path.join(savedir, 'mpcsim.pkl'), mpc_sim)
+    utils.save(os.path.join(savedir, 'campcsim.pkl'), campc_sim)
+
 def run_estimation_control(true_plant, spcontact=None, use_global=False, savedir=None):
     if savedir is None:
         savedir = os.getcwd()
@@ -321,7 +359,6 @@ def get_distance_and_friction(model, pts):
     fric = [model.eval_friction(pt) for pt in pts.T]
     return np.concatenate(dist, axis=0), np.concatenate(fric, axis=0)
 
-
 def get_x_samples(sim, sampling=100):
     xvals = sim['state'][0,:]
     pt0 = np.zeros((3,))
@@ -346,4 +383,4 @@ def load_estimation_trajectory(loaddir):
     return estraj
 
 if __name__ == '__main__':
-    print("Heelo from estimation_control_tools.py!")
+    print("Hello from estimation_control_tools.py!")
