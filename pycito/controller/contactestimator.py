@@ -736,7 +736,7 @@ class ContactModelEstimator(OptimizationMixin):
         dweights = np.linalg.lstsq(Kd, derr, rcond=None)[0]
         fc_weights = np.linalg.lstsq(Kf, ferr, rcond=None)[0]
         fc_weights = self._variables_to_friction_weights(fc_weights, forces)
-        model.add_samples(cpts, dweights, fc_weights)
+        model.add_samples(cpts, np.ravel(dweights), np.ravel(fc_weights))
         return model
 
     def update_trajectory(self, t, result):
