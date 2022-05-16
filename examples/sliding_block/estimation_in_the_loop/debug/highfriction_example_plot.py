@@ -9,7 +9,7 @@ from pycito.controller.contactestimator import EstimatedContactModelRectifier
 from pycito.systems.block.block import Block
 import pycito.systems.terrain as terrain
 
-SOURCE = os.path.join("examples","sliding_block","estimation_in_the_loop","high_friction",'phkernel_tuned_global')
+SOURCE = os.path.join("examples","sliding_block","estimation_in_the_loop","high_friction",'phkernel_global_tuned')
 REFDATA = 'campcsim.pkl'
 ESTRAJ = 'estimatedtrajectory.pkl'
 LOGDATA = os.path.join('campc_logs','EstimationLogs.pkl')
