@@ -249,6 +249,7 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
         new_instance = cls(plant, _time, _state, _control, _force, _jlimit)
         data.pop('plant')
         data.pop('isLinearizedContactTrajectory')
+        data.pop('_tracking_method')
         for key, value in data.items():
             setattr(new_instance, key, value)
         # Add in the constraints
