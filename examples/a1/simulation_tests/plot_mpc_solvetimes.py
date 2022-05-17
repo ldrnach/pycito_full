@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 from pycito.controller.optimization import OptimizationLogger
 
-SOURCE = os.path.join('examples','a1','simulation_tests','fullstep','timestepping','mpclogs')
+SOURCE = os.path.join('examples','a1','simulation_tests','fullstep','timestepping_cache','mpclogs')
 file = os.path.join(SOURCE, 'mpclogs.pkl')
 
 logs = OptimizationLogger.load(file).logs

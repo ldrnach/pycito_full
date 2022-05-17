@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from pycito.systems.A1.a1 import A1VirtualBase
 
 reffile = os.path.join('data','a1','ellipse_foot_tracking','fast','fullstep','weight_1e+03','trajoptresults.pkl')
-SOURCE = os.path.join('examples','a1','simulation_tests','fullstep','timestepping')
+SOURCE = os.path.join('examples','a1','simulation_tests','fullstep','timestepping_cache')
 simfile = os.path.join(SOURCE, 'simdata.pkl')
 
 

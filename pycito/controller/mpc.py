@@ -535,17 +535,17 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             self.prog.SetInitialGuess(self.du, np.random.default_rng().standard_normal(size = self.du.shape))
         elif self._guess == self.InitializationStrategy.CACHE and self._cache is not None:
             # Initialize ALL variables using the cached results
-            self.prog.SetInitialGuess(self.dx, self._cache['dx'])
-            self.prog.SetInitialGuess(self.du, self._cache['du'])
-            self.prog.SetInitialGuess(self.dl, self._cache['dl'])
-            self.prog.SetInitialGuess(self.ds, self._cache['ds'])
+            self.prog.SetInitialGuess(self.dx[:,1:-1], self._cache['dx'][:,2:])
+            self.prog.SetInitialGuess(self.du[:,:-1], self._cache['du'][:,1:])
+            self.prog.SetInitialGuess(self.dl[:,:-1], self._cache['dl'][:,1:])
+            self.prog.SetInitialGuess(self.ds[:,:-1], self._cache['ds'][:,1:])
+            self.prog.SetInitialGuess(self.dx[:,-1], self._cache['dx'][:,-1])
+            self.prog.SetInitialGuess(self.du[:,-1], self._cache['du'][:,-1])
+            self.prog.SetInitialGuess(self.dl[:,-1], self._cache['dl'][:,-1])
+            self.prog.SetInitialGuess(self.ds[:,-1], self._cache['ds'][:,-1])
             if 'djl' in self._cache:
-                self.prog.SetInitialGuess(self.djl, self._cache['djl'])
-            # Initialize all slack variables
-            for (dist, diss, fric) in zip(self._distance, self._dissipation, self._friccone):
-                dist.initializeSlackVariables()
-                diss.initializeSlackVariables()
-                fric.initializeSlackVariables()
+                self.prog.SetInitialGuess(self.djl[:,:-1], self._cache['djl'][:,1:])
+                self.prog.SetInitialGuess(self.djl[:,-1], self._cache['djl'][:,-1])
         else:
             # Initialize using a linear guess
             dx0 = self.prog.GetInitialGuess(self._dx[0])
