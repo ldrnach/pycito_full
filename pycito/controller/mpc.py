@@ -10,7 +10,7 @@ Luke Drnach
 
 
 import numpy as np
-import abc, enum
+import abc, enum, copy
 
 from pydrake.all import MathematicalProgram, SnoptSolver, OsqpSolver
 from pydrake.all import PiecewisePolynomial as pp
@@ -18,8 +18,9 @@ from pydrake.all import PiecewisePolynomial as pp
 import pycito.utilities as utils
 import pycito.trajopt.constraints as cstr
 import pycito.controller.mlcp as mlcp
+import pycito.systems.contactmodel as cm
 from pycito.controller.optimization import OptimizationMixin
-from pycito.controller.contactestimator import ContactModelEstimator
+from pycito.controller.contactestimator import ContactModelEstimator, EstimatedContactModelRectifier
 
 class _ControllerBase(abc.ABC):
     def __init__(self, plant):
@@ -790,6 +791,11 @@ class ContactAdaptiveMPC(LinearContactMPC):
         super().__init__(linear_traj, horizon, lcptype)
         assert isinstance(estimator, ContactModelEstimator), f"estimator must be an instance of ContactModelEstimator"
         self.estimator = estimator
+        self._resolve_contact_model = self._get_local_contact_model
+        self._dist_max = 10
+        self._fric_max = 2
+        self.surface_gkernel = None
+        self.friction_gkernel = None
 
     def enableLogging(self):
         """Enable solution logging for both the estimator and the controller"""
@@ -822,9 +828,62 @@ class ContactAdaptiveMPC(LinearContactMPC):
                 u: (M, ) the updated current control
         """    
         model = self.estimator.estimate_contact(t, x, u)
+        model = self._resolve_contact_model(model)
         self._update_contact_model(model)
         self._update_contact_linearization(t, x)
         return self.do_mpc(t, x)
+
+    def _get_local_contact_model(self, model):
+        return model
+
+    def _get_global_contact_model(self, model):
+        """
+        Calculate and return the global contact model
+        """
+        rectifier = EstimatedContactModelRectifier(self.getContactEstimationTrajectory(), surf_max=self._dist_max, fric_max=self._fric_max)
+        gmodel = rectifier.get_global_model()
+        return gmodel
+
+    def _get_global_piecewise_model(self, model):
+        """
+            Calculate and return a piecewise global contact model
+        """
+        traj = self.getContactEstimationTrajectory()
+        # Store the existing model, distance, and friction coefficients
+        dist_err = copy.deepcopy(traj._distance_error)
+        fric_err = copy.deepcopy(traj._friction_error)
+        dist_old = copy.deepcopy(traj._distance_cstr)
+        fric_old = copy.deepcopy(traj._friction_cstr)
+        model_old = traj.contact_model
+        # Update the distance constraints, friction coefficients, and etc
+        surface_weights = model.get_surface_weights()
+        friction_weights = model.get_friction_weights()
+        dataset = model.get_sample_points()
+        for k, cpt in enumerate(traj._contactpoints):
+            dk = model.surface_kernel(cpt, dataset).dot(surface_weights)
+            df = model.friction_kernel(cpt, dataset).dot(friction_weights)
+            traj._distance_error[k] -= dk
+            traj._friction_error[k] -= df
+            traj._distance_cstr[k] += dk
+            traj._friction_cstr[k] += df
+        # Create a nested contact model
+        traj.contact_model = cm.SemiparametricContactModel(
+            surface = cm.SemiparametricModel(model_old.surface, self.surface_gkernel),
+            friction = cm.SemiparametricModel(model_old.friction, self.friction_gkernel)
+        )
+        rectifier = EstimatedContactModelRectifier(self.getContactEstimationTrajectory(), surf_max=self._dist_max, fric_max=self._fric_max)
+        rectifier.useSnoptSolver()
+        rectifier.setSolverOptions({'Major feasibility tolerance': 1e-4,
+                                    'Major optimality tolerance': 1e-4})
+        piecewise_model = rectifier.get_global_model()
+        # Restore the previous values
+        traj._distance_error = dist_err
+        traj._friction_err = fric_err
+        traj._distance_cstr = dist_old
+        traj._friction_cstr = fric_old
+        traj.contact_model = model_old
+        # Return the model
+        return piecewise_model
 
     def _update_contact_model(self, model):
         """Update the contact model used in the linear trajectory
@@ -853,11 +912,52 @@ class ContactAdaptiveMPC(LinearContactMPC):
             A_ = self.lintraj.friccone_cstr[index+k][0]
             A[:, :state.shape[0]] = A_[:, :state.shape[0]]
             self.lintraj.friccone_cstr[index+k] = (A, c)
-            # self.lintraj._linearize_normal_distance(index + k)
-            # self.lintraj._linearize_friction_cone(index + k)
 
     def getContactEstimationTrajectory(self):
         return self.estimator.traj
+
+    def useLocalModel(self):
+        self._resolve_contact_model = self._get_local_contact_model
+
+    def useGlobalModel(self):
+        self._resolve_contact_model = self._get_global_contact_model
+
+    def usePiecewiseModel(self):
+        self._resolve_contact_model = self._get_global_piecewise_model
+
+    @property
+    def global_dist_max(self):
+        return self._dist_max
+
+    @global_dist_max.setter
+    def global_dist_max(self, val):
+        assert isinstance(val, (int, float)) and val > 0, 'distance maximum must be a nonzero int or float'
+        self._dist_max = val
+
+    @property
+    def global_fric_max(self):
+        return self._fric_max
+
+    @global_fric_max.setter
+    def global_fric_max(self, val):
+        assert isinstance(val, (int, float)) and val > 0, 'friction maximum must be a nonzero int or float'
+        self._fric_max = val
+
+    @property
+    def global_surface_kernel(self):
+        return self.surface_gkernel
+
+    @global_surface_kernel.setter
+    def global_surface_kernel(self, val):
+        self.surface_gkernel = val
+
+    @property
+    def global_friction_kernel(self):
+        return self.friction_gkernel
+
+    @global_friction_kernel.setter
+    def global_friction_kernel(self, val):
+        self.friction_gkernel = val
 
 if __name__ == "__main__":
     print("Hello from MPC!")

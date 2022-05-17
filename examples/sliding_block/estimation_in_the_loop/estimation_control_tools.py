@@ -23,6 +23,7 @@ import pycito.controller.contactestimator as ce
 from pycito.systems.simulator import Simulator
 import pycito.utilities as utils
 from pycito.systems.block.block import Block
+from pycito.systems import kernels as kernels
 
 FIG_EXT = '.png'
 MPC_HORIZON = 5
@@ -35,13 +36,96 @@ CONTROLLOGFIG = 'mpclogs' + FIG_EXT
 CONTROLLOGNAME = 'mpclogs.pkl'
 ESTIMATELOGFIG = 'EstimationLogs' + FIG_EXT
 ESTIMATELOGNAME = 'EstimationLogs.pkl'
+SIM_DURATION = 1.5
+ANIMATION_NAME = 'campc_animation.mp4'
+MPCANIMATIONNAME = 'mpc_animation.mp4'
 
-def make_semiparametric_block_model():
+def run_piecewise_estimation_control(true_plant, spcontact=None, global_kernel=None, savedir=None):
+    if savedir is None:
+        savedir = os.getcwd()
+    if not os.path.exists(savedir):
+        os.makedirs(savedir)   
+    if global_kernel is None:
+        global_kernel = kernels.RegularizedRBFKernel(length_scale= np.array([0.1, 0.1, np.inf]), noise = 0.1)
+    # Make the plant and controller models
+    mpc_controller = make_mpc_controller()
+    mpc_controller.enableLogging()
+    campc_controller = make_estimator_controller(spcontact)
+    campc_controller.enableLogging()
+    campc_controller.global_surface_kernel = global_kernel
+    campc_controller.global_friction_kernel = copy.deepcopy(global_kernel)
+    campc_controller.usePiecewiseModel()
+
+    # Run the simulation
+    initial_state = mpc_controller.lintraj.getState(0)
+    mpc_sim = run_simulation(true_plant, mpc_controller, initial_state, duration=SIM_DURATION)
+    campc_sim = run_simulation(true_plant, campc_controller, initial_state, duration=SIM_DURATION)
+    # Plot and save the results
+    plot_trajectory_comparison(mpc_sim, campc_sim, savename=savedir)
+    # Plot the estimated contact model
+    plot_terrain_errors(campc_controller, savedir=savedir)
+    save_estimated_terrain(campc_controller, savedir=savedir)
+    estimated_model = campc_controller.lintraj.plant.terrain
+    pts = get_x_samples(campc_sim, sampling=1000)
+    compare_estimated_contact_model(estimated_model, true_plant.terrain, pts, savedir=savedir)
+    compare_forces(campc_sim, campc_controller, savedir=savedir)
+    # Plot the mpc and campc logs
+    plot_mpc_logs(mpc_controller, savedir = os.path.join(savedir, 'mpc_logs'))
+    save_mpc_logs(mpc_controller, savedir = os.path.join(savedir, 'mpc_logs'))
+    plot_campc_logs(campc_controller, savedir=os.path.join(savedir,'campc_logs'))
+    save_campc_logs(campc_controller, savedir=os.path.join(savedir, 'campc_logs'))
+    # Save the simulation data
+    utils.save(os.path.join(savedir, 'mpcsim.pkl'), mpc_sim)
+    utils.save(os.path.join(savedir, 'campcsim.pkl'), campc_sim)
+
+def run_estimation_control(true_plant, spcontact=None, use_global=False, savedir=None):
+    if savedir is None:
+        savedir = os.getcwd()
+    if not os.path.exists(savedir):
+        os.makedirs(savedir)
+    # Make the plant and controller models
+    mpc_controller = make_mpc_controller()
+    mpc_controller.enableLogging()
+    campc_controller = make_estimator_controller(spcontact, use_global)
+    campc_controller.enableLogging()
+    # Run the simulation
+    initial_state = mpc_controller.lintraj.getState(0)
+    mpc_sim = run_simulation(true_plant, mpc_controller, initial_state, duration=SIM_DURATION)
+    campc_sim = run_simulation(true_plant, campc_controller, initial_state, duration=SIM_DURATION)
+    # Plot and save the results
+    plot_trajectory_comparison(mpc_sim, campc_sim, savename=savedir)
+    # Plot the estimated contact model
+    plot_terrain_errors(campc_controller, savedir=savedir)
+    save_estimated_terrain(campc_controller, savedir=savedir)
+    estimated_model = get_contact_model(campc_controller)
+    pts = get_x_samples(campc_sim, sampling=1000)
+    compare_estimated_contact_model(estimated_model, true_plant.terrain, pts, savedir=savedir)
+    compare_forces(campc_sim, campc_controller, savedir=savedir)
+    # Plot the mpc and campc logs
+    plot_mpc_logs(mpc_controller, savedir = os.path.join(savedir, 'mpc_logs'))
+    save_mpc_logs(mpc_controller, savedir = os.path.join(savedir, 'mpc_logs'))
+    plot_campc_logs(campc_controller, savedir=os.path.join(savedir,'campc_logs'))
+    save_campc_logs(campc_controller, savedir=os.path.join(savedir, 'campc_logs'))
+    # Save the simulation data
+    utils.save(os.path.join(savedir, 'mpcsim.pkl'), mpc_sim)
+    utils.save(os.path.join(savedir, 'campcsim.pkl'), campc_sim)
+
+def make_semiparametric_contact_model(dist_kernel = None, fric_kernel = None):
+    if dist_kernel is None:
+        dist_kernel = kernels.RegularizedRBFKernel(length_scale= np.array([0.1, 0.1, np.inf]), noise = 0.1)
+    if fric_kernel is None:
+        fric_kernel = kernels.RegularizedRBFKernel(length_scale = np.array([0.1, 0.1, np.inf]), noise = 0.1)
+    return cm.SemiparametricContactModel(
+        surface = cm.SemiparametricModel(cm.FlatModel(location = 0), copy.deepcopy(dist_kernel)),
+        friction = cm.SemiparametricModel(cm.ConstantModel(const = 0.5), copy.deepcopy(fric_kernel))
+    )
+
+def make_semiparametric_block_model(sp_contact=None):
+    if sp_contact is None:
+        sp_contact = make_semiparametric_contact_model()
     block = Block()
     block.Finalize()
-    block.terrain = cm.SemiparametricContactModel.FlatSurfaceWithRBFKernel(friction = 0.5,
-                                                                         length_scale = np.array([0.1, 0.1, np.inf]),    
-                                                                         reg=0.01)
+    block.terrain = copy.deepcopy(sp_contact)
     return block 
 
 def make_block_model():
@@ -49,12 +133,12 @@ def make_block_model():
     block.Finalize()
     return block
 
-def make_estimator_controller():
-    block = make_semiparametric_block_model()
+def make_estimator_controller(sp_contact=None, use_global=False):
+    block = make_semiparametric_block_model(sp_contact)
     reftraj = mpc.LinearizedContactTrajectory.load(block, REFSOURCE)
     # Create the estimator
     x0 = reftraj.getState(0)
-    block2 = make_semiparametric_block_model()
+    block2 = make_semiparametric_block_model(sp_contact)
     esttraj = ce.ContactEstimationTrajectory(block2, x0)
     estimator = ce.ContactModelEstimator(esttraj, ESTIMATION_HORIZON)
     # Set the estimator solver parameters
@@ -67,17 +151,19 @@ def make_estimator_controller():
                                 "Major optimality tolerance": 1e-4})
     # Create the overall controller
     controller = mpc.ContactAdaptiveMPC(estimator, reftraj, MPC_HORIZON)
+    if use_global:
+        controller.useGlobalModel()
     # Tune the controller
     controller = set_controller_options(controller)
 
     return controller
 
 def set_controller_options(controller):
-    controller.statecost = np.diag([1e2, 1e2, 1, 1])
-    controller.controlcost = 1e-2 * np.eye(controller.control_dim)
+    controller.statecost = np.diag([1e3, 1, 1, 1])
+    controller.controlcost = 1e-3 * np.eye(controller.control_dim)
     controller.forcecost = 1e-4 * np.eye(controller.force_dim)
     controller.slackcost = 1e-2 * np.eye(controller.slack_dim)
-    controller.complementaritycost = 1e3
+    controller.complementaritycost = 1e4
     controller.useSnoptSolver()
     controller.setSolverOptions({"Major feasibility tolerance": 1e-4,
                                 "Major optimality tolerance": 1e-4,
@@ -273,7 +359,6 @@ def get_distance_and_friction(model, pts):
     fric = [model.eval_friction(pt) for pt in pts.T]
     return np.concatenate(dist, axis=0), np.concatenate(fric, axis=0)
 
-
 def get_x_samples(sim, sampling=100):
     xvals = sim['state'][0,:]
     pt0 = np.zeros((3,))
@@ -293,7 +378,9 @@ def run_ambiguity_optimization(esttraj):
 
 def load_estimation_trajectory(loaddir):
     block = make_semiparametric_block_model()
-    return ce.ContactEstimationTrajectory.load(block, os.path.join(loaddir, 'estimatedtrajectory.pkl'))
+    estraj = ce.ContactEstimationTrajectory.load(block, os.path.join(loaddir, 'estimatedtrajectory.pkl'))
+    estraj._plant.terrain = estraj.contact_model
+    return estraj
 
 if __name__ == '__main__':
-    print("Heelo from estimation_control_tools.py!")
+    print("Hello from estimation_control_tools.py!")

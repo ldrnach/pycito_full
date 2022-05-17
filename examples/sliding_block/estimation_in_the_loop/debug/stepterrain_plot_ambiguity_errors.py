@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from pycito.utilities import load
 
 
-SOURCE = os.path.join('examples','sliding_block','estimation_in_the_loop','stepterrain')
+SOURCE = os.path.join('examples','sliding_block','estimation_in_the_loop','stepterrain','phkernel_tuned_global')
 FILENAME = 'contactambiguity.pkl'
 
 model = load(os.path.join(SOURCE, FILENAME))
@@ -23,4 +23,4 @@ axs[1].plot(x, model.lower_bound.friction.model_errors, 'b:', label='LowerBound'
 axs[1].set_ylabel('Friction Coefficient Errors')
 axs[1].set_xlabel('Position (m)')
 
-plt.show()
+fig.savefig(os.path.join(SOURCE, 'ambiguityerrors.png'), dpi=fig.dpi, bbox_inches='tight')
