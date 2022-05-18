@@ -495,6 +495,9 @@ class SemiparametricContactModelWithAmbiguity(SemiparametricContactModel):
         self.upper_bound.surface._kernel_weights = surface_weights
         self.upper_bound.friction._kernel_weights = friction_weights
     
+    def toSemiparametricModel(self):
+        return SemiparametricContactModel(self.surface, self.friction)
+
     @deco.showable_fig
     @deco.saveable_fig
     def plot2D(self, pts, axs=None, label=None):
