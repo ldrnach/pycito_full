@@ -193,6 +193,18 @@ class SemiparametricModel(DifferentiableModel):
             dy = dy + w.T.dot(dk)
         return dy
 
+    def compress(self, atol=1e-4):
+        """
+        Eliminates sample points with little effect on the overall model.
+
+        Compress deletes all sample points and kernel weights if the corresponding kernel weight is less than the tolerance (default: 1e-4)
+        """
+        if self._sample_points is None:
+            return
+        idx = np.abs(self._kernel_weights) > atol
+        self._sample_points = np.copy(self._sample_points[:, idx])
+        self._kernel_weights = np.copy(self._kernel_weights[idx])
+
     @property
     def model_errors(self):
         if self._sample_points is None:
@@ -430,6 +442,10 @@ class SemiparametricContactModel(ContactModel):
 
     def get_friction_weights(self):
         return self.friction._kernel_weights
+
+    def compress(self, atol=1e-4):
+        self.surface.compress(atol)
+        self.friction.compress(atol)
 
     @property
     def surface_kernel(self):
