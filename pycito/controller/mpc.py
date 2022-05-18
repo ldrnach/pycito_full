@@ -857,23 +857,8 @@ class ContactAdaptiveMPC(LinearContactMPC):
         subtraj._distance_cstr = copy.deepcopy(subtraj._distance_cstr)
         subtraj._friction_cstr = copy.deepcopy(subtraj._friction_cstr)
         model_old = subtraj.contact_model
-        # Update the distance constraints, friction coefficients, and etc
-        surface_weights = model.get_surface_weights()
-        friction_weights = model.get_friction_weights()
-        dataset = model.get_sample_points()
-        for k, cpt in enumerate(subtraj._contactpoints):
-            dk = model.surface_kernel(cpt, dataset).dot(surface_weights)
-            df = model.friction_kernel(cpt, dataset).dot(friction_weights)
-            subtraj._distance_error[k] -= dk
-            subtraj._friction_error[k] -= df
-            subtraj._distance_cstr[k] += dk
-            subtraj._friction_cstr[k] += df
-        # Create a nested contact model
-        subtraj.contact_model = cm.SemiparametricContactModel(
-            surface = cm.SemiparametricModel(model.surface, self.surface_gkernel),
-            friction = cm.SemiparametricModel(model.friction, self.friction_gkernel)
-        )
-        rectifier = EstimatedContactModelRectifier(subtraj, surf_max=self._dist_max, fric_max=self._fric_max)
+        # Get the rectifier for a nested contact model
+        rectifier = EstimatedContactModelRectifier.get_nested_model_rectifier(model, subtraj, self.surface_gkernel, self._dist_max, self._fric_max)
         rectifier.useSnoptSolver()
         rectifier.setSolverOptions({'Major feasibility tolerance': 1e-4,
                                     'Major optimality tolerance': 1e-4})

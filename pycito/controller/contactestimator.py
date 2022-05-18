@@ -19,7 +19,7 @@ from pydrake.all import PiecewisePolynomial as pp
 import pycito.trajopt.constraints as cstr
 import pycito.trajopt.complementarity as cp
 import pycito.controller.mlcp as mlcp
-from pycito.systems.contactmodel import SemiparametricContactModel
+from pycito.systems.contactmodel import SemiparametricContactModel, SemiparametricModel
 from pycito.controller.optimization import OptimizationMixin
 import pycito.decorators as deco
 import pycito.utilities as utils
@@ -1055,6 +1055,30 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         self.fric_max = fric_max
         self._setup()
 
+    @classmethod
+    def get_nested_model_rectifier(cls, model, esttraj, new_kernel, surf_max=np.inf, fric_max=np.inf):
+        """
+        Returns a rectifier for the a nested model estimation      
+        
+        NOTE: This method mutates the estimation trajectory. If the original is required, a copy should be made
+        """
+        dweights = model.get_surface_weights()
+        fweights = model.get_friction_weights()
+        dataset = model.get_sample_points()
+        for k, cpt in enumerate(esttraj._contactpoints):
+            dk = model.surface_kernel(cpt, dataset).dot(dweights)
+            df = model.friction_kernel(cpt, dataset).dot(fweights)
+            esttraj._distance_error[k] -= dk
+            esttraj._friction_error[k] -= df
+            esttraj._distance_cstr[k] += dk
+            esttraj._friction_cstr[k] += df
+        # Create the nested contact model
+        esttraj.contact_model = SemiparametricContactModel(
+            SemiparametricModel(model.surface, copy.deepcopy(new_kernel)),
+            SemiparametricModel(model.friction, copy.deepcopy(new_kernel))
+        )
+        return cls(esttraj, surf_max, fric_max)
+
     def _setup(self):
         """Set up the optimization program"""
         # Store the kernel matrices for the entire problem
@@ -1152,7 +1176,6 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         mu = np.concatenate(self.traj._friction_cstr, axis=0)
         fric_lb = np.linalg.lstsq(self.Kf, -mu, rcond=None)[0]
         self.prog.SetInitialGuess(self.fweights, fric_lb)
-
 
     def _initialize_upper_bound(self):
         """Initialize the decision variables for the upper bound problem"""
@@ -1257,7 +1280,7 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         model.add_samples(cpts, surf_global, fric_global)
         return model
 
-
+    
 class ContactEstimationPlotter():
     def __init__(self, traj):
         assert isinstance(traj, ContactEstimationTrajectory), 'ContactEstimationPlotter requires a ContactEstimationTrajectory object'
