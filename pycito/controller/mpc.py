@@ -897,7 +897,6 @@ class ContactAdaptiveMPC(LinearContactMPC):
         """
             Update the contact constraints linearization used in MPC
         """
-        start = time.perf_counter()
         index = self.lintraj.getIndex(t, x)
         for k in range(self.horizon):
             # Update normal distance constraint
@@ -911,7 +910,6 @@ class ContactAdaptiveMPC(LinearContactMPC):
             A_ = self.lintraj.friccone_cstr[index+k][0]
             A[:, :state.shape[0]] = A_[:, :state.shape[0]]
             self.lintraj.friccone_cstr[index+k] = (A, c)
-        print(f"Time elapsed updating contact linearization: {time.perf_counter() - start:.2e}s")
 
     def getContactEstimationTrajectory(self):
         return self.estimator.traj
