@@ -55,7 +55,7 @@ def run_piecewise_estimation_control(true_plant, spcontact=None, global_kernel=N
     campc_controller.global_surface_kernel = global_kernel
     campc_controller.global_friction_kernel = copy.deepcopy(global_kernel)
     campc_controller.usePiecewiseModel()
-
+    campc_controller.buffer_size = 10
     # Run the simulation
     initial_state = mpc_controller.lintraj.getState(0)
     mpc_sim = run_simulation(true_plant, mpc_controller, initial_state, duration=SIM_DURATION)

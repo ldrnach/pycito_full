@@ -8,7 +8,6 @@ Luke Drnach
 #TODO: Test getTimeIndex when the time is the final value
 #TODO: Use the nearest state in the reference trajectory instead of the current time index
 
-
 import numpy as np
 import abc, enum, copy
 
@@ -794,6 +793,7 @@ class ContactAdaptiveMPC(LinearContactMPC):
         self._resolve_contact_model = self._get_local_contact_model
         self._dist_max = 10
         self._fric_max = 2
+        self._buffer_size = 1000
         self.surface_gkernel = None
         self.friction_gkernel = None
 
@@ -849,38 +849,36 @@ class ContactAdaptiveMPC(LinearContactMPC):
             Calculate and return a piecewise global contact model
         """
         traj = self.getContactEstimationTrajectory()
-        # Store the existing model, distance, and friction coefficients
-        dist_err = copy.deepcopy(traj._distance_error)
-        fric_err = copy.deepcopy(traj._friction_error)
-        dist_old = copy.deepcopy(traj._distance_cstr)
-        fric_old = copy.deepcopy(traj._friction_cstr)
-        model_old = traj.contact_model
+        buff_start = max(0, traj.num_timesteps - self._buffer_size)
+        subtraj = traj.subset(buff_start, traj.num_timesteps)
+        # Make copies of the distance and friction constraints so we don't mess with the originals
+        subtraj._distance_error = copy.deepcopy(subtraj._distance_error)
+        subtraj._friction_error = copy.deepcopy(subtraj._friction_error)
+        subtraj._distance_cstr = copy.deepcopy(subtraj._distance_cstr)
+        subtraj._friction_cstr = copy.deepcopy(subtraj._friction_cstr)
+        model_old = subtraj.contact_model
         # Update the distance constraints, friction coefficients, and etc
         surface_weights = model.get_surface_weights()
         friction_weights = model.get_friction_weights()
         dataset = model.get_sample_points()
-        for k, cpt in enumerate(traj._contactpoints):
+        for k, cpt in enumerate(subtraj._contactpoints):
             dk = model.surface_kernel(cpt, dataset).dot(surface_weights)
             df = model.friction_kernel(cpt, dataset).dot(friction_weights)
-            traj._distance_error[k] -= dk
-            traj._friction_error[k] -= df
-            traj._distance_cstr[k] += dk
-            traj._friction_cstr[k] += df
+            subtraj._distance_error[k] -= dk
+            subtraj._friction_error[k] -= df
+            subtraj._distance_cstr[k] += dk
+            subtraj._friction_cstr[k] += df
         # Create a nested contact model
-        traj.contact_model = cm.SemiparametricContactModel(
+        subtraj.contact_model = cm.SemiparametricContactModel(
             surface = cm.SemiparametricModel(model.surface, self.surface_gkernel),
             friction = cm.SemiparametricModel(model.friction, self.friction_gkernel)
         )
-        rectifier = EstimatedContactModelRectifier(traj, surf_max=self._dist_max, fric_max=self._fric_max)
+        rectifier = EstimatedContactModelRectifier(subtraj, surf_max=self._dist_max, fric_max=self._fric_max)
         rectifier.useSnoptSolver()
         rectifier.setSolverOptions({'Major feasibility tolerance': 1e-4,
                                     'Major optimality tolerance': 1e-4})
         piecewise_model = rectifier.get_global_model()
-        # Restore the previous values
-        traj._distance_error = dist_err
-        traj._friction_err = fric_err
-        traj._distance_cstr = dist_old
-        traj._friction_cstr = fric_old
+        # Restore the previous model
         traj.contact_model = model_old
         # Return the model
         return piecewise_model
@@ -899,6 +897,7 @@ class ContactAdaptiveMPC(LinearContactMPC):
         """
             Update the contact constraints linearization used in MPC
         """
+        start = time.perf_counter()
         index = self.lintraj.getIndex(t, x)
         for k in range(self.horizon):
             # Update normal distance constraint
@@ -912,6 +911,7 @@ class ContactAdaptiveMPC(LinearContactMPC):
             A_ = self.lintraj.friccone_cstr[index+k][0]
             A[:, :state.shape[0]] = A_[:, :state.shape[0]]
             self.lintraj.friccone_cstr[index+k] = (A, c)
+        print(f"Time elapsed updating contact linearization: {time.perf_counter() - start:.2e}s")
 
     def getContactEstimationTrajectory(self):
         return self.estimator.traj
@@ -958,6 +958,15 @@ class ContactAdaptiveMPC(LinearContactMPC):
     @global_friction_kernel.setter
     def global_friction_kernel(self, val):
         self.friction_gkernel = val
+
+    @property
+    def buffer_size(self):
+        return self._buffer_size
+
+    @buffer_size.setter
+    def buffer_size(self, val):
+        assert isinstance(val, int) and val > 0, "buffer_size must be a positive integer"
+        self._buffer_size = val
 
 if __name__ == "__main__":
     print("Hello from MPC!")
