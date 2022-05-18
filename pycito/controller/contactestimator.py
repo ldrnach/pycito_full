@@ -488,7 +488,7 @@ class ContactEstimationTrajectory(ContactTrajectory):
         f = np.linalg.lstsq(A, b, rcond=None)[0]
         # Reorganize the friction forces
         fN, fT = np.split(f, [self.num_contacts])
-        FD = self._plant.friction_discretization_matrix()
+        FD = np.kron(np.eye(self.num_contacts), self._plant.friction_discretization_matrix())
         fT = FD.T.dot(FD.dot(fT))
         fT[fT < self._FTOL] = 0
         f = np.concatenate([fN, fT], axis=0)
@@ -541,9 +541,9 @@ class ContactEstimationTrajectory(ContactTrajectory):
         fN, fT = np.split(self._forces[-1], [self.num_contacts])
         fc = np.diag(mu).dot(fN) - self._D.dot(fT)
         mu_err = np.zeros_like(mu)
-        err_index = fc < 0 and fN > 0
+        err_index = np.logical_and(fc < 0, fN > 0)
         if np.any(err_index):
-            mu_err[fc < 0 and fN > 0] = -fc[fc < 0 and fN > 0]/fN[fc < 0 and fN > 0]
+            mu_err[err_index] = -fc[err_index]/fN[err_index]
         self._friction_error.append(mu_err)
         # Update the feasibility to ensure the nonlinear constraint is trivially satisfied
         g = self._slacks[-1]
