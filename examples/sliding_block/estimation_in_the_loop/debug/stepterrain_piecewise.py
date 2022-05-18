@@ -2,6 +2,7 @@
 import os, copy
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
 from pycito.systems.block.block import Block
 import pycito.systems.terrain as terrain
 import examples.sliding_block.estimation_in_the_loop.estimation_control_tools as campctools
@@ -26,7 +27,7 @@ def make_stepterrain_model():
 
 # Make the true terrain model
 truemodel = make_stepterrain_model()
-
+reftraj = campctools.make_mpc_controller().lintraj
 # Make the semiparametric model
 W = np.diag([0.1, 0.1, 0.0])
 surfkernel = kernels.CompositeKernel(kernels.CenteredLinearKernel(W), kernels.ConstantKernel(1), kernels.WhiteNoiseKernel(0.01))
@@ -77,15 +78,31 @@ pw_terrain = pw_model.find_surface_zaxis_zeros(terrain_samples)
 ub_terrain = lb_model.find_surface_zaxis_zeros(terrain_samples)
 cpts_all = np.concatenate(estraj.get_contacts(0, INDEX), axis=1)
 
-fig, axs = plt.subplots(2,1)
-axs[0].plot(true_terrain[0,:], true_terrain[2,:], 'g-', linewidth=1.5, label='Actual')
-axs[0].plot(cpts_all[0,:], cpts_all[2,:], '*', label='Contacts')
-axs[0].plot(sp_terrain[0, :], sp_terrain[2,:], 'b-', linewidth=1.5, label='SP_Linear')
-axs[0].plot(pw_terrain[0, :], pw_terrain[2,:], 'r-', linewidth=1.5, label='Piecewise')
-axs[0].plot(ub_terrain[0,:], ub_terrain[2,:], 'y-', linewidth=1.5, label='UpperBound')
+fig, axs = plt.subplots(1,1)
 
-axs[0].set_ylabel('Terrain (m)')
-axs[0].set_xlabel('Position (m)')
+axs.plot(true_terrain[0,:], true_terrain[2,:], 'g-', linewidth=1.5, label='Actual')
 
-axs[0].legend(frameon=False)
-plt.show()
+# Plot the box state
+states = reftraj._state
+axs.plot(states[0,:], states[1,:], linewidth=1.5, color='grey', linestyle=':', label=None)
+refbox = states[:2, INDEX]
+axs.add_patch(Rectangle((refbox[0] - 0.5, refbox[1] - 0.5), 1, 1, edgecolor='black', facecolor='grey'))
+
+# Load the simulation data and plot the box
+campcsim = load(os.path.join(SOURCE, REFDATA))
+axs.plot(campcsim['state'][0,:], campcsim['state'][1,:], linewidth=1.5, color='green',linestyle='-', label=None)
+simbox = campcsim['state'][:2,INDEX]
+axs.add_patch(Rectangle((simbox[0] - 0.5, simbox[1] - 0.5), 1, 1, edgecolor='black', facecolor='green'))
+
+axs.plot(cpts_all[0,:], cpts_all[2,:], '*', label='Contacts')
+#axs[0].plot(sp_terrain[0, :], sp_terrain[2,:], 'b-', linewidth=1.5, label='SP_Linear')
+axs.plot(pw_terrain[0, :], pw_terrain[2,:], 'r-', linewidth=1.5, label='Piecewise')
+axs.plot(ub_terrain[0,:], ub_terrain[2,:], 'y-', linewidth=1.5, label='UpperBound')
+
+axs.set_ylabel('Terrain (m)')
+axs.set_xlabel('Position (m)')
+
+axs.legend(frameon=False)
+axs.set_aspect('equal')
+#plt.show()
+fig.savefig(os.path.join(SOURCE, 'PiecewiseKernelIllustration.png'), dpi=fig.dpi, bbox_inches='tight')
