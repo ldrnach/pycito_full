@@ -868,10 +868,10 @@ class ContactAdaptiveMPC(LinearContactMPC):
             traj._friction_cstr[k] += df
         # Create a nested contact model
         traj.contact_model = cm.SemiparametricContactModel(
-            surface = cm.SemiparametricModel(model_old.surface, self.surface_gkernel),
-            friction = cm.SemiparametricModel(model_old.friction, self.friction_gkernel)
+            surface = cm.SemiparametricModel(model.surface, self.surface_gkernel),
+            friction = cm.SemiparametricModel(model.friction, self.friction_gkernel)
         )
-        rectifier = EstimatedContactModelRectifier(self.getContactEstimationTrajectory(), surf_max=self._dist_max, fric_max=self._fric_max)
+        rectifier = EstimatedContactModelRectifier(traj, surf_max=self._dist_max, fric_max=self._fric_max)
         rectifier.useSnoptSolver()
         rectifier.setSolverOptions({'Major feasibility tolerance': 1e-4,
                                     'Major optimality tolerance': 1e-4})
