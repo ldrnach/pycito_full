@@ -766,7 +766,10 @@ class ContactModelEstimator(OptimizationMixin):
         """
             Calculate the friction coefficient weights from solution variables
         """
-        fN = forces[:self.traj.num_contacts,:].reshape(-1)
+        if forces.ndim > 1:
+            fN = forces[:self.traj.num_contacts,:].reshape(-1)
+        else:
+            fN = forces[:self.traj.num_contacts]
         fc_weights = np.zeros_like(fweights)
         err_index = fN > self.traj._FTOL 
         if np.any(err_index):

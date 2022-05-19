@@ -61,7 +61,7 @@ class Simulator():
                 control = control[:, :n-1]
                 state = state[:, :n-1]
                 force = force[:, :n-1]
-                time = time[:, :n-1]
+                time = time[:n-1]
                 status = False
                 break
         # Return the simulation values
