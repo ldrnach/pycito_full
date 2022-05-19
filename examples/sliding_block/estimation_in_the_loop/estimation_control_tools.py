@@ -24,7 +24,7 @@ import pycito.utilities as utils
 from pycito.systems.block.block import Block
 from pycito.systems import kernels as kernels
 
-FIG_EXT = '.png'
+FIG_EXT = '.pdf'
 MPC_HORIZON = 5
 ESTIMATION_HORIZON = 5
 REFSOURCE = os.path.join('data','slidingblock','block_reference.pkl')
@@ -340,6 +340,7 @@ def compare_estimated_contact_model(estimated, true, pts, savedir, name='estimat
     fig, axs = estimated.plot2D(pts, axs, label='Estimated', show=False, savename=None)
     axs[0].set_title('Contact Model Estimation Performance')
     axs[0].legend(frameon=False)
+    axs[1].set_ylim([0,1])
     fig.tight_layout()
     fig.savefig(os.path.join(savedir, name + FIG_EXT), dpi=fig.dpi, bbox_inches='tight')
     plt.close(fig)
