@@ -12,6 +12,7 @@ February 14, 2022
 import numpy as np
 import copy, warnings
 import matplotlib.pyplot as plt
+from scipy.optimize import nnls
 
 from pydrake.all import MathematicalProgram, SnoptSolver
 from pydrake.all import PiecewisePolynomial as pp
@@ -477,7 +478,7 @@ class ContactEstimationTrajectory(ContactTrajectory):
             forces = np.zeros((A.shape[1] + self._plant.joint_limit_jacobian().shape[1], ))
         else:
             forces = np.zeros((A.shape[1], ))
-        b = cstr.BackwardEulerDynamicsConstraint.eval(self._plant, self._context, dt, self._last_state, state, control, forces)
+        b = cstr.SemiImplicitEulerDynamicsConstraint.eval(self._plant, self._context, dt, self._last_state, state, control, forces)
         # Take only the velocity components
         b = b[self._plant.multibody.num_positions():]
         # Append - wrap this in it's own constraint
@@ -485,17 +486,10 @@ class ContactEstimationTrajectory(ContactTrajectory):
         # Save the state for the the next call to append_dynamics
         self._last_state = state
         # Add a guess to the reaction forces
-        f = np.linalg.lstsq(A, b, rcond=None)[0]
-        # Reorganize the friction forces
-        fN, fT = np.split(f, [self.num_contacts])
-        FD = np.kron(np.eye(self.num_contacts), self._plant.friction_discretization_matrix())
-        fT = FD.T.dot(FD.dot(fT))
-        fT[fT < self._FTOL] = 0
-        f = np.concatenate([fN, fT], axis=0)
+        f = nnls(A, b)[0]
         self._forces.append(f)
-        # Add the feasibility guess
-        err = A.dot(f) - b
-        self._feasibility.append(np.ones(1,)*err.max())
+        err = A.dot(f) -b 
+        self._feasibility.append(np.ones(1,) * np.max(np.abs(err)))
 
     def _append_distance(self):
         """
@@ -521,13 +515,12 @@ class ContactEstimationTrajectory(ContactTrajectory):
         _, Jt = self._plant.GetContactJacobians(self._context)
         v = self._plant.multibody.GetVelocities(self._context)
         b = Jt.dot(v)
-        self._dissipation_cstr.append(b)
-        # Append to the dissipation slacks - TODO: Update how the slack is determined for multiple contacts
-        vs = np.max(-b) * np.ones((self._D.shape[0],))
-        self._slacks.append(vs)
-        # Increase the feasibility to ensure the constraint is trivially satisfied
         fT = self._forces[-1][self.num_contacts:]
+        A = fT * self._D
+        vs = nnls(A.T, - b * fT)[0]
         w = (self._D.T.dot(vs) + b) * fT
+        self._slacks.append(vs)
+        self._dissipation_cstr.append(b)
         self._feasibility[-1] += np.max(np.abs(w))
 
     def _append_friction(self):
@@ -539,16 +532,24 @@ class ContactEstimationTrajectory(ContactTrajectory):
         self._friction_cstr.append(mu)
         # Use the most recent value of the forces to calculate the friction cone defecit
         fN, fT = np.split(self._forces[-1], [self.num_contacts])
-        fc = np.diag(mu).dot(fN) - self._D.dot(fT)
-        mu_err = np.zeros_like(mu)
-        err_index = np.logical_and(fc < 0, fN > 0)
-        if np.any(err_index):
-            mu_err[err_index] = -fc[err_index]/fN[err_index]
-        self._friction_error.append(mu_err)
-        # Update the feasibility to ensure the nonlinear constraint is trivially satisfied
-        g = self._slacks[-1]
-        w = (mu * fN - self._D.dot(fT)) * g
+        vs = self._slacks[-1]
+        A = np.diag(vs * fN)
+        b = vs * self._D.dot(fT)
+        z = nnls(A, b)[0]
+        self._friction_error.append(z - mu)
+        w = vs * (z * fN - self._D.dot(fT))
         self._feasibility[-1] += np.max(np.abs(w))
+
+        # fc = np.diag(mu).dot(fN) - self._D.dot(fT)
+        # mu_err = np.zeros_like(mu)
+        # err_index = np.logical_and(fc < 0, fN > 0)
+        # if np.any(err_index):
+        #     mu_err[err_index] = -fc[err_index]/fN[err_index]
+        # self._friction_error.append(mu_err)
+        # # Update the feasibility to ensure the nonlinear constraint is trivially satisfied
+        # g = self._slacks[-1]
+        # w = (mu * fN - self._D.dot(fT)) * g
+        # self._feasibility[-1] += np.max(np.abs(w))
 
     def getDynamicsConstraint(self, index):
         """
@@ -1385,6 +1386,7 @@ class ContactEstimationPlotter():
         axs.set_ylabel('Friction error')
         fig.tight_layout()
         return fig, axs
+
 
 if __name__ == '__main__':
     print("Hello from contactestimator!")
