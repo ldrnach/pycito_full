@@ -13,7 +13,7 @@ from pycito.controller.optimization import OptimizationLogger
 import pycito.systems.kernels as kernels
 
 SIM_DURATION = 1.5
-TARGET = os.path.join('examples','sliding_block','estimation_in_the_loop','flatterrain','phkernel')
+TARGET = os.path.join('examples','sliding_block','estimation_in_the_loop','final','flatterrain')
 ANIMATION_NAME = 'campc_animation.mp4'
 MPCANIMATIONNAME = 'mpc_animation.mp4'
 
@@ -23,8 +23,18 @@ def make_flatterrain_model():
     return block
 
 def main():
-    campctools.run_estimation_control(make_flatterrain_model(), 
-                                    kernel = kernels.RegularizedPseudoHuberKernel(length_scale=np.array([0.1, 0.1, np.inf]), delta=0.1, noise = 0.01),
+    W = np.diag([0.1, 0.1, 0.0])
+    surfkernel = kernels.CompositeKernel(
+        kernels.CenteredLinearKernel(W),
+        kernels.ConstantKernel(1),
+        kernels.WhiteNoiseKernel(0.01)
+    )
+    frickernel = kernels.RegularizedConstantKernel(1, 0.01)
+    globalkernel = kernels.RegularizedPseudoHuberKernel(length_scale=np.array([0.1, 0.1, np.inf]), delta=0.1, noise=0.01)
+    sp_contact = campctools.make_semiparametric_contact_model(surfkernel, frickernel)
+    campctools.run_piecewise_estimation_control(make_flatterrain_model(), 
+                                    sp_contact,
+                                    globalkernel,
                                     savedir = TARGET)
 
 def main_ambiguity():

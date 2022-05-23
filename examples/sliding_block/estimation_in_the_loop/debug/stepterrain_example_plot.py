@@ -9,11 +9,11 @@ from pycito.utilities import load
 from pycito.controller.optimization import OptimizationLogger
 from pycito.controller.contactestimator import EstimatedContactModelRectifier
 
-SOURCE = os.path.join("examples","sliding_block","estimation_in_the_loop","stepterrain",'centeredaffinekernel_tuned')
+SOURCE = os.path.join("examples","sliding_block","estimation_in_the_loop","stepterrain",'linearkernel_tuned')
 REFDATA = 'campcsim.pkl'
 ESTRAJ = 'estimatedtrajectory.pkl'
 LOGDATA = os.path.join('campc_logs','EstimationLogs.pkl')
-INDEX = 80
+INDEX = 10
 GLOBAL_MODEL = False
 
 def make_stepterrain_model():

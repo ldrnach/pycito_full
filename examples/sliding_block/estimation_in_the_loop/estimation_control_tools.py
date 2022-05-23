@@ -18,14 +18,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pycito.systems.contactmodel as cm
 import pycito.controller.mpc as mpc
-import pycito.controller.mlcp as mlcp
 import pycito.controller.contactestimator as ce
 from pycito.systems.simulator import Simulator
 import pycito.utilities as utils
 from pycito.systems.block.block import Block
 from pycito.systems import kernels as kernels
 
-FIG_EXT = '.png'
+FIG_EXT = '.pdf'
 MPC_HORIZON = 5
 ESTIMATION_HORIZON = 5
 REFSOURCE = os.path.join('data','slidingblock','block_reference.pkl')
@@ -55,7 +54,7 @@ def run_piecewise_estimation_control(true_plant, spcontact=None, global_kernel=N
     campc_controller.global_surface_kernel = global_kernel
     campc_controller.global_friction_kernel = copy.deepcopy(global_kernel)
     campc_controller.usePiecewiseModel()
-
+    campc_controller.buffer_size = 10
     # Run the simulation
     initial_state = mpc_controller.lintraj.getState(0)
     mpc_sim = run_simulation(true_plant, mpc_controller, initial_state, duration=SIM_DURATION)
@@ -65,10 +64,14 @@ def run_piecewise_estimation_control(true_plant, spcontact=None, global_kernel=N
     # Plot the estimated contact model
     plot_terrain_errors(campc_controller, savedir=savedir)
     save_estimated_terrain(campc_controller, savedir=savedir)
-    estimated_model = campc_controller.lintraj.plant.terrain
-    pts = get_x_samples(campc_sim, sampling=1000)
-    compare_estimated_contact_model(estimated_model, true_plant.terrain, pts, savedir=savedir)
     compare_forces(campc_sim, campc_controller, savedir=savedir)
+    # Get the rectified contact model
+    contact_model = get_contact_model_from_logs(campc_controller)
+    ambi_model = get_nested_model_with_ambiguity(contact_model, campc_controller)
+    pts = get_x_samples(campc_sim, sampling=1000)
+    compare_estimated_contact_model(ambi_model.toSemiparametricModel(), true_plant.terrain, pts, savedir=savedir)
+    # Plot the ambiguity model
+    compare_estimated_contact_model(ambi_model, true_plant.terrain, pts, savedir=savedir, name='EstimatedContactWithAmbiguity')
     # Plot the mpc and campc logs
     plot_mpc_logs(mpc_controller, savedir = os.path.join(savedir, 'mpc_logs'))
     save_mpc_logs(mpc_controller, savedir = os.path.join(savedir, 'mpc_logs'))
@@ -77,6 +80,21 @@ def run_piecewise_estimation_control(true_plant, spcontact=None, global_kernel=N
     # Save the simulation data
     utils.save(os.path.join(savedir, 'mpcsim.pkl'), mpc_sim)
     utils.save(os.path.join(savedir, 'campcsim.pkl'), campc_sim)
+
+def get_contact_model_from_logs(campc_controller):
+    logs = campc_controller.getEstimatorLogs().logs
+    dweights = np.ravel(logs[-1]['distance_weights'])
+    fweights = np.ravel(logs[-1]['friction_weights'])
+    forces = logs[-1]['normal_forces']
+    fweights = campc_controller.estimator._variables_to_friction_weights(fweights, forces)
+    # Get the contact points
+    etraj = campc_controller.getContactEstimationTrajectory()
+    start = campc_controller.estimator._startptr
+    stop = start + campc_controller.estimator.horizon
+    cpts = np.concatenate(etraj.get_contacts(start, stop), axis=1)
+    # Update the model
+    etraj.contact_model.add_samples(cpts, dweights, fweights)
+    return etraj.contact_model
 
 def run_estimation_control(true_plant, spcontact=None, use_global=False, savedir=None):
     if savedir is None:
@@ -322,6 +340,7 @@ def compare_estimated_contact_model(estimated, true, pts, savedir, name='estimat
     fig, axs = estimated.plot2D(pts, axs, label='Estimated', show=False, savename=None)
     axs[0].set_title('Contact Model Estimation Performance')
     axs[0].legend(frameon=False)
+    axs[1].set_ylim([0,1])
     fig.tight_layout()
     fig.savefig(os.path.join(savedir, name + FIG_EXT), dpi=fig.dpi, bbox_inches='tight')
     plt.close(fig)
@@ -367,7 +386,7 @@ def get_x_samples(sim, sampling=100):
     return np.linspace(pt0, ptN, sampling).transpose()
 
 def run_ambiguity_optimization(esttraj):
-    rectifier = ce.EstimatedContactModelRectifier(esttraj, surf_max = 10, fric_max = 2)
+    rectifier = ce.EstimatedContactModelRectifier(esttraj, surf_max = 2, fric_max = 2)
     rectifier.useSnoptSolver()
     rectifier.setSolverOptions({'Major feasibility tolerance': 1e-6,
                                 'Major optimality tolerance': 1e-6})
@@ -381,6 +400,14 @@ def load_estimation_trajectory(loaddir):
     estraj = ce.ContactEstimationTrajectory.load(block, os.path.join(loaddir, 'estimatedtrajectory.pkl'))
     estraj._plant.terrain = estraj.contact_model
     return estraj
+
+def get_nested_model_with_ambiguity(model, campc):
+    esttraj = campc.getContactEstimationTrajectory()
+    rectifier = ce.EstimatedContactModelRectifier.get_nested_model_rectifier(model, esttraj, campc.global_surface_kernel, campc.global_dist_max, campc.global_fric_max)
+    rectifier.useSnoptSolver()
+    rectifier.setSolverOptions({"Major feasibility tolerance": 1e-4,
+                                "Major optimality tolerance": 1e-4})
+    return rectifier.solve_global_model_with_ambiguity()
 
 if __name__ == '__main__':
     print("Hello from estimation_control_tools.py!")
