@@ -13,8 +13,9 @@ import numpy as np
 import copy, warnings
 import matplotlib.pyplot as plt
 from scipy.optimize import nnls
+from scipy.linalg import block_diag
 
-from pydrake.all import MathematicalProgram, SnoptSolver
+from pydrake.all import MathematicalProgram, SnoptSolver, Solve
 from pydrake.all import PiecewisePolynomial as pp
 
 import pycito.trajopt.constraints as cstr
@@ -463,6 +464,7 @@ class ContactEstimationTrajectory(ContactTrajectory):
         self._append_distance()
         self._append_dissipation()
         self._append_friction()
+        #self._refine_guess()
 
     def _append_dynamics(self, state, control):
         """
@@ -478,7 +480,7 @@ class ContactEstimationTrajectory(ContactTrajectory):
             forces = np.zeros((A.shape[1] + self._plant.joint_limit_jacobian().shape[1], ))
         else:
             forces = np.zeros((A.shape[1], ))
-        b = cstr.SemiImplicitEulerDynamicsConstraint.eval(self._plant, self._context, dt, self._last_state, state, control, forces)
+        b = cstr.BackwardEulerDynamicsConstraint.eval(self._plant, self._context, dt, self._last_state, state, control, forces)
         # Take only the velocity components
         b = b[self._plant.multibody.num_positions():]
         # Append - wrap this in it's own constraint
@@ -539,17 +541,6 @@ class ContactEstimationTrajectory(ContactTrajectory):
         self._friction_error.append(z - mu)
         w = vs * (z * fN - self._D.dot(fT))
         self._feasibility[-1] += np.max(np.abs(w))
-
-        # fc = np.diag(mu).dot(fN) - self._D.dot(fT)
-        # mu_err = np.zeros_like(mu)
-        # err_index = np.logical_and(fc < 0, fN > 0)
-        # if np.any(err_index):
-        #     mu_err[err_index] = -fc[err_index]/fN[err_index]
-        # self._friction_error.append(mu_err)
-        # # Update the feasibility to ensure the nonlinear constraint is trivially satisfied
-        # g = self._slacks[-1]
-        # w = (mu * fN - self._D.dot(fT)) * g
-        # self._feasibility[-1] += np.max(np.abs(w))
 
     def getDynamicsConstraint(self, index):
         """
@@ -689,6 +680,60 @@ class ContactEstimationTrajectory(ContactTrajectory):
     def num_friction(self):
         """Returns the total number of friction force components in the model"""
         return self._plant.num_friction()
+
+    def _refine_guess(self, atol=1e-3):
+        # Use the most recent value of the forces to calculate errors
+        fN, fT = np.split(self._forces[-1], [self.num_contacts])
+        inf_b =np.full((self.num_contacts,), np.inf)
+        inf_t = np.full((self.num_friction,), np.inf)
+        # Prior constraint values
+        dist = self._distance_cstr[-1]
+        vs = self._dissipation_cstr[-1]
+        mu = self._friction_cstr[-1]
+        # Solve for distance and sliding velocity
+        prog = MathematicalProgram()
+        dvars = prog.NewContinuousVariables(rows = self.num_contacts)
+        svars = prog.NewContinuousVariables(rows = 2*self.num_contacts)
+        D = np.array([[1, 0, 1, 0], [0, 1, 0, 1]])
+        D_ = block_diag(*[D]*self.num_contacts)
+        # Add the costs
+        Q = np.eye(self.num_contacts)
+        Q2 = np.eye(2*self.num_contacts)
+        b = np.zeros((self.num_contacts, ))
+        prog.AddQuadraticCost(Q, b, vars=dvars)
+        prog.AddQuadraticCost(Q2, b, vars=svars)
+        # Add the distance constraints
+        prog.AddLinearConstraint(Q, -dist, inf_b, dvars).evaluator().set_description('DistancePositivity')
+        prog.AddLinearConstraint(np.diag(fN), - inf_b,  atol -fN * dist, dvars).evaluator().set_description('DistanceOrthogonality')
+        # Add the sliding velocity constraints
+        prog.AddLinearConstraint(D_.T, -vs, inf_t, svars).evaluator().set_description('VelocityPositivity')
+        prog.AddLinearConstraint((D_ * fT).T, -inf_t, atol - vs * fT, svars).evaluator().set_description('VelocityOrthogonality') 
+        prog.AddLinearConstraint(Q2, np.zeros((2*self.num_contacts,)), np.full((2*self.num_contacts,), np.inf), svars).evaluator().set_description('SlackPositivity')
+        prog.SetInitialGuess(dvars, self._distance_error[-1])
+        vs_plus = np.copy(vs)
+        vs_plus[vs_plus > 0] = 0
+        s = np.abs(D_.dot(vs_plus))
+        prog.SetInitialGuess(svars, s)
+        #prog.SetInitialGuess(svars, self._slacks[-1])
+        # Solve the problem
+        result = SnoptSolver().Solve(prog)
+        if result.is_success():
+            self._distance_error[-1] = result.GetSolution(dvars)
+            self._slacks[-1] = result.GetSolution(svars)
+        # Solve the friction cone problem
+        prog = MathematicalProgram()
+        fvars = prog.NewContinuousVariables(rows=self.num_contacts)
+        prog.AddQuadraticCost(Q, b, vars=fvars)
+        c = np.diag(mu).dot(fN) - self._D.dot(fT)
+        sv = self._slacks[-1]
+        prog.AddLinearConstraint(np.diag(fN), -c, inf_b, fvars).evaluator().set_description('FrictionConePositivity')
+        prog.AddLinearConstraint(np.diag(sv * fN), -inf_b, -sv * c + atol, fvars).evaluator().set_description('FrictionConeOrthogonality')
+        prog.AddLinearConstraint(Q, -mu, inf_b, fvars).evaluator().set_description('FrictionCoefficientPositivity')
+        prog.SetInitialGuess(fvars, self._friction_error[-1])
+        result = SnoptSolver().Solve(prog)
+        if result.is_success():
+            self._friction_error[-1] = result.GetSolution(fvars)
+
 
 class ContactModelEstimator(OptimizationMixin):
     def __init__(self, esttraj, horizon, lcp = mlcp.VariableRelaxedPseudoLinearComplementarityConstraint):

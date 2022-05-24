@@ -39,8 +39,8 @@ def make_plant_controller():
     controller.slackcost = 1e-4 * np.eye(controller.slack_dim)
     controller.complementaritycost = 1e4
     controller.useSnoptSolver()
-    controller.setSolverOptions({'Major feasibility tolerance': 1e-4,
-                                'Major optimality tolerance': 1e-4})
+    controller.setSolverOptions({'Major feasibility tolerance': 1e-6,
+                                'Major optimality tolerance': 1e-6})
     controller.enableLogging()
     return controller
 
@@ -109,7 +109,7 @@ def plot_tracking_error(sim, controller, savedir):
     fig.savefig(os.path.join(savedir, 'trackingerror.png'), dpi=fig.dpi, bbox_inches='tight')
 
 def run_timestepping():
-    filepart = 'timestepping_1e-4'
+    filepart = 'timestepping'
     print(f"Running simulation with {filepart} integrator")
     a1 = make_plant()
     controller = make_plant_controller()
