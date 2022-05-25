@@ -7,7 +7,6 @@ April 13, 2022
 
 
 import os
-from re import L
 import numpy as np
 from pycito.systems.block.block import Block
 import estimation_control_tools as campctools
@@ -18,7 +17,7 @@ from pycito.controller.optimization import OptimizationLogger
 import pycito.systems.kernels as kernels 
 
 SIM_DURATION = 1.5
-TARGET = os.path.join('examples','sliding_block','estimation_in_the_loop','final','stepterrain')
+TARGET = os.path.join('examples','sliding_block','estimation_in_the_loop','test','stepterrain','12')
 ANIMATION_NAME = 'campc_animation.mp4'
 MPCANIMATIONNAME = 'mpc_animation.mp4'
 

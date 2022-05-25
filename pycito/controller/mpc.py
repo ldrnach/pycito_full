@@ -734,6 +734,14 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             fric.penalty = val
 
     @property
+    def complementaritycost(self):
+        return self.complementarity_penalty
+
+    @complementaritycost.setter
+    def complementaritycost(self, val):
+        self.complementarity_penalty = val
+
+    @property
     def dx(self):
         """State error getter"""
         if self._dx is not []:
