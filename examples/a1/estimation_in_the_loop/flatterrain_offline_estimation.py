@@ -8,7 +8,7 @@ import pycito.systems.kernels as kernels
 
 HORIZON = 1
 SOURCE = os.path.join('examples','a1','simulation_tests','fullstep','timestepping','simdata.pkl')
-TARGET = os.path.join('examples','a1','estimation_in_the_loop','offline_estimation','singlestep',f'N{HORIZON}')
+TARGET = os.path.join('examples','a1','estimation_in_the_loop','offline_estimation','singlestep',f'N{HORIZON}','artifical_friction')
 TRAJNAME = 'estimatedtrajectory.pkl'
 FIGURENAME = 'EstimationResults.png'
 LOGFIGURE = 'SolverLogs.png'

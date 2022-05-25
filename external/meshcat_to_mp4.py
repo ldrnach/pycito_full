@@ -99,7 +99,7 @@ def main(args):
     batch_convert_files(infile, outfile)
 
 if __name__ == "__main__":
-    infile = os.path.join('/home','ldrnach3','Downloads','foot_tracking_fast_ellipse')
-    outfile = os.path.join('/home','ldrnach3','Projects','drake','pyCITO','examples','a1','foot_tracking_fast_ellipse') 
+    infile = os.path.join('/home','ldrnach3','Downloads','a1_slip')
+    outfile = os.path.join('/home','ldrnach3','Projects','drake','pyCITO','examples','a1','estimation_in_the_loop','mpc','lowfriction','3m') 
     batch_convert_files(infile, outfile)
     #main(sys.argv[1:])
