@@ -110,6 +110,49 @@ class FlatModel(DifferentiableModel):
         """
         return np.reshape(self._direction + np.vdot(np.zeros_like(x), x), (1, self._direction.size))
 
+class PiecewiseModel(DifferentiableModel):
+    def __init__(self, breaks, models):
+        # Input checking
+        assert isinstance(breaks, list), f"breaks must be a list of numeric values"
+        assert isinstance(models, list), f"models must be a list of DifferentiableModel types"
+        assert len(breaks) + 1 == len(models), f"there must be one more model than the number of break points"
+        breaks.append(np.inf)
+        breaks = np.array(breaks)
+        assert np.all(breaks[1:] >= breaks[:-1]), f"breaks must be monotonically increasing"
+        # Setup
+        self._breaks = breaks
+        self._models = models
+
+    def eval(self, x):
+        """
+        Evaluate the piecewise model
+
+        Arguments:
+            x: (3, ) numpy array
+        
+        Return values:
+            out: (1, ) numpy array
+        """
+        return self.get_submodel(x).eval(x)
+
+    def gradient(self, x):
+        """
+        Evaluate the gradient of the piecewise model, written to work with autodiff types
+
+        Arguments:
+            x: (3,) numpy array
+
+        Return values:
+            out: (1, 3) numpy array
+        """
+        return self.get_submodel(x).gradient(x)
+
+    def get_submodel(self, x):
+        """
+        Return the part of the piecewise model that corresponds to the current point
+        """
+        return self._models[np.argmax(x[0] < self._breaks)]
+
 class SemiparametricModel(DifferentiableModel):
     def __init__(self, prior, kernel):
         assert issubclass(type(prior), DifferentiableModel), "prior must be a concrete implementation of DifferentiableModel"
