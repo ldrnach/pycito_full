@@ -370,6 +370,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             self._jlimit_weight = None
         # Default complementarity cost weight
         self._complementarity_penalty = 1
+        self._schedule = [1]
         # Set default strategy for the initial guess
         self._guess = self.InitializationStrategy.LINEAR
         # Set the results cache
@@ -625,7 +626,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         print(f"Creating MPC at time {t:0.3f}")
         self.create_mpc_program(t, x0)
         print(f"Solving MPC at time {t:0.3f}")
-        result = self.solve()
+        result = self.progressive_solve()
         if self._log_enabled:
             self.logger.logs[-1]['time'] = t
             self.logger.logs[-1]['initial_state'] = x0
@@ -652,6 +653,31 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
                 insert = ''
             print(f"MPC failed at time {t:0.3f} using {result.get_solver_id().name()} {insert}. Returning open loop control")
             return u
+
+    def progressive_solve(self):
+        total_time = 0
+        last_result = None
+        last_log = None
+        for val in self.complementarity_schedule:
+            self.complementarity_penalty = val
+            result = self.solve()
+            if result.is_success() or last_result is None:
+                last_result = result
+            else:
+                break
+            if self._log_enabled:
+                last_log = self.logger.logs.pop()
+                total_time += last_log['solvetime']
+
+            self.prog.SetInitialGuess(self.prog.decision_variables(), result.GetSolution(self.prog.decision_variables()))
+        if self._log_enabled:
+            if result.is_success():
+                last_log['solvetime'] = total_time
+                self.logger.logs.append(last_log)
+            else:
+                last_log['solvetime'] = total_time + self.logger.logs[-1]['solvetime']
+                self.logger.logs[-1] = last_log
+        return last_result
 
     @property
     def state_dim(self):
@@ -727,6 +753,8 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
     def complementarity_penalty(self, val):
         assert isinstance(val, (int, float)), f"complementarity_penalty must be a float or an int"
         self._complementarity_penalty = val
+        if len(self._schedule) == 1:
+            self._schedule = [val]
         # Update the values in the constraints
         for dist, diss, fric in zip(self._distance, self._dissipation, self._friccone):
             dist.penalty = val
@@ -740,6 +768,16 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
     @complementaritycost.setter
     def complementaritycost(self, val):
         self.complementarity_penalty = val
+
+    @property
+    def complementarity_schedule(self):
+        return self._schedule  
+
+    @complementarity_schedule.setter
+    def complementarity_schedule(self, val):
+        assert isinstance(val, list), "complementarity_schedule must be a list of values"
+        assert all(v >= 0  for v in val), "complementarity_schedule must be a list of nonnegative ints or floats"
+        self._schedule = val
 
     @property
     def dx(self):
@@ -891,7 +929,7 @@ class ContactAdaptiveMPC(LinearContactMPC):
             Update the contact constraints linearization used in MPC
         """
         index = self.lintraj.getIndex(t, x)
-        for k in range(self.horizon):
+        for k in range(self.horizon+1):
             # Update normal distance constraint
             state, force = self.lintraj.getState(index+k), self.lintraj.getForce(index+k)
             _, c = self.lintraj._distance.linearize(state)
