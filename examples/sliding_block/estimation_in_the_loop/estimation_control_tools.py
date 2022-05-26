@@ -40,7 +40,7 @@ SIM_DURATION = 1.5
 ANIMATION_NAME = 'campc_animation.mp4'
 MPCANIMATIONNAME = 'mpc_animation.mp4'
 
-LCP = lcp.CostRelaxedPseudoLinearComplementarityConstraint
+LCP = lcp.ConstantRelaxedPseudoLinearComplementarityConstraint
 
 def run_piecewise_estimation_control(true_plant, spcontact=None, global_kernel=None, savedir=None):
     if savedir is None:
@@ -62,6 +62,9 @@ def run_piecewise_estimation_control(true_plant, spcontact=None, global_kernel=N
     initial_state = mpc_controller.lintraj.getState(0)
     mpc_sim = run_simulation(true_plant, mpc_controller, initial_state, duration=SIM_DURATION)
     campc_sim = run_simulation(true_plant, campc_controller, initial_state, duration=SIM_DURATION)
+    # Print the program reports
+    mpc_controller.print_report(os.path.join(savedir, 'mpc_settings.txt'))
+    campc_controller.print_report(os.path.join(savedir, 'campc_settings.txt'))
     # Plot and save the results
     plot_trajectory_comparison(mpc_sim, campc_sim, savename=savedir)
     # Plot the estimated contact model
@@ -75,7 +78,7 @@ def run_piecewise_estimation_control(true_plant, spcontact=None, global_kernel=N
     save_campc_logs(campc_controller, savedir=os.path.join(savedir, 'campc_logs'))
     # Save the simulation data
     utils.save(os.path.join(savedir, 'mpcsim.pkl'), mpc_sim)
-    utils.save(os.path.join(savedir, 'campcsim.pkl'), campc_sim)
+    utils.save(os.path.join(savedir, 'campcsim.pkl'), campc_sim)    
     # Get the rectified contact model
     contact_model = get_contact_model_from_logs(campc_controller)
     ambi_model = get_nested_model_with_ambiguity(contact_model, campc_controller)
@@ -182,15 +185,15 @@ def make_estimator_controller(sp_contact=None, use_global=False):
     return controller
 
 def set_controller_options(controller):
-    controller.statecost = np.diag([1e3, 1, 1, 1])
-    controller.controlcost = 1e-3 * np.eye(controller.control_dim)  #Originally 1e-3
-    controller.forcecost = 0 * np.eye(controller.force_dim) #Originally 1e-4
-    controller.slackcost = 0 * np.eye(controller.slack_dim) #Originally 1e-2
-    controller.complementaritycost = 1e4    #originally 1e4
+    controller.statecost = np.diag([1e3, 1e-2, 1e-2, 1e-2])
+    controller.controlcost = 1e-2 * np.eye(controller.control_dim)  #Originally 1e-3
+    controller.forcecost = 1e-5 * np.eye(controller.force_dim) #Originally 1e-4
+    controller.slackcost = 1e-5 * np.eye(controller.slack_dim) #Originally 1e-2
+    controller.complementarity_schedule = [1e-2, 1e-4]    #originally 1e4
     controller.useSnoptSolver()
-    controller.setSolverOptions({"Major feasibility tolerance": 1e-4,
-                                "Major optimality tolerance": 1e-4,
-                                'Scale option': 1})
+    controller.setSolverOptions({"Major feasibility tolerance": 1e-5,
+                                "Major optimality tolerance": 1e-5,
+                                'Scale option': 2})
     controller.use_cached_guess()
     controller.lintraj.useNearestTime()
     return controller
@@ -394,8 +397,8 @@ def get_x_samples(sim, sampling=100):
 def run_ambiguity_optimization(esttraj):
     rectifier = ce.EstimatedContactModelRectifier(esttraj, surf_max = 2, fric_max = 2)
     rectifier.useSnoptSolver()
-    rectifier.setSolverOptions({'Major feasibility tolerance': 1e-6,
-                                'Major optimality tolerance': 1e-6})
+    rectifier.setSolverOptions({'Major feasibility tolerance': 1e-4,
+                                'Major optimality tolerance': 1e-4})
     print(f"Running ambiguity optimization")
     ambi_model = rectifier.solve_global_model_with_ambiguity()
     print(f"Finished ambiguity optimization")
