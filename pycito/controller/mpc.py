@@ -378,7 +378,6 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         self._cache = None
         # Set the solver
         self._solver = OsqpSolver()
-        self.solveroptions = {}
         self._setup_program()
 
     def _setup_program(self):

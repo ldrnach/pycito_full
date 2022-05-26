@@ -966,6 +966,7 @@ class ContactModelEstimator(OptimizationMixin):
         text += f"\n\tForce Cost: {self.forcecost}"
         text += f"\n\tDistance Cost: {self.distancecost}"
         text += f"\n\tFriction Cost: {self.frictioncost}"
+        return text
 
     @property
     def relaxedcost(self):

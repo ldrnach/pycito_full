@@ -175,9 +175,9 @@ class OptimizationMixin():
         text += f"Solver: {type(self.solver).__name__}\n"
 
         text += f"Solver options:\n"
-        if self.solveroptions is not {}:
-            for key in self.solveroptions:
-                text += f"\t {key}: {self.solveroptions[key]}\n"
+        if self.solver_options is not {}:
+            for key in self.solver_options:
+                text += f"\t {key}: {self.solver_options[key]}\n"
         return text
 
     @property
