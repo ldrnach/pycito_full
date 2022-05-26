@@ -957,6 +957,16 @@ class ContactModelEstimator(OptimizationMixin):
         nc = self.traj.num_contacts
         return nc * index, nc * (index + 1)
 
+    def generate_report(self):
+        """Generate  text report describing the settings for the contact estimation solver"""
+        text = super().generate_report()
+        text += f"\n\nContact Estimator Settings for {type(self).__name__}"
+        text += f"\n\tHorizon: {self.maxhorizon}"
+        text += f"\n\tRelaxation Cost: {self.relaxedcost}"
+        text += f"\n\tForce Cost: {self.forcecost}"
+        text += f"\n\tDistance Cost: {self.distancecost}"
+        text += f"\n\tFriction Cost: {self.frictioncost}"
+
     @property
     def relaxedcost(self):
         return self._relax_cost_weight

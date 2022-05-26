@@ -10,6 +10,7 @@ Luke Drnach
 
 import numpy as np
 import abc, enum, copy
+from datetime import date
 
 from pydrake.all import MathematicalProgram, SnoptSolver, OsqpSolver
 from pydrake.all import PiecewisePolynomial as pp
@@ -525,6 +526,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             self.prog.SetInitialGuess(ds, self.lintraj.getSlack(index + k + 1))
         for k, djl in enumerate(self._djl):
             self.prog.SetInitialGuess(djl, self.lintraj.getJointLimit(index + k + 1))
+   
         # Initialize states and controls        
         if self._guess == self.InitializationStrategy.ZERO:
             # Initialize states and controls to zero
@@ -560,7 +562,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
                 b = Ax.dot(dx_guess[:, k:k+2].ravel())
                 du0 = np.linalg.lstsq(Au, -b, rcond=None)[0]
                 self.prog.SetInitialGuess(du, du0)
-        
+
     def _update_initial_constraint(self, index, x0):
         """Update the initial state constraint"""
         dx0 = x0 - self.lintraj.getState(index)
@@ -655,6 +657,9 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             return u
 
     def progressive_solve(self):
+        """
+        Solve the mpc using a schedule for the complementarity constraints
+        """
         total_time = 0
         last_result = None
         last_log = None
@@ -831,6 +836,26 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
     def use_cached_guess(self):
         self._guess = self.InitializationStrategy.CACHE
 
+    def generate_report(self):
+        """Generate a text string describing the settings for the MPC"""
+        text = super().generate_report()
+        text += f"\n\nMPC Settings for {type(self).__name__}"
+        text += f"\n\tHorizon: {self.horizon}"
+        text += f"\n\tState Cost: \n\t{self.statecost}"
+        text += f"\n\tControl Cost: \n\t{self.controlcost}"
+        text += f"\n\tForce Cost: \n\t{self.forcecost}"
+        text += f"\n\tSlack Cost: \n\t{self.slackcost}"
+        text += f"\n\tJoint limit cost: \n\t{self.limitcost}"
+        text += f"\n\tComplementarity Schedule: \n\t{self.complementarity_schedule}"    
+        return text
+
+    def print_report(self, filename):
+        """Write the MPC settings to a file"""
+        report = self.generate_report()
+        with open(filename, 'w') as file:
+            file.write(report)
+        print(f'Wrote MPC report to {filename}')
+
 class ContactAdaptiveMPC(LinearContactMPC):
     def __init__(self, estimator, linear_traj, horizon, lcptype=mlcp.CostRelaxedPseudoLinearComplementarityConstraint):
         super().__init__(linear_traj, horizon, lcptype)
@@ -953,6 +978,15 @@ class ContactAdaptiveMPC(LinearContactMPC):
 
     def usePiecewiseModel(self):
         self._resolve_contact_model = self._get_global_piecewise_model
+
+    def print_report(self, filename):
+        """Write the settings of the adaptive MPC to a file"""
+        text = super().generate_report()
+        text += self.estimator.generate_report()
+        with open(filename, 'w') as file:
+            file.write(text)
+        print(f"Wrote report to {filename}")
+
 
     @property
     def global_dist_max(self):
