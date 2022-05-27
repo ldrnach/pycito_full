@@ -2,8 +2,8 @@ import os
 from pycito.controller.optimization import OptimizationLogger
 
 
-SOURCE = os.path.join("examples","sliding_block","estimation_in_the_loop","stepterrain","campc_logs")
-FILES = ['EstimationLogs.pkl','mpclogs.pkl']
+SOURCE = os.path.join("examples","sliding_block","estimation_in_the_loop","paper_final","stepterrain","campc_logs")
+FILES = ['mpclogs.pkl']
 
 for file in FILES:
     logger = OptimizationLogger.load(os.path.join(SOURCE, file))

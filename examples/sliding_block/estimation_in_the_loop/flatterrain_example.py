@@ -13,7 +13,7 @@ from pycito.controller.optimization import OptimizationLogger
 import pycito.systems.kernels as kernels
 
 SIM_DURATION = 1.5
-TARGET = os.path.join('examples','sliding_block','estimation_in_the_loop','final','flatterrain')
+TARGET = os.path.join('examples','sliding_block','estimation_in_the_loop','paper_final','flatterrain')
 ANIMATION_NAME = 'campc_animation.mp4'
 MPCANIMATIONNAME = 'mpc_animation.mp4'
 

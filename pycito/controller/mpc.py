@@ -10,6 +10,7 @@ Luke Drnach
 
 import numpy as np
 import abc, enum, copy
+from datetime import date
 
 from pydrake.all import MathematicalProgram, SnoptSolver, OsqpSolver
 from pydrake.all import PiecewisePolynomial as pp
@@ -371,13 +372,13 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             self._jlimit_weight = None
         # Default complementarity cost weight
         self._complementarity_penalty = 1
+        self._schedule = [1]
         # Set default strategy for the initial guess
         self._guess = self.InitializationStrategy.LINEAR
         # Set the results cache
         self._cache = None
         # Set the solver
         self._solver = OsqpSolver()
-        self.solveroptions = {}
         self._setup_program()
 
     def _setup_program(self):
@@ -525,6 +526,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             self.prog.SetInitialGuess(ds, self.lintraj.getSlack(index + k + 1))
         for k, djl in enumerate(self._djl):
             self.prog.SetInitialGuess(djl, self.lintraj.getJointLimit(index + k + 1))
+   
         # Initialize states and controls        
         if self._guess == self.InitializationStrategy.ZERO:
             # Initialize states and controls to zero
@@ -560,7 +562,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
                 b = Ax.dot(dx_guess[:, k:k+2].ravel())
                 du0 = np.linalg.lstsq(Au, -b, rcond=None)[0]
                 self.prog.SetInitialGuess(du, du0)
-        
+
     def _update_initial_constraint(self, index, x0):
         """Update the initial state constraint"""
         dx0 = x0 - self.lintraj.getState(index)
@@ -626,7 +628,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         print(f"Creating MPC at time {t:0.3f}")
         self.create_mpc_program(t, x0)
         print(f"Solving MPC at time {t:0.3f}")
-        result = self.solve()
+        result = self.progressive_solve()
         if self._log_enabled:
             self.logger.logs[-1]['time'] = t
             self.logger.logs[-1]['initial_state'] = x0
@@ -653,6 +655,34 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
                 insert = ''
             print(f"MPC failed at time {t:0.3f} using {result.get_solver_id().name()} {insert}. Returning open loop control")
             return u
+
+    def progressive_solve(self):
+        """
+        Solve the mpc using a schedule for the complementarity constraints
+        """
+        total_time = 0
+        last_result = None
+        last_log = None
+        for val in self.complementarity_schedule:
+            self.complementarity_penalty = val
+            result = self.solve()
+            if result.is_success() or last_result is None:
+                last_result = result
+            else:
+                break
+            if self._log_enabled:
+                last_log = self.logger.logs.pop()
+                total_time += last_log['solvetime']
+
+            self.prog.SetInitialGuess(self.prog.decision_variables(), result.GetSolution(self.prog.decision_variables()))
+        if self._log_enabled:
+            if result.is_success():
+                last_log['solvetime'] = total_time
+                self.logger.logs.append(last_log)
+            else:
+                last_log['solvetime'] = total_time + self.logger.logs[-1]['solvetime']
+                self.logger.logs[-1] = last_log
+        return last_result
 
     @property
     def state_dim(self):
@@ -728,11 +758,31 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
     def complementarity_penalty(self, val):
         assert isinstance(val, (int, float)), f"complementarity_penalty must be a float or an int"
         self._complementarity_penalty = val
+        if len(self._schedule) == 1:
+            self._schedule = [val]
         # Update the values in the constraints
         for dist, diss, fric in zip(self._distance, self._dissipation, self._friccone):
             dist.penalty = val
             diss.penalty = val
             fric.penalty = val
+
+    @property
+    def complementaritycost(self):
+        return self.complementarity_penalty
+
+    @complementaritycost.setter
+    def complementaritycost(self, val):
+        self.complementarity_penalty = val
+
+    @property
+    def complementarity_schedule(self):
+        return self._schedule  
+
+    @complementarity_schedule.setter
+    def complementarity_schedule(self, val):
+        assert isinstance(val, list), "complementarity_schedule must be a list of values"
+        assert all(v >= 0  for v in val), "complementarity_schedule must be a list of nonnegative ints or floats"
+        self._schedule = val
 
     @property
     def dx(self):
@@ -785,6 +835,26 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
 
     def use_cached_guess(self):
         self._guess = self.InitializationStrategy.CACHE
+
+    def generate_report(self):
+        """Generate a text string describing the settings for the MPC"""
+        text = super().generate_report()
+        text += f"\n\nMPC Settings for {type(self).__name__}"
+        text += f"\n\tHorizon: {self.horizon}"
+        text += f"\n\tState Cost: \n\t{self.statecost}"
+        text += f"\n\tControl Cost: \n\t{self.controlcost}"
+        text += f"\n\tForce Cost: \n\t{self.forcecost}"
+        text += f"\n\tSlack Cost: \n\t{self.slackcost}"
+        text += f"\n\tJoint limit cost: \n\t{self.limitcost}"
+        text += f"\n\tComplementarity Schedule: \n\t{self.complementarity_schedule}"    
+        return text
+
+    def print_report(self, filename):
+        """Write the MPC settings to a file"""
+        report = self.generate_report()
+        with open(filename, 'w') as file:
+            file.write(report)
+        print(f'Wrote MPC report to {filename}')
 
 class ContactAdaptiveMPC(LinearContactMPC):
     def __init__(self, estimator, linear_traj, horizon, lcptype=mlcp.CostRelaxedPseudoLinearComplementarityConstraint):
@@ -884,7 +954,7 @@ class ContactAdaptiveMPC(LinearContactMPC):
             Update the contact constraints linearization used in MPC
         """
         index = self.lintraj.getIndex(t, x)
-        for k in range(self.horizon):
+        for k in range(self.horizon+1):
             # Update normal distance constraint
             state, force = self.lintraj.getState(index+k), self.lintraj.getForce(index+k)
             _, c = self.lintraj._distance.linearize(state)
@@ -908,6 +978,15 @@ class ContactAdaptiveMPC(LinearContactMPC):
 
     def usePiecewiseModel(self):
         self._resolve_contact_model = self._get_global_piecewise_model
+
+    def print_report(self, filename):
+        """Write the settings of the adaptive MPC to a file"""
+        text = super().generate_report()
+        text += self.estimator.generate_report()
+        with open(filename, 'w') as file:
+            file.write(text)
+        print(f"Wrote report to {filename}")
+
 
     @property
     def global_dist_max(self):

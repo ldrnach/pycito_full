@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from pycito.controller.optimization import OptimizationLogger
 import pycito.utilities as utils
 
-SOURCE = os.path.join('examples','sliding_block','estimation_in_the_loop','final')
+SOURCE = os.path.join('examples','sliding_block','estimation_in_the_loop','paper_final')
 PARTS = ['flatterrain','stepterrain','high_friction','low_friction']
 CPC_SIM = 'campcsim.pkl'
 MPC_SIM = 'mpcsim.pkl'
@@ -18,6 +18,8 @@ CPC_LOG = os.path.join('campc_logs','mpclogs.pkl')
 MPC_LOG = os.path.join('mpc_logs','mpclogs.pkl')
 
 REFDATA = os.path.join('data','slidingblock','block_reference.pkl')
+
+EXT = '.png'
 
 FORCE_MATRIX = np.array([[1.0, 0.0, 0.0, 0.0, 0.0],
                         [0.0, 1.0, 0.0, -1.0, 0.0],
@@ -77,7 +79,7 @@ def do_tracking_error_analysis():
     axs[0].set_title('Position Tracking Error (m^2)')
     axs[-1].set_xlabel('Time (s)')
     axs[0].legend(frameon = False)
-    fig.savefig(os.path.join(SOURCE, 'TrackingError.pdf'), dpi=fig.dpi, bbox_inches='tight')
+    fig.savefig(os.path.join(SOURCE, 'TrackingError' + EXT), dpi=fig.dpi, bbox_inches='tight')
     print("\tSaved figure!")
     # Write data to csv file
     colnames = ['']
@@ -107,12 +109,12 @@ def do_feedback_effort_analysis():
     axs[0].set_title('Feedback Effort (N^2)')
     axs[-1].set_xlabel('Time (s)')
     axs[0].legend(frameon=False)
-    fig.savefig(os.path.join(SOURCE, 'FeedbackEffort.pdf'), dpi=fig.dpi, bbox_inches='tight')
+    fig.savefig(os.path.join(SOURCE, 'FeedbackEffort' + EXT), dpi=fig.dpi, bbox_inches='tight')
     print("\tSaved figure")
     # Write data to csv file
     colnames = ['']
     colnames.extend(PARTS)
-    write_to_file(os.path.join(SOURCE, 'feedback_effort.csv'), [colnames, m_effort, c_effort])
+    write_to_file(os.path.join(SOURCE, 'feedback_effort' + EXT), [colnames, m_effort, c_effort])
     print('\tSaved CSV')
 
 def do_predicted_force_analysis():
@@ -146,8 +148,8 @@ def do_predicted_force_analysis():
         axs3[0].set_title(f'{part} CAMPC Force Mismatch')
         axs2[0].legend(frameon=False)
         axs3[0].legend(frameon=False)
-        fig2.savefig(os.path.join(SOURCE, part + '_MPC_Forces.pdf'), dpi=fig2.dpi, bbox_inches='tight')
-        fig3.savefig(os.path.join(SOURCE, part + '_CAMCP_Forces.pdf'), dpi=fig3.dpi, bbox_inches='tight')
+        fig2.savefig(os.path.join(SOURCE, part + '_MPC_Forces' + EXT), dpi=fig2.dpi, bbox_inches='tight')
+        fig3.savefig(os.path.join(SOURCE, part + '_CAMCP_Forces' + EXT), dpi=fig3.dpi, bbox_inches='tight')
         print(f"\tSaved figures for {part}")
         # plot the overall force mismatch
         mpc_err = np.sqrt(np.mean((mpc_force - mpc_pred_force)**2, axis=0))
@@ -163,7 +165,7 @@ def do_predicted_force_analysis():
     axs[-1].set_xlabel('Time (s)')
     axs[0].set_title('Force Mismatch (N)')  
     axs[0].legend(frameon=False)  
-    fig.savefig(os.path.join(SOURCE, 'ForceMismatch.pdf'), dpi=fig.dpi, bbox_inches='tight')
+    fig.savefig(os.path.join(SOURCE, 'ForceMismatch' + EXT), dpi=fig.dpi, bbox_inches='tight')
     print(f"\tSaved common figure")
     # Write data to csvfile
     colnames = ['']
@@ -172,6 +174,6 @@ def do_predicted_force_analysis():
     print(f"\tSaved CSV")
 
 if __name__ == '__main__':
-    #do_feedback_effort_analysis()
-    #do_tracking_error_analysis()
+    do_feedback_effort_analysis()
+    do_tracking_error_analysis()
     do_predicted_force_analysis()

@@ -1,6 +1,7 @@
 import numpy as np
 from collections import defaultdict
 import re, time
+from datetime import date
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FormatStrFormatter
 
@@ -162,6 +163,22 @@ class OptimizationMixin():
         soln['costs'] = self.get_costs()
         soln['constraints'] = self.get_constraints()
         return soln
+
+    def generate_report(self):
+        """Generate a report about the optimization"""
+        # Add in the date
+        text = f"\nDate: {date.today().strftime('%B %d, %Y')}\n"
+        # Add the total number of variables, the number of costs, and the number of constraints
+        nconstraints = sum([cstr.evaluator().num_constraints() for cstr in self.prog.GetAllConstraints()])
+        text += f"\nProblem has {self.prog.num_vars()} variables, {len(self.prog.GetAllCosts())} cost terms, and {nconstraints} constraints\n\n"
+        
+        text += f"Solver: {type(self.solver).__name__}\n"
+
+        text += f"Solver options:\n"
+        if self.solver_options is not {}:
+            for key in self.solver_options:
+                text += f"\t {key}: {self.solver_options[key]}\n"
+        return text
 
     @property
     def solver(self):
