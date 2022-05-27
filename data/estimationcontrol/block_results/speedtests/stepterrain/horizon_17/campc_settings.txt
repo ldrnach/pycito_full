@@ -1,0 +1,49 @@
+
+Date: May 26, 2022
+
+Problem has 293 variables, 68 cost terms, and 480 constraints
+
+Solver: SnoptSolver
+Solver options:
+	 Major feasibility tolerance: 1e-05
+	 Major optimality tolerance: 1e-05
+	 Scale option: 2
+
+
+MPC Settings for ContactAdaptiveMPC
+	Horizon: 17
+	State Cost: 
+	[[1000.    0.    0.    0.]
+ [   0.    1.    0.    0.]
+ [   0.    0.    1.    0.]
+ [   0.    0.    0.    1.]]
+	Control Cost: 
+	[[0.01]]
+	Force Cost: 
+	[[1.e-05 0.e+00 0.e+00 0.e+00 0.e+00]
+ [0.e+00 1.e-05 0.e+00 0.e+00 0.e+00]
+ [0.e+00 0.e+00 1.e-05 0.e+00 0.e+00]
+ [0.e+00 0.e+00 0.e+00 1.e-05 0.e+00]
+ [0.e+00 0.e+00 0.e+00 0.e+00 1.e-05]]
+	Slack Cost: 
+	[[1.e-05]]
+	Joint limit cost: 
+	None
+	Complementarity Schedule: 
+	[0.01, 0.0001]
+Date: May 26, 2022
+
+Problem has 255 variables, 4 cost terms, and 510 constraints
+
+Solver: SnoptSolver
+Solver options:
+	 Major feasibility tolerance: 0.0001
+	 Major optimality tolerance: 0.0001
+
+
+Contact Estimator Settings for ContactModelEstimator
+	Horizon: 17
+	Relaxation Cost: 10000.0
+	Force Cost: 0.1
+	Distance Cost: 0.001
+	Friction Cost: 0.001
