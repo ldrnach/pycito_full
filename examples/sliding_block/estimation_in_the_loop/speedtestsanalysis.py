@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from pycito.controller.optimization import OptimizationLogger
 import pycito.utilities as utils
 
-SOURCE = os.path.join('data','slidingblock','speedtests')
+SOURCE = os.path.join('examples','sliding_block','estimation_in_the_loop','paper_final','speedtests')
 GROUPS = ['flatterrain','stepterrain','highfriction']
 MPCPATH = os.path.join('campc_logs','mpclogs.pkl')
 ESTPATH = os.path.join('campc_logs','EstimationLogs.pkl')

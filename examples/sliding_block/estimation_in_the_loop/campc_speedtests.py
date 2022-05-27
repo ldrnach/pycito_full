@@ -12,7 +12,7 @@ import pycito.systems.kernels as kernels
 import matplotlib.pyplot as plt
 
 SIM_DURATION = 1.5
-TARGET = os.path.join('examples','sliding_block','estimation_in_the_loop','paper','speedtests')
+TARGET = os.path.join('examples','sliding_block','estimation_in_the_loop','paper_final','speedtests')
 HORIZONS = range(1, 21)
 
 def make_flatterrain_model():
@@ -84,7 +84,10 @@ def main_highfriction_horizons():
             savedir = os.path.join(TARGET, 'highfriction',f'horizon_{horizon}'))
         plt.close('all')
 
-if __name__ == '__main__':
+def main():
     main_flatterrain_horizons()
     main_stepterrain_horizons()
     main_highfriction_horizons()
+
+if __name__ == '__main__':
+    main()

@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from pycito.controller.optimization import OptimizationLogger
 import pycito.utilities as utils
 
-SOURCE = os.path.join('examples','sliding_block','estimation_in_the_loop','final')
+SOURCE = os.path.join('examples','sliding_block','estimation_in_the_loop','paper_final')
 PARTS = ['flatterrain','stepterrain','high_friction','low_friction']
 CPC_SIM = 'campcsim.pkl'
 MPC_SIM = 'mpcsim.pkl'
