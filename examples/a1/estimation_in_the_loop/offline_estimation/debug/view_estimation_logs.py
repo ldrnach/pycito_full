@@ -8,8 +8,8 @@ import pycito.systems.kernels as kernels
 import pycito.systems.contactmodel as cm
 from pycito.controller.contactestimator import ContactEstimationTrajectory
 
-SOURCE = os.path.join('examples','a1','estimation_in_the_loop','offline_estimation','singlestep','N1','solutionlogs.pkl')
-TRAJSOURCE = os.path.join('examples','a1','estimation_in_the_loop', 'offline_estimation','singlestep','N1','estimatedtrajectory.pkl')
+SOURCE = os.path.join('examples','a1','estimation_in_the_loop','offline_estimation','singlestep','N1','testing','solutionlogs.pkl')
+TRAJSOURCE = os.path.join('examples','a1','estimation_in_the_loop', 'offline_estimation','singlestep','N1','testing','estimatedtrajectory.pkl')
 
 a1 = A1VirtualBase()
 kernel = kernels.WhiteNoiseKernel(noise=1)
@@ -36,9 +36,9 @@ for k, (distance, derr, forces) in enumerate(zip(traj._distance_cstr, traj._dist
     dist_err[k] = np.max(np.abs(err))
 # Calculate the sliding velocity complementarity
 vel_err = np.zeros((traj.num_timesteps,))
-for k, (vel, slack, forces) in enumerate(zip(traj._dissipation_cstr, traj._slacks, traj._forces)):
+for k, (vel, slack, forces) in enumerate(zip(traj._dissipation_cstr, traj._dissipation_slacks, traj._forces)):
     fT = forces[traj.num_contacts:]
-    err = (traj._D.T.dot(slack) + vel) * fT
+    err = (traj._dissipation_matrix.T.dot(slack) + vel) * fT
     vel_err[k] = np.max(np.abs(err))
 # Calculate the friction cone error
 fric_err = np.zeros((traj.num_timesteps, ))
