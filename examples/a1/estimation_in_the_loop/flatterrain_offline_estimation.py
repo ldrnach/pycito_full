@@ -8,7 +8,7 @@ import pycito.systems.kernels as kernels
 
 HORIZON = 1
 SOURCE = os.path.join('examples','a1','simulation_tests','fullstep','timestepping','simdata.pkl')
-TARGET = os.path.join('examples','a1','estimation_in_the_loop','offline_estimation','singlestep',f'N{HORIZON}','testing')
+TARGET = os.path.join('examples','a1','estimation_in_the_loop','offline_estimation','singlestep',f'N{HORIZON}','testing','refinement')
 TRAJNAME = 'estimatedtrajectory.pkl'
 FIGURENAME = 'EstimationResults.png'
 LOGFIGURE = 'SolverLogs.png'
@@ -28,12 +28,12 @@ def make_a1():
 def make_estimator(data):
     a1 = make_a1()
     traj = ce.ContactEstimationTrajectory(a1, data['state'][:,0])
-    estimator = ce.ContactModelEstimatorNonlinearFrictionCone(traj, horizon=HORIZON)
+    estimator = ce.ContactModelEstimator(traj, horizon=HORIZON)
     # Set the costs appropriately
-    estimator.forcecost = 0
-    estimator.relaxedcost = 0
-    estimator.distancecost = 1e-2
-    estimator.frictioncost = 1e-2
+    estimator.forcecost = 1e-1
+    estimator.relaxedcost = 1e2
+    estimator.distancecost = 1e-3
+    estimator.frictioncost = 1e-3
     estimator.useSnoptSolver()
     estimator.setSolverOptions({'Major feasibility tolerance': 1e-6,
                                 'Major optimality tolerance': 1e-6})

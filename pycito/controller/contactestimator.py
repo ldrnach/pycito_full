@@ -493,7 +493,7 @@ class ContactEstimationTrajectory(ContactTrajectory):
         self._append_distance()
         self._append_dissipation()
         self._append_friction()
-        #self._refine_guess()
+        self._refine_guess()
 
     def _append_dynamics(self, state, control):
         """
@@ -683,7 +683,6 @@ class ContactEstimationTrajectory(ContactTrajectory):
             D, v = self.getDissipationConstraint(index)
             return np.max(-v)*np.ones((D.shape[1], ))
 
-
     def getFeasibilityGuess(self, index):
         """
         Return an initial guess for the feasibility relaxation variable
@@ -733,7 +732,7 @@ class ContactEstimationTrajectory(ContactTrajectory):
         """Returns the number of velocities in the dissipation constraint"""
         return (self._plant.dlevel + 1) * self.num_contacts
 
-    def _refine_guess(self, atol=1e-3):
+    def _refine_guess(self, atol=1e-4):
         # Use the most recent value of the forces to calculate errors
         fN, fT = np.split(self._forces[-1], [self.num_contacts])
         inf_b =np.full((self.num_contacts,), np.inf)
@@ -742,36 +741,66 @@ class ContactEstimationTrajectory(ContactTrajectory):
         dist = self._distance_cstr[-1]
         vs = self._dissipation_cstr[-1]
         mu = self._friction_cstr[-1]
-        # Solve for distance and sliding velocity
+        # Recalculate the force and slack variables
+        A, b = self._dynamics_cstr[-1]
+        # Solve for the forces and sliding velocity simultaneously
         prog = MathematicalProgram()
-        dvars = prog.NewContinuousVariables(rows = self.num_contacts)
-        svars = prog.NewContinuousVariables(rows = 2*self.num_contacts)
-        D = np.array([[1, 0, 1, 0], [0, 1, 0, 1]])
-        D_ = block_diag(*[D]*self.num_contacts)
-        # Add the costs
-        Q = np.eye(self.num_contacts)
-        Q2 = np.eye(2*self.num_contacts)
-        b = np.zeros((self.num_contacts, ))
-        prog.AddQuadraticCost(Q, b, vars=dvars)
-        prog.AddQuadraticCost(Q2, b, vars=svars)
-        # Add the distance constraints
-        prog.AddLinearConstraint(Q, -dist, inf_b, dvars).evaluator().set_description('DistancePositivity')
-        prog.AddLinearConstraint(np.diag(fN), - inf_b,  atol -fN * dist, dvars).evaluator().set_description('DistanceOrthogonality')
-        # Add the sliding velocity constraints
-        prog.AddLinearConstraint(D_.T, -vs, inf_t, svars).evaluator().set_description('VelocityPositivity')
-        prog.AddLinearConstraint((D_ * fT).T, -inf_t, atol - vs * fT, svars).evaluator().set_description('VelocityOrthogonality') 
-        prog.AddLinearConstraint(Q2, np.zeros((2*self.num_contacts,)), np.full((2*self.num_contacts,), np.inf), svars).evaluator().set_description('SlackPositivity')
-        prog.SetInitialGuess(dvars, self._distance_error[-1])
-        vs_plus = np.copy(vs)
-        vs_plus[vs_plus > 0] = 0
-        s = np.abs(D_.dot(vs_plus))
-        prog.SetInitialGuess(svars, s)
-        #prog.SetInitialGuess(svars, self._slacks[-1])
-        # Solve the problem
+        nforce = prog.NewContinuousVariables(rows = self.num_contacts)
+        tforce = prog.NewContinuousVariables(rows = self.num_friction)
+        dslack = prog.NewContinuousVariables(rows = self.num_dissipation)
+        # Add the dynamics as a quadratic cost
+        prog.AddQuadraticCost(A.T.dot(A), -b.T.dot(A), 1/2*b.dot(b), np.concatenate([nforce, tforce])).evaluator().set_description('Dynamics')
+        # Add the remaining constraints
+        prog.AddBoundingBoxConstraint(np.zeros((self.num_contacts, )), inf_b, nforce).evaluator().set_description('normal_force_bbox')
+        prog.AddBoundingBoxConstraint(np.zeros((self.num_dissipation,)), np.full((self.num_dissipation,), np.inf), dslack).evaluator().set_description('sliding_velocity_bbox')
+        cstr = mlcp.ConstantRelaxedPseudoLinearComplementarityConstraint(A = self._dissipation_matrix.transpose(), c = vs, relax=atol)
+        cstr.name = 'velocity'
+        cstr.addToProgram(prog, dslack, tforce)
+        # Solve the program using SNOPT
+        dvals = np.concatenate([fN, fT, self._dissipation_slacks[-1]], axis=0)
+        dvals[dvals<0.1] = 0.1
+        prog.SetInitialGuess(np.concatenate([nforce, tforce, dslack], axis=0), dvals)
+        cstr.initializeSlackVariables()
+
         result = SnoptSolver().Solve(prog)
         if result.is_success():
-            self._distance_error[-1] = result.GetSolution(dvars)
-            self._slacks[-1] = result.GetSolution(svars)
+            print(f'refinement succeeded with final cost {result.get_optimal_cost()}')
+            fN = result.GetSolution(nforce)
+            fT = result.GetSolution(tforce)
+            sliding_vel = result.GetSolution(dslack)
+            self._forces[-1] = np.concatenate([fN, fT], axis=0)
+            self._dissipation_slacks[-1] = sliding_vel
+            self._slacks[-1] = self._dissipation_to_velocity.dot(sliding_vel)
+            feas = max(result.get_optimal_cost(), atol)
+        else:
+            print('refinement step failed')
+        # svars = prog.NewContinuousVariables(rows = 2*self.num_contacts)
+        # D = np.array([[1, 0, 1, 0], [0, 1, 0, 1]])
+        # D_ = block_diag(*[D]*self.num_contacts)
+        # # Add the costs
+        Q = np.eye(self.num_contacts)
+        # Q2 = np.eye(2*self.num_contacts)
+        b = np.zeros((self.num_contacts, ))
+        # prog.AddQuadraticCost(Q, b, vars=dvars)
+        # prog.AddQuadraticCost(Q2, b, vars=svars)
+        # # Add the distance constraints
+        # prog.AddLinearConstraint(Q, -dist, inf_b, dvars).evaluator().set_description('DistancePositivity')
+        # prog.AddLinearConstraint(np.diag(fN), - inf_b,  atol -fN * dist, dvars).evaluator().set_description('DistanceOrthogonality')
+        # # Add the sliding velocity constraints
+        # prog.AddLinearConstraint(D_.T, -vs, inf_t, svars).evaluator().set_description('VelocityPositivity')
+        # prog.AddLinearConstraint((D_ * fT).T, -inf_t, atol - vs * fT, svars).evaluator().set_description('VelocityOrthogonality') 
+        # prog.AddLinearConstraint(Q2, np.zeros((2*self.num_contacts,)), np.full((2*self.num_contacts,), np.inf), svars).evaluator().set_description('SlackPositivity')
+        # prog.SetInitialGuess(dvars, self._distance_error[-1])
+        # vs_plus = np.copy(vs)
+        # vs_plus[vs_plus > 0] = 0
+        # s = np.abs(D_.dot(vs_plus))
+        # prog.SetInitialGuess(svars, s)
+        #prog.SetInitialGuess(svars, self._slacks[-1])
+        # Solve the problem
+        # result = SnoptSolver().Solve(prog)
+        # if result.is_success():
+        #     self._distance_error[-1] = result.GetSolution(dvars)
+        #     self._slacks[-1] = result.GetSolution(svars)
         # Solve the friction cone problem
         prog = MathematicalProgram()
         fvars = prog.NewContinuousVariables(rows=self.num_contacts)
