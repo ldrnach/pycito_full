@@ -12,7 +12,7 @@ import pycito.systems.kernels as kernels
 import matplotlib.pyplot as plt
 
 SIM_DURATION = 1.5
-TARGET = os.path.join('examples','sliding_block','estimation_in_the_loop','paper_final','speedtests')
+TARGET = os.path.join('examples','sliding_block','estimation_in_the_loop','final_for_paper','speedtests')
 HORIZONS = range(1, 21)
 
 def make_flatterrain_model():

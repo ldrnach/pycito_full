@@ -1199,7 +1199,7 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         self.prog.SetInitialGuess(self.dweights, dist_ub)
         # Friction weights
         mu = np.concatenate(self.traj._friction_cstr, axis=0)
-        fric_ub = np.linalg.lstsq(self.Kf, np.full(mu.shape, self.fric_max) - dist0, rcond=None)[0]
+        fric_ub = np.linalg.lstsq(self.Kf, np.full(mu.shape, self.fric_max) - mu, rcond=None)[0]
         self.prog.SetInitialGuess(self.fweights, fric_ub)
 
     def _add_quadratic_cost(self):
@@ -1228,7 +1228,7 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         for cost in self.costs:
             self.prog.RemoveCost(cost)
 
-    def solve_ambiguity(self):
+    def solve_ambiguity(self, guess=None):
         """
         Solve the ambiguity set optimization
         
@@ -1236,12 +1236,18 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         # Lower bound optimization
         self._clear_costs()
         self._add_linear_cost(maximize=False)
-        self._initialize_lower_bound()
+        if guess is None:
+            self._initialize_lower_bound()
+        else:
+            self.prog.SetInitialGuess(self.prog.decision_variables(), guess)
         lb = self.solve()
         # Upper bound optimization
         self._clear_costs()
         self._add_linear_cost(maximize=True)
-        self._initialize_upper_bound()
+        if guess is None:
+            self._initialize_upper_bound()
+        else:
+            self.prog.SetInitialGuess(self.prog.decision_variables(), guess)
         ub = self.solve()
         return lb, ub
 
@@ -1260,7 +1266,7 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         global_model = self.solve_global_model()
         if not global_model.is_success():
             warnings.warn('Failed to solve global contact model optimization. Results may be inaccurate')
-        lb, ub = self.solve_ambiguity()
+        lb, ub = self.solve_ambiguity(guess=global_model.GetSolution(self.prog.decision_variables()))
         if not lb.is_success():
             warnings.warn('Failed to solve lower bound contact model optimization. Results may be inaccurate')
         if not ub.is_success():

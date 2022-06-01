@@ -25,7 +25,7 @@ import pycito.utilities as utils
 from pycito.systems.block.block import Block
 from pycito.systems import kernels as kernels
 
-FIG_EXT = '.png'
+FIG_EXT = '.pdf'
 MPC_HORIZON = 5
 ESTIMATION_HORIZON = 5
 REFSOURCE = os.path.join('data','slidingblock','block_reference.pkl')
@@ -186,7 +186,7 @@ def make_estimator_controller(sp_contact=None, use_global=False):
 
 def set_controller_options(controller):
     controller.statecost = np.diag([1e3, 1, 1, 1])
-    controller.controlcost = 1e-2 * np.eye(controller.control_dim)  #Originally 1e-3
+    controller.controlcost = 1e-3 * np.eye(controller.control_dim)  #Originally 1e-3
     controller.forcecost = 1e-5 * np.eye(controller.force_dim) #Originally 1e-4
     controller.slackcost = 1e-5 * np.eye(controller.slack_dim) #Originally 1e-2
     controller.complementarity_schedule = [1e-2, 1e-4]    #originally 1e4
