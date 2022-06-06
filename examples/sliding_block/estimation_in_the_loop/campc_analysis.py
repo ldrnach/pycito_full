@@ -47,7 +47,7 @@ def feedback_effort(ref, sim):
     rcontrol = ref['control']
     scontrol = sim['control']
     N = min(rcontrol.shape[1], scontrol.shape[1])
-    effort = (rcontrol[:,:N] - scontrol[:,:N])**2
+    effort = (rcontrol[:,0:N-1] - scontrol[:,1:N])**2
     return effort
 
 def get_forces_from_logs(logs):
@@ -103,8 +103,8 @@ def do_feedback_effort_analysis():
         m_effort.append(np.sqrt(np.mean(mpc_effort[0,:])))
         c_effort.append(np.sqrt(np.mean(cpc_effort[0,:])))
         t = get_common_time(refdata, mpcdata)
-        axs[k].plot(t, mpc_effort[0,:], linewidth=1.5, label='MPC')
-        axs[k].plot(t, cpc_effort[0,:], linewidth=1.5, label='CAMPC')
+        axs[k].plot(t[1:], mpc_effort[0,:], linewidth=1.5, label='MPC')
+        axs[k].plot(t[1:], cpc_effort[0,:], linewidth=1.5, label='CAMPC')
         axs[k].set_ylabel(part)
     axs[0].set_title('Feedback Effort (N^2)')
     axs[-1].set_xlabel('Time (s)')
@@ -114,7 +114,7 @@ def do_feedback_effort_analysis():
     # Write data to csv file
     colnames = ['']
     colnames.extend(PARTS)
-    write_to_file(os.path.join(SOURCE, 'feedback_effort' + EXT), [colnames, m_effort, c_effort])
+    write_to_file(os.path.join(SOURCE, 'feedback_effort.csv'), [colnames, m_effort, c_effort])
     print('\tSaved CSV')
 
 def do_predicted_force_analysis():
@@ -174,6 +174,6 @@ def do_predicted_force_analysis():
     print(f"\tSaved CSV")
 
 if __name__ == '__main__':
-    do_feedback_effort_analysis()
+    #do_feedback_effort_analysis()
     do_tracking_error_analysis()
-    do_predicted_force_analysis()
+    #do_predicted_force_analysis()
