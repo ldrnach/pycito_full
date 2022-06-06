@@ -109,6 +109,13 @@ class StationaryKernel(KernelBase):
     def _eval_stationary(self, sq_dist):
         raise NotImplementedError
 
+    @property
+    def length_scale(self):
+        finite = self.weights > 0.
+        ls = np.full(self.weights.shape, np.inf)
+        ls[finite] = 1/self.weights[finite]
+        return ls
+
 class RBFKernel(StationaryKernel):
     def __init__(self, length_scale = 1.0):
         super().__init__(weights = 1/length_scale)
@@ -141,13 +148,6 @@ class RBFKernel(StationaryKernel):
         K = self.eval(x, y)
         assert K.shape[0] == 1, f"Gradient calculation supports only a single vector as first input"
         return 2 * self._scale * np.diag(K.flatten()).dot((x - y).transpose())
-
-    @property
-    def length_scale(self):
-        finite = self.weights > 0.
-        ls = np.full(self.weights.shape, np.inf)
-        ls[finite] = 1/self.weights[finite]
-        return ls
 
 class PseudoHuberKernel(StationaryKernel):
     def __init__(self, length_scale=1.0, delta=1.0):
@@ -183,13 +183,6 @@ class PseudoHuberKernel(StationaryKernel):
         p = self._pseudohuber(d)
         dK = 1/p* K
         return - np.diag(dK.flatten()).dot(self.weights * (x - y).transpose())
-
-    @property
-    def length_scale(self):
-        finite = self.weights > 0.
-        ls = np.full(self.weights.shape, np.inf)
-        ls[finite] = 1/self.weights[finite]
-        return ls
 
 class LinearKernel(KernelBase):
     """
@@ -417,6 +410,50 @@ class ConstantKernel(KernelBase):
         assert isinstance(val, (int, float)) and val > 0, f"const must be a nonnegative int or float"
         self._const = val
 
+
+class BoxcarKernel(StationaryKernel):
+    def __init__(self, length_scale=1, width=1):
+        super().__init__(weights  = 1/length_scale)
+        assert width > 0, 'width must be positive'
+        self._width = width**2
+    
+    def _eval_stationary(self, distances):
+        """
+        Evaluate the kernel, using a matrix of pointwise distances
+        
+        Arguments:
+            distances: (N, M) array of pointwise distances
+        
+        Return Values:
+            (N, M) array of kernel values
+        """
+        kernel_vals = 0 * distances
+        kernel_vals[distances <= self._width] = 1 + 0 * distances[distances <= self._width]
+        return kernel_vals
+
+    def gradient(self, x, y):
+        """
+        Evaluate the gradient of the kernel
+        
+        Arguments:
+            x: (n_features, 1) array. This is argument for which the gradient is calculated
+            y: (n_features, n_samples_y) array. This is an example point
+        
+        Return values:
+            grad: (n_samples_y, n_features) array of gradients with respect to the input x
+        """
+        x, y = self._reshape_inputs(x, y)
+        return 0 * y.T * x.T
+
+    @property
+    def width(self):
+        return np.sqrt(self._width)
+
+    @width.setter
+    def width(self, val):
+        assert isinstance(val, (int, float)) and val >= 0, 'width must be a nonnegative numeric value'
+        self._width = val ** 2
+
 class WhiteNoiseKernel(KernelBase):
     def __init__(self, noise=1.0):
         super().__init__()
@@ -548,6 +585,10 @@ class RegularizedConstantKernel(CompositeKernel):
 class RegularizedCenteredLinearKernel(CompositeKernel):
     def __init__(self, weights, noise):
         super().__init__(CenteredLinearKernel(weights), WhiteNoiseKernel(noise))
+
+class RegularizedBoxcarKernel(CompositeKernel):
+    def __init__(self, length_scale, width, noise):
+        super().__init__(BoxcarKernel(length_scale, width), WhiteNoiseKernel(noise))
 
 if __name__ == '__main__':
     print("Hello from kernels.py!")
