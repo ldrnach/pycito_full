@@ -8,7 +8,7 @@ import pycito.systems.kernels as kernels
 
 HORIZON = 1
 SOURCE = os.path.join('examples','a1','simulation_tests','fullstep','timestepping','simdata.pkl')
-TARGET = os.path.join('examples','a1','estimation_in_the_loop','offline_estimation','singlestep',f'N{HORIZON}','testing','refinement')
+TARGET = os.path.join('examples','a1','estimation_in_the_loop','offline_estimation','singlestep',f'N{HORIZON}','testing','nonlinear_friction')
 TRAJNAME = 'estimatedtrajectory.pkl'
 FIGURENAME = 'EstimationResults.png'
 LOGFIGURE = 'SolverLogs.png'
@@ -20,7 +20,7 @@ def make_a1():
     #kernel = kernels.RegularizedPseudoHuberKernel(length_scale = np.array([0.01, 0.01, np.inf]), delta = 0.1, noise = 0.01)
     a1.terrain = cm.SemiparametricContactModel(
         surface = cm.SemiparametricModel(cm.FlatModel(location = 0.0, direction = np.array([0., 0., 1.0])), kernel = kernel),
-        friction = cm.SemiparametricModel(cm.ConstantModel(const = 1.0), kernel = copy.deepcopy(kernel))
+        friction = cm.SemiparametricModel(cm.ConstantModel(const = 0.5), kernel = copy.deepcopy(kernel))
     )
     a1.Finalize()
     return a1
@@ -28,12 +28,14 @@ def make_a1():
 def make_estimator(data):
     a1 = make_a1()
     traj = ce.ContactEstimationTrajectory(a1, data['state'][:,0])
-    estimator = ce.ContactModelEstimator(traj, horizon=HORIZON)
+    estimator = ce.ContactModelEstimatorNonlinearFrictionCone(traj, horizon=HORIZON)
     # Set the costs appropriately
-    estimator.forcecost = 1e-1
-    estimator.relaxedcost = 1e2
-    estimator.distancecost = 1e-3
-    estimator.frictioncost = 1e-3
+    estimator.forcecost = 1e0
+    estimator.relaxedcost = 1e3
+    estimator.distancecost = 1
+    estimator.frictioncost = 1
+    estimator.velocity_scaling = 1e-2
+    estimator.force_scaling = 1e2
     estimator.useSnoptSolver()
     estimator.setSolverOptions({'Major feasibility tolerance': 1e-6,
                                 'Major optimality tolerance': 1e-6})
@@ -64,6 +66,11 @@ def run_estimator():
     plotter.plot(show=False, savename=os.path.join(TARGET, FIGURENAME))
     estimator.logger.plot(show=False, savename=os.path.join(TARGET, LOGFIGURE))
     estimator.logger.save(filename = os.path.join(TARGET, LOGGINGNAME))
+    # Swap the solution and guess logs
+    estimator.logger.logs, estimator.logger.guess_logs = estimator.logger.guess_logs, estimator.logger.logs
+    estimator.logger.plot_costs(show=False, savename=os.path.join(TARGET, 'GuessCosts' + LOGFIGURE))
+    estimator.logger.plot_constraints(show=False, savename=os.path.join(TARGET, 'GuessConstraints' + LOGFIGURE))
+    
     # # Run a polishing step using the ContactModelRectifer
     # rectifier = ce.EstimatedContactModelRectifier(estimator.traj, surf_max = 10, fric_max=2)
     # rectifier.useSnoptSolver()
