@@ -826,6 +826,8 @@ class ContactModelEstimator(OptimizationMixin):
         self._velocity_scaling = 1
         # Force scaling
         self._force_scaling = 1
+        # Regularization 
+        self._regularization = 1
 
     def estimate_contact(self, t, x, u):
         # Append new samples
@@ -1046,7 +1048,7 @@ class ContactModelEstimator(OptimizationMixin):
     def _add_dissipation_constraints(self, index):
         """Add and initialize the parametric maximum dissipation constraints"""
         D, v = self.traj.getDissipationConstraint(self._startptr + index)
-        self._diss_cstr.append(self.lcp(self.velocity_scaling*D, self.velocity_scaling*v))
+        self._diss_cstr.append(mlcp.VariableRelaxedMixedLinearComplementarityConstraint(self.velocity_scaling*D, self.regularization * np.eye(self.traj.num_friction), self.velocity_scaling*v))
         self._diss_cstr[-1].set_description('dissipation')
         self._diss_cstr[-1].addToProgram(self._prog, self._dissipation_slacks[-1], self._friction_forces[-1], rvar=self._relaxation_vars[-1])
         # Set the initial guess for the slack variables
@@ -1064,7 +1066,7 @@ class ContactModelEstimator(OptimizationMixin):
         # Get the friction cone constraints
         D, mu = self.traj.getFrictionConstraint(self._startptr+index)
         A = np.concatenate([np.diag(mu), -D, self._friction_kernel[kstart:kstop, :]], axis=1)
-        self._fric_cstr.append(self.lcp(A, np.zeros((A.shape[0], ))))
+        self._fric_cstr.append(mlcp.VariableRelaxedMixedLinearComplementarityConstraint(A, self.regularization * np.eye(self.traj.num_contacts), np.zeros((A.shape[0], ))))
         self._fric_cstr[-1].set_description('friction_cone')
         xvars = np.concatenate([self._normal_forces[-1], self._friction_forces[-1], self._friction_weights], axis=0)
         zvars = self._velocity_slacks[-1]
@@ -1193,6 +1195,15 @@ class ContactModelEstimator(OptimizationMixin):
     def force_scaling(self, val):
         assert isinstance(val, (int, float)) and val > 0, "force_scaling must be a positive number"
         self._force_scaling = val
+
+    @property
+    def regularization(self):
+        return self._regularization
+
+    @regularization.setter
+    def regularization(self, val):
+        assert isinstance(val, (int, float)) and val > 0, "regularization must be a positive number"
+        self._regularization = val
 
 class ContactModelEstimatorNonlinearFrictionCone(ContactModelEstimator):
     def _add_friction_cone_constraints(self, index):
