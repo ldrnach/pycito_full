@@ -8,8 +8,8 @@ import pycito.systems.kernels as kernels
 import pycito.systems.contactmodel as cm
 from pycito.controller.contactestimator import ContactEstimationTrajectory
 
-SOURCE = os.path.join('examples','a1','estimation_in_the_loop','offline_estimation','singlestep','N1','testing','solutionlogs.pkl')
-TRAJSOURCE = os.path.join('examples','a1','estimation_in_the_loop', 'offline_estimation','singlestep','N1','testing','estimatedtrajectory.pkl')
+SOURCE = os.path.join('examples','a1','estimation_in_the_loop','offline_estimation','singlestep','N1','testing','linearrelaxedcost','solutionlogs.pkl')
+TRAJSOURCE = os.path.join('examples','a1','estimation_in_the_loop', 'offline_estimation','singlestep','N1','testing','linearrelaxedcost','estimatedtrajectory.pkl')
 
 a1 = A1VirtualBase()
 kernel = kernels.WhiteNoiseKernel(noise=1)
