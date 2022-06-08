@@ -1016,8 +1016,8 @@ class ContactModelEstimator(OptimizationMixin):
         self._force_cost.evaluator().set_description('Force Cost')
         # Relaxation cost 
         all_relax = np.concatenate(self._relaxation_vars, axis=0)
-        r_weights = self._relax_cost_weight * np.eye(all_relax.shape[0])
-        r_ref = np.zeros((all_relax.shape[0],))
+        r_weights = 2 *self._relax_cost_weight * np.eye(all_relax.shape[0])
+        r_ref =  -np.ones((all_relax.shape[0],))
         self._relax_cost = self._prog.AddQuadraticErrorCost(r_weights, r_ref, all_relax)
         self._relax_cost.evaluator().set_description('Relaxation Cost')
         # Bounding box constraint on the relaxations
