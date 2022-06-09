@@ -1017,11 +1017,11 @@ class ContactModelEstimator(OptimizationMixin):
         # Relaxation cost 
         all_relax = np.concatenate(self._relaxation_vars, axis=0)
         r_weights = 2 *self._relax_cost_weight * np.eye(all_relax.shape[0])
-        r_ref =  -np.ones((all_relax.shape[0],))
-        self._relax_cost = self._prog.AddQuadraticErrorCost(r_weights, r_ref, all_relax)
+        r_ref =  self._relax_cost_weight * np.ones((all_relax.shape[0],))
+        self._relax_cost = self._prog.AddQuadraticCost(r_weights, r_ref, np.zeros((1,)), all_relax)
         self._relax_cost.evaluator().set_description('Relaxation Cost')
         # Bounding box constraint on the relaxations
-        self._prog.AddBoundingBoxConstraint(r_ref, np.full(r_ref.shape, np.inf), all_relax).evaluator().set_description("Relaxation Nonnegativity")
+        self._prog.AddBoundingBoxConstraint(np.zeros((all_relax.shape[0],)), np.full(r_ref.shape, np.inf), all_relax).evaluator().set_description("Relaxation Nonnegativity")
 
     def _add_dynamics_constraints(self, index):
         """Add and initialize the linear dynamics constraints for force estimation"""
