@@ -8,7 +8,7 @@ import pycito.systems.kernels as kernels
 
 HORIZON = 1
 SOURCE = os.path.join('examples','a1','simulation_tests','fullstep','timestepping','simdata.pkl')
-TARGET = os.path.join('examples','a1','estimation_in_the_loop','offline_estimation','singlestep',f'N{HORIZON}','testing','linearrelaxedcost')
+TARGET = os.path.join('examples','a1','estimation_in_the_loop','offline_estimation','singlestep',f'N{HORIZON}','testing','velocitycost')
 TRAJNAME = 'estimatedtrajectory.pkl'
 FIGURENAME = 'EstimationResults.png'
 LOGFIGURE = 'SolverLogs.png'
@@ -34,7 +34,8 @@ def make_estimator(data):
     estimator.relaxedcost = 1e3
     estimator.distancecost = 1
     estimator.frictioncost = 1
-    estimator.velocity_scaling = 1e-3
+    estimator.velocity_scaling = 1
+    estimator.velocitycost = 1e2
     estimator.force_scaling = 1e2
     estimator.useSnoptSolver()
     estimator.setSolverOptions({'Major feasibility tolerance': 1e-6,
