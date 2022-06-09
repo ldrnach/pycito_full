@@ -101,6 +101,8 @@ class ContactTrajectory():
         self._feasibility = []
         self._distance_error = []
         self._friction_error = []
+        self._velocity_correction = []
+        self._measured_velocity = []
 
     def save(self, filename):
         """
@@ -126,6 +128,7 @@ class ContactTrajectory():
         new._slacks = self._slacks[start:stop]
         new._dissipation_slacks = self._dissipation_slacks[start:stop]
         new._feasibility = self._feasibility[start:stop]
+        new._velocity_correction = self._velocity_correction[start:stop]
         return new
 
     def set_at(self, lst, idx, x, default=None):
@@ -357,6 +360,52 @@ class ContactTrajectory():
         """
         self.set_at(self._friction_error, index, ferr)
     
+    def set_velocity_correction(self, index, v_correct):
+        """
+        set velocity correction values and the specified index
+        
+        Arguments:
+            index: (int) the index at which to set the value 
+            v_correct: velocity correction value to set
+        """
+        self.set_at(self._velocity_correction, index, v_correct)
+
+    def get_velocity_correction(self, start_idx, stop_idx=None):
+        """
+        Return a list of velocity_corrections at the specified index
+
+        Arguments:
+            start_idx (int): the first index to return
+            stop_idx (int, optional): the last index to return (by default, start_index)
+        
+        Returns:
+            lst: velocity corrections between [start_idx, stop_idx)
+        """
+        return self.get_at(self._velocity_correction, start_idx, stop_idx)
+    
+    def set_measured_velocity(self, index, v_correct):
+        """
+        set measured velocity values and the specified index
+        
+        Arguments:
+            index: (int) the index at which to set the value 
+            v_correct: velocity correction value to set
+        """
+        self.set_at(self._measured_velocity, index, v_correct)
+
+    def get_measured_velocity(self, start_idx, stop_idx=None):
+        """
+        Return a list of velocity measurements at the specified index
+
+        Arguments:
+            start_idx (int): the first index to return
+            stop_idx (int, optional): the last index to return (by default, start_index)
+        
+        Returns:
+            lst: velocity corrections between [start_idx, stop_idx)
+        """
+        return self.get_at(self._measured_velocity, start_idx, stop_idx)
+
     @property
     def num_timesteps(self):
         return len(self._time)
@@ -380,7 +429,6 @@ class ContactEstimationTrajectory(ContactTrajectory):
         self._distance_cstr = []
         self._dissipation_cstr = []
         self._friction_cstr = []
-
         # Store the last state for calculating dynamics - assume it was static before we started moving
         self._last_state = initial_state
         self._plant.multibody.SetPositionsAndVelocities(self._context, initial_state)
@@ -545,15 +593,23 @@ class ContactEstimationTrajectory(ContactTrajectory):
         # Get the tangent jacobian
         _, Jt = self._plant.GetContactJacobians(self._context)
         v = self._plant.multibody.GetVelocities(self._context)
-        b = Jt.dot(v)
+        fT = self._forces[-1][self.num_contacts:]
+        # Estimate the velocity correction
+        vc = - np.linalg.lstsq(Jt, fT + Jt.dot(v), rcond=None)[0]
+        total_vel = v + vc
+        self._velocity_correction.append(total_vel / np.sqrt(total_vel.dot(total_vel)) * np.sqrt(v.dot(v)))
+        # Estimate the slack variables
+        b = Jt.dot(self._velocity_correction[-1])
         fT = np.diag(self._forces[-1][self.num_contacts:])
         A = fT.dot(self._dissipation_matrix.T)
         vs = nnls(A, - fT.dot(b))[0]
         w = fT.dot(self._dissipation_matrix.T.dot(vs) + b)
         self._dissipation_slacks.append(vs)
         self._slacks.append(self._dissipation_to_velocity.dot(vs))
-        self._dissipation_cstr.append(b)
+        
+        self._dissipation_cstr.append(Jt)
         self._feasibility[-1] += np.max(np.abs(w))
+        self._measured_velocity.append(v)
 
     def _append_friction(self):
         """
@@ -613,10 +669,10 @@ class ContactEstimationTrajectory(ContactTrajectory):
         Return values:
             (D, g) tuple of constraint parameters
                 D: (nT, nC) array, duplication matrix duplicating the velocities of the nC contact points along the nT tangential directions
-                g: (nC,) array, the maximum tangential velocity slack variables
+                g: (nC,) array, the maximum tangential velocity slack variables - TODO: Update documentation
         """
         assert index >= 0 and index < len(self._dissipation_cstr), "index out of bounds"
-        return self._dissipation_matrix.transpose(), self._dissipation_cstr[index]
+        return np.column_stack([self._dissipation_matrix.transpose(), self._dissipation_cstr[index]]), np.zeros((self.num_friction,))
 
     def getFrictionConstraint(self, index):
         """
@@ -732,6 +788,10 @@ class ContactEstimationTrajectory(ContactTrajectory):
         """Returns the number of velocities in the dissipation constraint"""
         return (self._plant.dlevel + 1) * self.num_contacts
 
+    @property
+    def num_velocities(self):
+        return self._plant.multibody.num_velocities()
+
     def _refine_guess(self, atol=1e-4):
         # Use the most recent value of the forces to calculate errors
         fN, fT = np.split(self._forces[-1], [self.num_contacts])
@@ -821,6 +881,7 @@ class ContactModelEstimator(OptimizationMixin):
         self._force_cost_weight = 1.
         self._distance_cost_weight = 1.
         self._friction_cost_weight = 1.
+        self._velocity_cost = 1.
         self._solver = SnoptSolver()
         # Constraint scaling
         self._velocity_scaling = 1
@@ -920,6 +981,7 @@ class ContactModelEstimator(OptimizationMixin):
         self._velocity_slacks = []
         self._dissipation_slacks = []
         self._relaxation_vars = []
+        self._velocity_corrections = []
         self._distance_kernel = None
         self._friction_kernel = None
         self._force_cost = None
@@ -1004,6 +1066,8 @@ class ContactModelEstimator(OptimizationMixin):
         self._dissipation_slacks.append(self._prog.NewContinuousVariables(rows=nd, name='dissipation_slacks'))
         # Add the relaxation variables
         self._relaxation_vars.append(self._prog.NewContinuousVariables(rows=1, name='relaxation'))
+        # Add the velocity correction variables
+        self._velocity_corrections.append(self._prog.NewContinuousVariables(rows=self.traj.num_velocities, name='velocity_corrections'))
 
     def _add_costs(self):
         """
@@ -1048,7 +1112,10 @@ class ContactModelEstimator(OptimizationMixin):
         D, v = self.traj.getDissipationConstraint(self._startptr + index)
         self._diss_cstr.append(self.lcp(self.velocity_scaling*D, self.velocity_scaling*v))
         self._diss_cstr[-1].set_description('dissipation')
-        self._diss_cstr[-1].addToProgram(self._prog, self._dissipation_slacks[-1], self._friction_forces[-1], rvar=self._relaxation_vars[-1])
+        self._diss_cstr[-1].addToProgram(self._prog, 
+                        np.concatenate([self._dissipation_slacks[-1],self._velocity_corrections[-1]], axis=0),
+                        self._friction_forces[-1], 
+                        rvar=self._relaxation_vars[-1])
         # Set the initial guess for the slack variables
         self._prog.SetInitialGuess(self._velocity_slacks[-1], self.traj.getDissipationGuess(self._startptr + index))
         self._prog.SetInitialGuess(self._dissipation_slacks[-1], self.traj.getDissipationSlackGuess(self._startptr + index))
@@ -1056,7 +1123,11 @@ class ContactModelEstimator(OptimizationMixin):
         # Add a constraint between the dissipation and velocity slacks
         A = np.concatenate([self.traj._dissipation_to_velocity, -np.eye(self.traj.num_contacts)], axis=1)
         self._prog.AddLinearEqualityConstraint(Aeq=A, beq=np.zeros(self._velocity_slacks[-1].shape), vars=np.concatenate([self._dissipation_slacks[-1], self._velocity_slacks[-1]])).evaluator().set_description('TangentVelocityEquality')
-
+        # Add a cost on the velocity corrections
+        vm = self.traj.get_measured_velocity(self._startptr + index)
+        self._prog.AddQuadraticErrorCost(np.eye(self.traj.num_velocities) * self._velocity_cost, vm[0], self._velocity_corrections[-1]).evaluator().set_description('VelocityCorrectionCost')
+        self._prog.SetInitialGuess(self._velocity_corrections[-1], self.traj.get_velocity_correction(self._startptr + index)[0])
+    
     def _add_friction_cone_constraints(self, index):
         """Add and initialize the friction cone constraints"""
         # Get the appropriate kernel slice
@@ -1194,6 +1265,14 @@ class ContactModelEstimator(OptimizationMixin):
         assert isinstance(val, (int, float)) and val > 0, "force_scaling must be a positive number"
         self._force_scaling = val
 
+    @property
+    def velocitycost(self):
+        return self._velocity_cost
+
+    @velocitycost.setter
+    def velocitycost(self, val):
+        assert isinstance(val, (int, float)) and val > 0, "velocitycost must be a positive number"
+        self._velocity_cost = val
 class ContactModelEstimatorNonlinearFrictionCone(ContactModelEstimator):
     def _add_friction_cone_constraints(self, index):
         """Add and initialize the friction cone constraints"""
