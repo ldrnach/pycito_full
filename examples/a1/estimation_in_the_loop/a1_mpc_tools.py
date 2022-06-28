@@ -5,12 +5,16 @@ import matplotlib.pyplot as plt
 import pycito.controller.mpc as mpc
 from pycito.systems.A1.a1 import A1VirtualBase
 from pycito.systems.simulator import Simulator
+import pycito.controller.mlcp as lcp
+
 
 from pydrake.all import PiecewisePolynomial as pp
 
 FIG_EXT = '.png'
 CONTROLLOGFIG = 'mpclogs' + FIG_EXT
 CONTROLLOGNAME = 'mpclogs.pkl'
+
+LCP = lcp.ConstantRelaxedPseudoLinearComplementarityConstraint
 
 def get_reference_trajectory(source):
     a1 = A1VirtualBase()
@@ -27,15 +31,18 @@ def set_controller_options(controller):
     controller.controlcost = 1e-4*np.eye(controller.control_dim)
     controller.forcecost = 1e-4 * np.eye(controller.force_dim)
     controller.slackcost = 1e-4 * np.eye(controller.slack_dim)
-    controller.complementaritycost = 1e4
+    controller.complementarity_schedule = [1e-2, 1e-4]    #originally 1e4
     controller.useSnoptSolver()
-    controller.setSolverOptions({'Major feasibility tolerance': 1e-5,
-                                'Major optimality tolerance': 1e-5})
+    controller.setSolverOptions({"Major feasibility tolerance": 1e-5,
+                                "Major optimality tolerance": 1e-5,
+                                'Scale option': 2})
+    controller.use_cached_guess()
+    controller.lintraj.useNearestTime()
     controller.enableLogging()
     return controller
 
 def make_mpc_controller(reftraj, horizon=5):
-    controller = mpc.LinearContactMPC(reftraj, horizon)
+    controller = mpc.LinearContactMPC(reftraj, horizon, lcptype=LCP)
     controller = set_controller_options(controller)
     return controller
 
