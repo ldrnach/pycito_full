@@ -924,12 +924,12 @@ class ContactModelEstimator(OptimizationMixin):
             Update the contact estimation trajectory from the problem result
         """
         # Stash the forces, slack variables, etc
-        forces = result.GetSolution(self.forces).reshape(self.forces.shape) * self._force_scaling
+        forces = result.GetSolution(self.forces).reshape(self.forces.shape)
         vslacks = result.GetSolution(self.velocities).reshape(self.velocities.shape)
         relax = result.GetSolution(self.feasibilities).reshape(self.feasibilities.shape)
         dslacks = result.GetSolution(self.dissipationslacks).reshape(self.dissipationslacks.shape)
         idx = self.traj.getTimeIndex(t)
-        self.traj.set_force(idx, forces[:, -1])
+        self.traj.set_force(idx, forces[:, -1] * self._force_scaling)
         self.traj.set_dissipation(idx, vslacks[:, -1])
         self.traj.set_feasibility(idx, relax[:, -1])
         self.traj.set_dissipation_slack(idx, dslacks[:, -1])
