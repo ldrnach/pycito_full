@@ -17,7 +17,7 @@ SOURCEDIR = os.path.join('examples','a1','estimation_in_the_loop','mpc','flatter
 SIMDATA = os.path.join(SOURCEDIR, 'simdata.pkl')
 MPCLOGS = os.path.join(SOURCEDIR, 'mpclogs.pkl')
 
-TARGET = os.path.join(SOURCEDIR, 'debug','linesearch_0.9_Superbasics_1e3')
+TARGET = os.path.join(SOURCEDIR, 'debug','linesearch_0.01_Superbasics_1e3_scale1_steplimit_0.1')
 
 INDEX = 20
 
@@ -46,9 +46,11 @@ controller.create_mpc_program(t, x)
 # Solve the problem
 print(controller.complementarity_penalty)
 controller.complementarity_penalty = controller.complementarity_schedule[0]
-controller.setSolverOptions({'Linesearch tolerance': 0.9,
+controller.setSolverOptions({'Linesearch tolerance': 0.01,
                             'Print file': os.path.join(TARGET, 'snopt.txt'),
-                            'Superbasics limit': 1000})
+                            'Superbasics limit': 1000,
+                            'Scale option': 1,
+                            'Major step limit': 0.1})
 
 guessreport = utils.printProgramInitialGuessReport(controller.prog, terminal=True)
 if not os.path.exists(TARGET):
@@ -57,7 +59,7 @@ with open(os.path.join(TARGET, 'GuessReport.txt'), 'w') as file:
     file.write(guessreport)
 
 
-result = controller.solve()
+result = controller.progressive_solve()
 utils.printProgramReport(result, controller.prog, verbose=True, filename=os.path.join(TARGET, 'SolutionReport.txt'))
 
 
