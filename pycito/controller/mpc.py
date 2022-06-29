@@ -373,6 +373,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         # Default complementarity cost weight
         self._complementarity_penalty = 1
         self._schedule = [1]
+        self._forcescale = 1.
         # Set default strategy for the initial guess
         self._guess = self.InitializationStrategy.LINEAR
         # Set the results cache
@@ -571,8 +572,11 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
 
     def _update_dynamics(self, index):
         """Update the dynamics constraints"""
+        start = 2 * self.lintraj.state_dim + self.lintraj.control_dim
         for k, dyn in enumerate(self._dynamics):
             A, b = self.lintraj.getDynamicsConstraint(index + k)
+            A = np.copy(A)
+            A[:, start:] *= self.forcescale
             dyn.updateCoefficients(A, b)
                 
     def _update_limits(self, index):
@@ -601,7 +605,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             xcost.evaluator().UpdateCoefficients(2 * self._state_weight, np.zeros((self.state_dim,)), np.zeros((1,)))
             ucost.evaluator().UpdateCoefficients(2 * self._control_weight, np.zeros((self.control_dim)), np.zeros((1,)))
         for k, (fcost, scost) in enumerate(zip(self._force_cost, self._slack_cost)):
-            f_ref = self.lintraj.getForce(index + k)
+            f_ref = self.lintraj.getForce(index + k) / self.forcescale
             fcost.evaluator().UpdateCoefficients(2*self._force_weight,
                                      -2*self._force_weight.dot(f_ref), f_ref.dot(self._force_weight.dot(f_ref)))
             s_ref = self.lintraj.getSlack(index + k)
@@ -609,7 +613,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
                                     -2 * self._slack_weight.dot(s_ref),
                                     s_ref.dot(self._slack_weight.dot(s_ref)))
         for k, jcost in enumerate(self._limit_cost):
-            j_ref = self.lintraj.getJointLimit(index + k)
+            j_ref = self.lintraj.getJointLimit(index + k) / self.forcescale
             jcost.evaluator().UpdateCoefficients(2 * self._jlimit_weight, 
                                     -2 * self._jlimit_weight.dot(j_ref),
                                     j_ref.dot(self._jlimit_weight.dot(j_ref)))
@@ -823,6 +827,15 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             return np.column_stack(self._djl)
         else:
             return None
+
+    @property
+    def forcescale(self):
+        return self._forcescale
+
+    @forcescale.setter
+    def forcescale(self, val):
+        assert isinstance(val, (int, float)) and val >= 0, 'forcescale must be a positive scalar'
+        self._forcescale = val
 
     def use_zero_guess(self):
         self._guess = self.InitializationStrategy.ZERO
