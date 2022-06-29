@@ -5,7 +5,7 @@ Luke Drnach
 June 28, 2022
 """
 import os
-
+import numpy as np
 from pycito import utilities as utils
 from pycito.controller.optimization import OptimizationLogger
 
@@ -17,7 +17,7 @@ SOURCEDIR = os.path.join('examples','a1','estimation_in_the_loop','mpc','flatter
 SIMDATA = os.path.join(SOURCEDIR, 'simdata.pkl')
 MPCLOGS = os.path.join(SOURCEDIR, 'mpclogs.pkl')
 
-TARGET = os.path.join(SOURCEDIR, 'debug','linesearch_0.01_Superbasics_1e3_scale1_steplimit_0.1')
+TARGET = os.path.join(SOURCEDIR, 'debug','linesearch_0.99_Superbasics_1e3_scale1_steplimit_1_forcescale_1_optimality1e-4')
 
 INDEX = 20
 
@@ -26,6 +26,9 @@ a1 = flatterrain_mpc.make_flatterrain_model()
 reftraj = mpctools.get_reference_trajectory(flatterrain_mpc.SOURCE)
 controller = mpctools.make_mpc_controller(reftraj, horizon=5)
 controller.enable_cost_display(display='figure') 
+controller.forcescale = 1
+controller.controlcost = 1e-4*np.eye(controller.control_dim)
+controller.forcecost = 1e-4 * np.eye(controller.force_dim)
 # Set the pointer to a specific subproblem
 
 mpclogs = OptimizationLogger.load(MPCLOGS)
@@ -38,7 +41,7 @@ guess = mpclogs.guess_logs[INDEX]
 # Create the MPC and set the initial guess
 controller._cache = {'dx': guess['state'],
                     'du': guess['control'],
-                    'dl': guess['force'],
+                    'dl': guess['force'] / controller.forcescale,
                     'ds': guess['slack'],
                     'djl': guess['joint_limits']}
 controller.create_mpc_program(t, x)
@@ -46,11 +49,13 @@ controller.create_mpc_program(t, x)
 # Solve the problem
 print(controller.complementarity_penalty)
 controller.complementarity_penalty = controller.complementarity_schedule[0]
-controller.setSolverOptions({'Linesearch tolerance': 0.01,
+
+controller.setSolverOptions({'Linesearch tolerance': 0.9,
                             'Print file': os.path.join(TARGET, 'snopt.txt'),
                             'Superbasics limit': 1000,
                             'Scale option': 1,
-                            'Major step limit': 0.1})
+                            'Major step limit': 1,
+                            'Major optimality tolerance': 1e-4})
 
 guessreport = utils.printProgramInitialGuessReport(controller.prog, terminal=True)
 if not os.path.exists(TARGET):
