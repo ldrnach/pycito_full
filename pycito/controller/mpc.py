@@ -378,6 +378,10 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         self._guess = self.InitializationStrategy.LINEAR
         # Set the results cache
         self._cache = None
+        # Add additional values for the dissipation constraint
+        I = np.eye(self._plant.dlevel + 1)
+        self._dissipation_matrix = np.kron(np.eye(self._plant.num_contacts()), np.kron(np.ones((1,2)), I))
+        self._dissipation_to_velocity = np.kron(np.eye(self._plant.num_contacts()), np.ones((1, self._plant.dlevel+1)))
         # Set the solver
         self._solver = OsqpSolver()
         self._setup_program()
@@ -407,6 +411,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         self._du = []   # Controls
         self._dl = []   # Forces
         self._ds = []   # Slacks
+        self._dd = []   # Dissipations (double parameterized)
         self._djl = []
         # Costs
         self._state_cost = []
@@ -437,10 +442,12 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         """
         Add and initialize decision variables to the program for the current time index
         """
+        nd = (self._plant.dlevel + 1) * self._plant.num_contacts()
         # Add new variables to the program
         self._dx.append(self.prog.NewContinuousVariables(rows = self.state_dim, name='state'))
         self._du.append(self.prog.NewContinuousVariables(rows = self.control_dim, name='control'))
         self._dl.append(self.prog.NewContinuousVariables(rows = self.force_dim, name='force'))
+        self._dd.append(self.prog.NewContinuousVariables(rows = nd, name='dissipation'))
         self._ds.append(self.prog.NewContinuousVariables(rows = self.slack_dim, name='slack'))
         # Add and initialize joint limits
         if self.jlimit_dim > 0:
@@ -453,6 +460,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         nV = self.lintraj.plant.multibody.num_velocities()
         nC = self.lintraj.plant.num_contacts()
         nF = self.lintraj.plant.num_friction()
+        nD = (self._plant.dlevel + 1) * self._plant.num_contacts()
         # Initialize the dynamics constraints
         if self.jlimit_dim > 0:
             dl_all = np.concatenate([self._dl[-1], self._djl[-1]], axis=0)
@@ -473,16 +481,20 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         self._distance[-1].name = "distance"
         self._distance[-1].addToProgram(self.prog, self._dx[-1], self._dl[-1][:nC])
         # Initialize dissipation constraint
-        self._dissipation.append(self.lcp.random(nQ + nV + nC, nF))
+        self._dissipation.append(self.lcp.random(nQ + nV + nD, nF))
         self._dissipation[-1].penalty = self._complementarity_penalty
         self._dissipation[-1].name = 'dissipation'
-        self._dissipation[-1].addToProgram(self.prog, np.concatenate([self._dx[-1], self._ds[-1]], axis=0), self._dl[-1][nC:nC+nF])
+        self._dissipation[-1].addToProgram(self.prog, np.concatenate([self._dx[-1], self._dd[-1]], axis=0), self._dl[-1][nC:nC+nF])
         # Initialize friction cone constraint
         self._friccone.append(self.lcp.random(nQ + nV + nF + nC, nC))
         self._friccone[-1].penalty = self._complementarity_penalty
         self._friccone[-1].name = 'friction cone'
         self._friccone[-1].addToProgram(self.prog, np.concatenate([self._dx[-1], self._dl[-1][:nC+nF]], axis=0), self._ds[-1])
-        
+        # Add the equality constraint between double parameterized dissipation variables and the friction cone slacks
+        A = np.concatenate([self._dissipation_to_velocity, -np.eye(self._plant.num_contacts())], axis=1)
+        self.prog.AddLinearEqualityConstraint(Aeq = A, beq = np.zeros(self._ds[-1].shape), vars=np.concatenate([self._dd[-1], self._ds[-1]], axis=0)).evaluator().set_description('TangentVelocityEquality')
+
+
     def _initialize_costs(self):
         """Add cost terms on the most recent variables"""
         # We add quadratic error costs on all variables, regularizing states and controls to 0 and complementarity variables to their trajectory values
@@ -593,7 +605,8 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             dist.updateCoefficients(A, b)
             dist.initializeSlackVariables()
             A, b = self.lintraj.getDissipationConstraint(index + k)
-            diss.updateCoefficients(A, b)
+            A_double = np.column_stack([A[:, :self.state_dim], self._dissipation_matrix.T])
+            diss.updateCoefficients(A_double, b)
             diss.initializeSlackVariables()
             A, b = self.lintraj.getFrictionConeConstraint(index + k)
             fric.updateCoefficients(A, b)
