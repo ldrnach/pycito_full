@@ -35,8 +35,11 @@ def set_controller_options(controller):
     controller.useSnoptSolver()
     controller.setSolverOptions({"Major feasibility tolerance": 1e-5,
                                 "Major optimality tolerance": 1e-5,
-                                'Scale option': 2})
-    controller.use_cached_guess()
+                                'Scale option': 2,
+                                'Major step limit':0.5,
+                                'Superbasics limit':1000,
+                                'Linesearch tolerance':0.1})
+    controller.use_basis_file()
     controller.lintraj.useNearestTime()
     controller.enableLogging()
     return controller

@@ -5,7 +5,7 @@ from pycito.utilities import save, load
 
 DISTANCE = 3
 SOURCE = os.path.join('data','a1','reference',f'{DISTANCE}m','reftraj.pkl')
-TARGET = os.path.join('examples','a1','estimation_in_the_loop','mpc','flatterrain_relaxed',f'{DISTANCE}m')
+TARGET = os.path.join('examples','a1','estimation_in_the_loop','mpc','flatterrain_relaxed',f'{DISTANCE}m','basistest')
 
 def make_flatterrain_model():
     a1 = A1VirtualBase()
