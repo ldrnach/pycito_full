@@ -376,6 +376,9 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         self._forcescale = 1.
         # Set default strategy for the initial guess
         self._guess = self.InitializationStrategy.LINEAR
+        # Warmstarting with the basis file
+        self._use_basis = False
+        self._old_basis, self._new_basis = 0, 0
         # Set the results cache
         self._cache = None
         # Set the solver
@@ -527,9 +530,10 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             self.prog.SetInitialGuess(ds, self.lintraj.getSlack(index + k + 1))
         for k, djl in enumerate(self._djl):
             self.prog.SetInitialGuess(djl, self.lintraj.getJointLimit(index + k + 1))
-   
+        if self._use_basis and self._cache is not None:
+            self.prog.SetInitialGuess(self.prog.decision_variables(), self._cache)
         # Initialize states and controls        
-        if self._guess == self.InitializationStrategy.ZERO:
+        elif self._guess == self.InitializationStrategy.ZERO:
             # Initialize states and controls to zero
             self.prog.SetInitialGuess(self.dx, np.zeros((self.state_dim, self.horizon + 1)))
             self.prog.SetInitialGuess(self.du, np.zeros((self.control_dim, self.horizon)))
@@ -639,7 +643,15 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         index = self.lintraj.getIndex(t, x0)
         u = self.lintraj.getControl(index)
         # Cache the results, if necessary
-        if self._guess == self.InitializationStrategy.CACHE:
+        if self._use_basis:
+            self._cache = result.GetSolution(self.prog.decision_variables())
+            if self._old_basis == 0:
+                self._old_basis = 2
+            self._old_basis, self._new_basis = self._new_basis, self._old_basis
+            self.setSolverOptions({'Old basis file': self._old_basis,
+                                    'New basis file': self._new_basis})
+            self.complementarity_schedule = self.complementarity_schedule[-1:]
+        elif self._guess == self.InitializationStrategy.CACHE:
             self._cache = {'dx': result.GetSolution(self.dx),
                             'du': result.GetSolution(self.du),
                             'dl': result.GetSolution(self.dl),
@@ -848,6 +860,12 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
 
     def use_cached_guess(self):
         self._guess = self.InitializationStrategy.CACHE
+
+    def use_basis_file(self):
+        self._use_basis = True
+        self._old_basis = 0
+        self._new_basis = 1
+        self.setSolverOptions({'New basis file': self._new_basis})
 
     def generate_report(self):
         """Generate a text string describing the settings for the MPC"""
