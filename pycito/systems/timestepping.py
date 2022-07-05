@@ -329,7 +329,7 @@ class TimeSteppingMultibodyPlant():
         qhat = q + h*dq
         # Get the system parameters
         context = self.multibody.CreateDefaultContext()
-        self.multibody.SetPositions(context, q)
+        self.multibody.SetPositions(context, qhat)
         v = self.multibody.MapQDotToVelocity(context, dq) 
         self.multibody.SetVelocities(context, v)
         M = self.multibody.CalcMassMatrixViaInverseDynamics(context)
