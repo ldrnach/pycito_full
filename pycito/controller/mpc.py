@@ -670,6 +670,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             else:
                 insert = ''
             print(f"MPC failed at time {t:0.3f} using {result.get_solver_id().name()} {insert}. Returning open loop control")
+            utils.printProgramReport(result, self.prog, verbose=True)
             return u
 
     def progressive_solve(self):
