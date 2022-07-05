@@ -5,7 +5,7 @@ from pycito.utilities import save, load
 
 DISTANCE = 3
 SOURCE = os.path.join('data','a1','reference',f'{DISTANCE}m','reftraj.pkl')
-TARGET = os.path.join('examples','a1','estimation_in_the_loop','mpc','flatterrain_relaxed',f'{DISTANCE}m','test')
+TARGET = os.path.join('examples','a1','estimation_in_the_loop','mpc','flatterrain_relaxed',f'{DISTANCE}m','tests')
 
 def make_flatterrain_model():
     a1 = A1VirtualBase()
@@ -20,10 +20,8 @@ def main():
     model = make_flatterrain_model()
     reftraj = mpctools.get_reference_trajectory(SOURCE)
     controller = mpctools.make_mpc_controller(reftraj)
-    # controller.enable_cost_display(display='terminal')
-    # controller.enable_cost_display(display='terminal')
     # Run the simulation
-    simdata = mpctools.run_simulation(model, controller, duration=1.)
+    simdata = mpctools.run_simulation(model, controller)
     # Save and plot the results
     save(os.path.join(TARGET, 'simdata.pkl'), simdata)
     mpctools.plot_mpc_logs(controller, TARGET)

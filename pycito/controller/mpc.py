@@ -647,10 +647,10 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             self._cache = result.GetSolution(self.prog.decision_variables())
             if self._old_basis == 0:
                 self._old_basis = 2
-            self._old_basis, self._new_basis = self._new_basis, self._old_basis
+            self._new_basis = 1
             self.setSolverOptions({'Old basis file': self._old_basis,
                                     'New basis file': self._new_basis})
-            self.complementarity_schedule = self.complementarity_schedule[-1:]
+            #self.complementarity_schedule = self.complementarity_schedule[-1:]
         elif self._guess == self.InitializationStrategy.CACHE:
             self._cache = {'dx': result.GetSolution(self.dx),
                             'du': result.GetSolution(self.du),
@@ -690,7 +690,10 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             if self._log_enabled:
                 last_log = self.logger.logs.pop()
                 total_time += last_log['solvetime']
-
+            if self._use_basis:
+                self._old_basis, self._new_basis = self._new_basis, self._new_basis + 1
+                self.setSolverOptions({'Old basis file': self._old_basis,
+                                        'New basis file': self._new_basis})
             self.prog.SetInitialGuess(self.prog.decision_variables(), result.GetSolution(self.prog.decision_variables()))
         if self._log_enabled:
             if result.is_success():

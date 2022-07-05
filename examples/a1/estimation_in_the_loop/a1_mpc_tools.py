@@ -26,20 +26,21 @@ def set_controller_options(controller):
     a1 = controller.lintraj.plant
     Kp = np.ones((a1.multibody.num_positions(),))
     Kv = np.ones((a1.multibody.num_velocities(), ))
-    Ks = np.diag(np.concatenate([1e1 * Kp, Kv], axis=0))
+    Ks = np.diag(np.concatenate([1e1 * Kp, 1e-1*Kv], axis=0))
     controller.statecost = Ks
     controller.controlcost = 1e-3*np.eye(controller.control_dim)
-    controller.forcecost = 1e-6 * np.eye(controller.force_dim)
-    controller.slackcost = 1e-6 * np.eye(controller.slack_dim)
+    controller.forcecost = 1e-4 * np.eye(controller.force_dim)
+    controller.slackcost = 0 * np.eye(controller.slack_dim)
+    controller.limitcost = 0 * np.eye(controller.jlimit_dim)
     #controller.complementarity_penalty = 1e-3
     controller.complementarity_schedule = [1e-2, 1e-4]    #originally 1e4
     controller.useSnoptSolver()
     controller.setSolverOptions({"Major feasibility tolerance": 1e-5,
                                 "Major optimality tolerance": 1e-5,
-                                'Scale option': 1,
-                                'Major step limit':0.5,
+                                'Scale option': 2,
+                                'Major step limit':2.0,
                                 'Superbasics limit':1000,
-                                'Linesearch tolerance':0.1,
+                                'Linesearch tolerance':0.9,
                                 'Iterations limit': 10000})
     controller.use_basis_file()
     controller.lintraj.useNearestTime()
