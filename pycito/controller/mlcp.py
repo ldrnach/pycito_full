@@ -333,6 +333,46 @@ class VariableRelaxedPseudoLinearComplementarityConstraint(PseudoLinearComplemen
         assert isinstance(val, (int, float)) and val >= 0, 'penalty must be a nonnegative scalar int or float '
         self.cost_weight = val
 
+class VariableRelaxedAugmentedPseudoLinearComplementarityConstraint(VariableRelaxedPseudoLinearComplementarityConstraint):
+    """
+        Recasts the pseudo linear complementarity constraint using an relaxation method. The constraint is implemented as:
+        min a * r + a/2 * r ^ 2
+            s = A*x + c
+            s >= 0
+            z >= 0
+            r - s*z >= 0
+    """
+    def __init__(self, A, c):
+        super().__init__(A, c)
+
+    def _add_relaxation_constraint(self, prog, relax):
+         # Add the slack cost
+        self._cost = prog.AddQuadraticCost(Q = self._cost_weight * np.eye(relax.size),
+                                            b = self._cost_weight * np.ones(relax.size),
+                                            vars=relax)
+        self._cost.evaluator().set_description(f'{self.name}_relax')
+        # Add the nonnegativity constraint on the relaxation parameter
+        prog.AddBoundingBoxConstraint(np.zeros((1,)), np.full((1,), np.inf), self._relax).evaluator().set_description(f"{self.name}_relax_nonnegativity")
+        self.initializeRelaxation()
+    
+    @property
+    def cost_weight(self):
+        return self._cost_weight
+
+    @cost_weight.setter
+    def cost_weight(self, val):
+        if isinstance(val, (int, float)):
+            assert val >= 0, f"cost_weight must be nonnegative"
+            self._cost_weight = np.array([val])
+        elif isinstance(val, np.array):
+            assert val.size == 1, f"cost_weight must be a scalar"
+            self._cost_weight = val
+        else:
+            raise ValueError("cost_weight must be a nonnegative scalar")
+        if self._cost is not None:
+            b = self._cost.evaluator().b()
+            self._cost.evaluator().UpdateCoefficients(self._cost_weight * np.eye(b.size), self._cost_weight * np.ones(b.size))
+
 class ConstantRelaxedPseudoLinearComplementarityConstraint(PseudoLinearComplementarityConstraint):
     """
         Recasts the pseudo linear complementarity constraint using an relaxation method. The constraint is implemented as:
