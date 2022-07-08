@@ -64,6 +64,9 @@ class StationaryKernel(KernelBase):
         else:
             raise TypeError(f"weights must be an int or float, or a list or array of ints and floats")
 
+    def __str__(self):
+        return f"{type(self).__name__} with weights {self.weights}"
+
     def __call__(self, X, Y = None):
         """
         Evaluate the kernel matrix
@@ -155,6 +158,9 @@ class PseudoHuberKernel(StationaryKernel):
         assert delta > 0, 'delta must be positive'
         self._delta = delta
 
+    def __str__(self):
+        return super().__str__() + f"and delta = {self._delta}"
+
     def _pseudohuber(self, dist): 
         return np.sqrt(1 + dist/self._delta ** 2 )
 
@@ -204,6 +210,9 @@ class LinearKernel(KernelBase):
         super().__init__()
         self.weights = weights
         self.offset = offset
+
+    def __str__(self):
+        return f"{type(self).__name__} with weights {self.weights} and offset {self.offset})"
 
     def eval(self, x, y):
         """
@@ -261,6 +270,9 @@ class CenteredLinearKernel(LinearKernel):
     """
     def __init__(self, weights=np.ones((1,))):
         super().__init__(weights, offset = 0)
+
+    def __str__(self):
+        return f"{type(self).__name__} with weights {self.weights}"
 
     def eval(self, x, y):
         """
@@ -345,6 +357,9 @@ class PolynomialKernel(LinearKernel):
         super().__init__(weights, offset)
         self.degree = degree
 
+    def __str__(self):
+        return super().__str__() + f" and degree {self.degree}"
+
     def eval(self, x, y):
         """
         Return the kernel matrix calculated from two example datapoints
@@ -378,6 +393,9 @@ class ConstantKernel(KernelBase):
     def __init__(self, const=1.):
         super().__init__()
         self.const = const
+
+    def __str__(self):
+        return f"{type(self).__name__} with constant {self.const}"
 
     def eval(self, x, y):
         """
@@ -421,6 +439,9 @@ class WhiteNoiseKernel(KernelBase):
     def __init__(self, noise=1.0):
         super().__init__()
         self.noise = noise
+
+    def __str__(self):
+        return f"{type(self).__name__}(noise = {self.noise})"
 
     def __call__(self, X, Y=None):
         """Evaluate the kernel matrix"""
@@ -478,6 +499,12 @@ class CompositeKernel(KernelBase):
             assert issubclass(type(kernel), KernelBase), f"{type(kernel)} is not a defined kernel"
         self.kernels = args
 
+    def __str__(self):
+        text = f"{type(self).__name__} with component kernels:"
+        for kernel in self.kernels:
+            text += f'\n\t{str(kernel)}'
+        return text
+
     def __call__(self, X, Y=None):
         """Evaluate the kernel matrix"""
         return sum(kernel(X, Y) for kernel in self.kernels)
@@ -516,7 +543,6 @@ class RegularizedRBFKernel(CompositeKernel):
         rbf = RBFKernel(length_scale = length_scale)
         noise = WhiteNoiseKernel(noise = noise)
         super().__init__(rbf, noise)
-
 class RegularizedPseudoHuberKernel(CompositeKernel):
     def __init__(self, length_scale = 1.0, delta = 1.0, noise = 0.):
         ph  = PseudoHuberKernel(length_scale = length_scale, delta = delta)
