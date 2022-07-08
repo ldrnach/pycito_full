@@ -8,7 +8,7 @@ import pycito.systems.kernels as kernels
 
 HORIZON = 1
 SOURCE = os.path.join('examples','a1','simulation_tests','fullstep','timestepping','simdata.pkl')
-TARGET = os.path.join('examples','a1','estimation_in_the_loop','offline_estimation','singlestep',f'N{HORIZON}','testing','linearrelaxedcost')
+TARGET = os.path.join('examples','a1','estimation_in_the_loop','offline_estimation','singlestep',f'N{HORIZON}','testing','velocitycost','accuratemodel')
 TRAJNAME = 'estimatedtrajectory.pkl'
 FIGURENAME = 'EstimationResults.png'
 LOGFIGURE = 'SolverLogs.png'
@@ -20,7 +20,7 @@ def make_a1():
     #kernel = kernels.RegularizedPseudoHuberKernel(length_scale = np.array([0.01, 0.01, np.inf]), delta = 0.1, noise = 0.01)
     a1.terrain = cm.SemiparametricContactModel(
         surface = cm.SemiparametricModel(cm.FlatModel(location = 0.0, direction = np.array([0., 0., 1.0])), kernel = kernel),
-        friction = cm.SemiparametricModel(cm.ConstantModel(const = 0.0), kernel = copy.deepcopy(kernel))
+        friction = cm.SemiparametricModel(cm.ConstantModel(const = 1.0), kernel = copy.deepcopy(kernel))
     )
     a1.Finalize()
     return a1
@@ -30,11 +30,12 @@ def make_estimator(data):
     traj = ce.ContactEstimationTrajectory(a1, data['state'][:,0])
     estimator = ce.ContactModelEstimator(traj, horizon=HORIZON)
     # Set the costs appropriately
-    estimator.forcecost = 1e0
+    estimator.forcecost = 1e1
     estimator.relaxedcost = 1e3
     estimator.distancecost = 1
-    estimator.frictioncost = 1
-    estimator.velocity_scaling = 1e-3
+    estimator.frictioncost = 1e2
+    estimator.velocity_scaling = 1
+    estimator.velocitycost = 1e2
     estimator.force_scaling = 1e2
     estimator.useSnoptSolver()
     estimator.setSolverOptions({'Major feasibility tolerance': 1e-6,

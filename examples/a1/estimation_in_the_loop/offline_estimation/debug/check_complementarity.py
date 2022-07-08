@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pycito.controller.optimization import OptimizationLogger
 
-SOURCE = os.path.join('examples','a1','estimation_in_the_loop','offline_estimation','singlestep','N1','testing','linearrelaxedcost','solutionlogs.pkl')
+SOURCE = os.path.join('examples','a1','estimation_in_the_loop','offline_estimation','singlestep','N1','testing','velocitycost_nonlinear','accuratemodel','solutionlogs.pkl')
 
 logs = OptimizationLogger.load(SOURCE).logs  
 
