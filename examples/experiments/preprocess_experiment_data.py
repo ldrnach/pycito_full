@@ -1,12 +1,15 @@
-from common import *
+import os
+import numpy as np
+import pycito.utilities as utils
 
-START_TIME = 5.0
-STOP_TIME = 25.0
-DOWNSAMPLING = 10
+START_TIME = 0.
+STOP_TIME = 15.0
+DOWNSAMPLING = 1
 
-TARGET = os.path.join('data','a1_experiment','a1_hardware_full.pkl')
+SOURCE = os.path.join('data','a1_experiment','a1_simulation.pkl')
+TARGET = os.path.join('data','a1_experiment','a1_simulation_samples.pkl')
 
-data = get_data()
+data = utils.load(SOURCE)
 
 time = np.squeeze(data['time'])
 
