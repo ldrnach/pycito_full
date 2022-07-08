@@ -87,12 +87,14 @@ class ReferenceTrajectory():
 
     def getTimeIndex(self, t, x=None, last_index=None):
         """Return the index of the last timepoint less than the current time"""
-        if t < self._time[0]:
-            return 0
-        elif t > self._time[-1]:
-            return self.num_timesteps
-        else:
-            return np.argmax(self._time > t) - 1
+        d = np.abs(t - self._time)
+        return np.argmin(d)
+        # if t < self._time[0]:
+        #     return 0
+        # elif t > self._time[-1]:
+        #     return self.num_timesteps
+        # else:
+        #     return np.argmax(self._time > t) - 1
     
     def getNearestStateIndex(self, t, x, last_index = 0):
         """Return the index of the nearest state in the trajectory"""
