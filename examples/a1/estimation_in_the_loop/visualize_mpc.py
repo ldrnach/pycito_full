@@ -6,7 +6,7 @@ from pycito.systems.visualization import Visualizer
 from pydrake.all import PiecewisePolynomial, SpatialInertia, UnitInertia, PrismaticJoint, BallRpyJoint
 
 REFSOURCE = os.path.join('data','a1','reference','3m','reftraj.pkl')
-SIMSOURCE = os.path.join('examples','a1','estimation_in_the_loop','mpc','flatterrain','3m','simdata.pkl')
+SIMSOURCE = os.path.join('examples','a1','estimation_in_the_loop','mpc','flatterrain_relaxed','3m','tests_force_3','simdata.pkl')
 
 def add_a1_to_visualizer(vis = None):
     """Add A1 model to the visualizer"""
