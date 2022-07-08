@@ -8,8 +8,8 @@ import pycito.systems.contactmodel as cm
 import pycito.systems.kernels as kernels
 
 HORIZON = 5
-SOURCE = os.path.join('data','a1_experiment','a1_hardware_samples.pkl')
-TARGET = os.path.join('examples','experiments','a1_offline_estimation','hardware_tuning','test15')
+SOURCE = os.path.join('data','a1_experiment','a1_simulation_samples.pkl')
+TARGET = os.path.join('examples','experiments','a1_offline_estimation','hardware_simulation','test1')
 
 TRAJNAME = 'estimatedtrajectory.pkl'
 FIGURENAME = 'EstimationResults.png'
@@ -19,11 +19,11 @@ LOGGINGNAME = 'solutionlogs.pkl'
 def make_a1():
     a1 = A1VirtualBase()
     frickernel = kernels.WhiteNoiseKernel(noise=1)
-    surfkernel = kernels.RegularizedCenteredLinearKernel(weights = np.diag([0.1, 0.1, 0.0]), noise = 0.001)
+    surfkernel = kernels.RegularizedCenteredLinearKernel(weights = np.diag([0.01, .01, 0.01]), noise = 0.001)
     #kernel = kernels.RegularizedPseudoHuberKernel(length_scale = np.array([0.01, 0.01, np.inf]), delta = 0.1, noise = 0.01)
     a1.terrain = cm.SemiparametricContactModel(
         surface = cm.SemiparametricModel(cm.FlatModel(location = 0.0, direction = np.array([0., 0., 1.0])), kernel = surfkernel),
-        friction = cm.SemiparametricModel(cm.ConstantModel(const = 0.0), kernel = frickernel)
+        friction = cm.SemiparametricModel(cm.ConstantModel(const = 1.0), kernel = frickernel)
     )
     a1.Finalize()
     return a1
@@ -34,9 +34,9 @@ def make_estimator(data):
     traj._time[0] = data['time'][0]
     estimator = ce.ContactModelEstimator(traj, horizon=HORIZON)
     # Set the costs appropriately
-    estimator.forcecost = 1e1
+    estimator.forcecost = 1e2
     estimator.relaxedcost = 1e3
-    estimator.distancecost = 1e2
+    estimator.distancecost = 1
     estimator.frictioncost = 1
     estimator.velocity_scaling = 1e-3
     estimator.force_scaling = 1e2
