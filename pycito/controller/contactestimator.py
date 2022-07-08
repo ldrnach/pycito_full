@@ -1096,6 +1096,8 @@ class ContactModelEstimator(OptimizationMixin):
         text += f"\n\tFriction Cost: {self.frictioncost}"
         text += f"\n\tVelocity scaling: {self.velocity_scaling}"
         text += f"\n\tForce Scaling: {self.force_scaling}"
+        text += f'\n\nSemiparametric Contact Model:'
+        text += f'\n\t{str(self.traj.contact_model)}'
         return text
 
     @property
