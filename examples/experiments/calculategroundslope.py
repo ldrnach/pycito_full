@@ -8,7 +8,7 @@ from pycito.systems.A1.a1 import A1VirtualBase
 import pycito.systems.contactmodel as cm
 import pycito.systems.kernels as kernels
 
-SOURCEDIR = os.path.join('examples','experiments','a1_offline_estimation','hardware_test_slope')
+SOURCEDIR = os.path.join('examples','experiments','a1_offline_estimation','hardware_tuning','test3')
 DATASOURCE = os.path.join('data','a1_experiment','a1_hardware_samples.pkl')
 SOURCE = os.path.join(SOURCEDIR, 'estimatedtrajectory.pkl')
 LOGS = os.path.join(SOURCEDIR, 'solutionlogs.pkl')
@@ -26,9 +26,22 @@ def make_a1():
     a1.Finalize()
     return a1
 
-def get_body_bitch():
+def get_body_pitch():
     data = utils.load(DATASOURCE)
-    return data['state'][4,:] * 180 / np.pi
+    return -data['state'][4,:] * 180 / np.pi
+
+def calculate_ground_slope(model, cpts, weights):
+    model = copy.deepcopy(model)
+    model.add_samples(cpts, weights)
+    dg = model.gradient(np.zeros((3,)))
+    return np.arctan2(-dg[0,0], dg[0,2]) * 180 / np.pi
+
+def calculate_ground_slope_arccos(model, cpts, weights):
+    model = copy.deepcopy(model)
+    model.add_samples(cpts, weights)
+    dg = model.gradient(np.zeros((3,)))
+    dg_s = np.sqrt(np.sum(dg ** 2))
+    return np.arccos(dg[0,2]/dg_s) * 180 /np.pi
 
 def main():
     a1 = make_a1()
@@ -39,13 +52,10 @@ def main():
     z_null = np.zeros((3,))
     slope = np.zeros((len(dweights,)))
     for k, (cpt, weights) in enumerate(zip(cetraj._contactpoints, dweights)):
-        surfmodel = copy.deepcopy(surf)
-        surfmodel.add_samples(cpt, weights)
-        dg = surfmodel.gradient(z_null)
-        slope[k] = np.arctan2(-dg[0, 0], dg[0, 2]) * 180 / np.pi
+        slope[k] = calculate_ground_slope_arccos(surf, cpt, weights)
     # Make a plot of slope against time
     t = np.row_stack(cetraj._time)
-    pitch = get_body_bitch()
+    pitch = get_body_pitch()
     plt.plot(t, slope, linewidth=1.5, label='Ground Slope Estimate')
     plt.plot(t, pitch, linewidth=1.5, label='Body Pitch')
     plt.xlabel('Time (s)')
