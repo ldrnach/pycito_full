@@ -17,3 +17,4 @@ __init__.pyc
 *.csv
 # Other
 PKG-INFO
+fort.*
