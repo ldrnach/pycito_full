@@ -55,6 +55,9 @@ class ConstantModel(DifferentiableModel):
     def __init__(self, const = 1.0):
         self._const = const
 
+    def __str__(self):
+        return f"{type(self).__name__}({self._const})"
+
     def eval(self, x):    
         """
         Evalute the constant prior
@@ -85,6 +88,9 @@ class FlatModel(DifferentiableModel):
     def __init__(self, location = 1.0, direction = np.array([0, 0, 1])):
         self._location = location
         self._direction = direction
+
+    def __str__(self):
+        return f"{type(self).__name__}(location = {self._location}, direction = {self._direction})"
 
     def eval(self, x):
         """
@@ -122,6 +128,12 @@ class PiecewiseModel(DifferentiableModel):
         # Setup
         self._breaks = breaks
         self._models = models
+
+    def __str__(self):
+        text = f"{type(self).__name__} with submodels:"
+        for breaks, model in zip(self._breaks, self._models):
+            text += f"\n\t{str(model)} at breakpoint {breaks}"
+        return text
 
     def eval(self, x):
         """
@@ -180,6 +192,9 @@ class SemiparametricModel(DifferentiableModel):
     def FlatPriorWithHuberKernel(cls, location = 0, direction = np.array([0, 0, 1]), length_scale = 1., delta = 1, reg=0.):
         return cls(prior = FlatModel(location, direction),
                     kernel = kernels.RegularizedPseudoHuberKernel(length_scale, delta, noise=reg))
+
+    def __str__(self):
+        return f"{type(self).__name__} with \n\tprior {str(self.prior)}\n\tkernel: {str(self.kernel)}"
 
     def add_samples(self, samples, weights):
         """
@@ -368,6 +383,9 @@ class ContactModel(_ContactModel):
         assert issubclass(type(friction), DifferentiableModel), 'friction must be a subclass of DifferentiableModel'
         self.surface = surface
         self.friction = friction
+
+    def __str__(self):
+        return f"{type(self).__name__}:\n\tSurface Model: {str(self.surface)}\n\tFriction Model: {str(self.friction)}"
 
     @classmethod
     def FlatSurfaceWithConstantFriction(cls, location = 0., friction = 1.0, direction=np.array([0., 0., 1.])):
