@@ -16,8 +16,6 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lcmscr
 
 CONFIGFILE = os.path.join('hardwareinterface', 'estimatorconfig.json')
 
-#TODO: Unittesting
-
 class A1ContactEstimationInterface():
     def __init__(self):
         """
