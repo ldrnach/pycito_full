@@ -477,6 +477,22 @@ class ContactEstimationTrajectory(ContactTrajectory):
         new._friction_error = self._friction_error[start:stop]
         return new
 
+    def flush(self, keep=1):
+        del self._time[:-keep]
+        del self._contactpoints[:-keep]
+        del self._forces[:-keep]
+        del self._slacks[:-keep]
+        del self._feasibility[:-keep]
+        del self._distance_error[:-keep]
+        del self._friction_error[:-keep]
+        del self._dissipation_slacks[:-keep]
+        del self._dynamics_cstr[:-keep]
+        del self._distance_cstr[:-keep]
+        del self._dissipation_cstr[:-keep]
+        del self._friction_cstr[:-keep]
+        del self._distance_error[:-keep]
+        del self._friction_error[:-keep]
+
     def append_sample(self, time, state, control):
         """
         Append a new point to the trajectory
@@ -1099,6 +1115,10 @@ class ContactModelEstimator(OptimizationMixin):
         text += f'\n\nSemiparametric Contact Model:'
         text += f'\n\t{str(self.traj.contact_model)}'
         return text
+
+    def flush(self):
+        """Flush the contact trajectory, to free up space in memory"""
+        self.traj.flush(self.maxhorizon)
 
     @property
     def relaxedcost(self):
