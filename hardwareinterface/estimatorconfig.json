@@ -1,0 +1,39 @@
+{
+    "Estimator": {
+        "DistanceCost": 1,
+        "EnableLogging": false,
+        "ForceCost": 100.0,
+        "ForceScaling": 100.0,
+        "FrictionCost": 1,
+        "Horizon": 5,
+        "InitialLegPose": [
+            0.0,
+            0.8,
+            -1.6
+        ],
+        "RelaxationCost": 1000.0,
+        "VelocityScaling": 0.001
+    },
+    "FrictionModel": {
+        "KernelRegularization": 1.0,
+        "Prior": 1.0
+    },
+    "Solver": {
+        "Major feasibility tolerance": 1e-06,
+        "Major optimality tolerance": 1e-06
+    },
+    "SurfaceModel": {
+        "KernelRegularization": 0.001,
+        "KernelWeights": [
+            0.01,
+            0.01,
+            0.01
+        ],
+        "PriorDirection": [
+            0.0,
+            0.0,
+            1.0
+        ],
+        "PriorLocation": 0
+    }
+}
