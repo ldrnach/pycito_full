@@ -180,6 +180,19 @@ class OptimizationMixin():
                 text += f"\t {key}: {self.solver_options[key]}\n"
         return text
 
+    def enable_cost_display(self, display='terminal'):
+        """
+        Add a visualization callback to print/show the cost values and constraint violations at each iteration
+
+        Parameters:
+            display: "terminal" prints the costs and constraints to the terminal
+                     "figure" prints the costs and constraints to a figure window
+                     "all"    prints the costs and constraints to the terminal and to a figure window
+        """
+        self.printer = utils.MathProgIterationPrinter(prog=self.prog, display=display)
+        all_vars = self.prog.decision_variables()
+        self.prog.AddVisualizationCallback(self.printer, all_vars)  
+
     @property
     def solver(self):
         return self._solver

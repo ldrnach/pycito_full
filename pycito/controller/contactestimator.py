@@ -12,8 +12,10 @@ February 14, 2022
 import numpy as np
 import copy, warnings
 import matplotlib.pyplot as plt
+from scipy.optimize import nnls
+from scipy.linalg import block_diag
 
-from pydrake.all import MathematicalProgram, SnoptSolver
+from pydrake.all import MathematicalProgram, SnoptSolver, Solve
 from pydrake.all import PiecewisePolynomial as pp
 
 import pycito.trajopt.constraints as cstr
@@ -95,6 +97,7 @@ class ContactTrajectory():
         self._contactpoints = []
         self._forces = []
         self._slacks = []
+        self._dissipation_slacks = []
         self._feasibility = []
         self._distance_error = []
         self._friction_error = []
@@ -121,6 +124,7 @@ class ContactTrajectory():
         new._contactpoints = self._contactpoints[start:stop]
         new._forces = self._forces[start:stop]
         new._slacks = self._slacks[start:stop]
+        new._dissipation_slacks = self._dissipation_slacks[start:stop]
         new._feasibility = self._feasibility[start:stop]
         return new
 
@@ -213,6 +217,16 @@ class ContactTrajectory():
         """
         self.set_at(self._feasibility, index, rslack)
 
+    def set_dissipation_slack(self, index, dslack):
+        """
+        set dissipation double-parameterized slacks at the specified index
+        
+        Arguments:
+            index: (int) the index at which to set the value 
+            dslack: the values to set
+        """
+        self.set_at(self._dissipation_slacks, index, dslack)
+
     def getTimeIndex(self, t):
         """
         Return the index of the last timepoint less than the current time
@@ -284,6 +298,19 @@ class ContactTrajectory():
         """
         return self.get_at(self._slacks, start_idx, stop_idx)
 
+    def get_dissipation_slacks(self, start_idx, stop_idx=None):
+        """
+        Return a list of double parameterized velocity dissipation slacks at the specified index
+
+        Arguments:
+            start_idx (int): the first index to return
+            stop_idx (int, optional): the last index to return (by default, start_index)
+        
+        Returns:
+            lst: velocity dissipation slacks between [start_idx, stop_idx)
+        """
+        return self.get_at(self._dissipation_slacks, start_idx, stop_idx)
+
     def get_distance_error(self, start_idx, stop_idx=None):
         """
         Return a list of signed distance errors at the specified index
@@ -342,6 +369,9 @@ class ContactEstimationTrajectory(ContactTrajectory):
         self._context = plant.multibody.CreateDefaultContext()
         # Store the duplication matrix
         self._D = self._plant.duplicator_matrix()
+        I = np.eye(self._plant.dlevel+1)
+        self._dissipation_matrix = np.kron(np.eye(self.num_contacts), np.kron(np.ones((1,2)), I))
+        self._dissipation_to_velocity = np.kron(np.eye(self.num_contacts), np.ones((1,self._plant.dlevel+1)))
         # Store the terrain kernel matrices
         self.contact_model = plant.terrain
         assert isinstance(self.contact_model, SemiparametricContactModel), f"plant does not contain a semiparametric contact model"
@@ -432,6 +462,7 @@ class ContactEstimationTrajectory(ContactTrajectory):
         traj._feasibility = self._feasibility
         traj._distance_error = self._distance_error
         traj._friction_error = self._friction_error
+        traj._dissipation_slacks = self._dissipation_slacks
         traj.save(filename)
 
     def subset(self, start, stop):
@@ -462,6 +493,7 @@ class ContactEstimationTrajectory(ContactTrajectory):
         self._append_distance()
         self._append_dissipation()
         self._append_friction()
+        #self._refine_guess()
 
     def _append_dynamics(self, state, control):
         """
@@ -485,17 +517,10 @@ class ContactEstimationTrajectory(ContactTrajectory):
         # Save the state for the the next call to append_dynamics
         self._last_state = state
         # Add a guess to the reaction forces
-        f = np.linalg.lstsq(A, b, rcond=None)[0]
-        # Reorganize the friction forces
-        fN, fT = np.split(f, [self.num_contacts])
-        FD = self._plant.friction_discretization_matrix()
-        fT = FD.T.dot(FD.dot(fT))
-        fT[fT < self._FTOL] = 0
-        f = np.concatenate([fN, fT], axis=0)
+        f = nnls(A, b)[0]
         self._forces.append(f)
-        # Add the feasibility guess
-        err = A.dot(f) - b
-        self._feasibility.append(np.ones(1,)*err.max())
+        err = A.dot(f) -b 
+        self._feasibility.append(np.ones(1,) * np.max(np.abs(err)))
 
     def _append_distance(self):
         """
@@ -521,13 +546,13 @@ class ContactEstimationTrajectory(ContactTrajectory):
         _, Jt = self._plant.GetContactJacobians(self._context)
         v = self._plant.multibody.GetVelocities(self._context)
         b = Jt.dot(v)
+        fT = np.diag(self._forces[-1][self.num_contacts:])
+        A = fT.dot(self._dissipation_matrix.T)
+        vs = nnls(A, - fT.dot(b))[0]
+        w = fT.dot(self._dissipation_matrix.T.dot(vs) + b)
+        self._dissipation_slacks.append(vs)
+        self._slacks.append(self._dissipation_to_velocity.dot(vs))
         self._dissipation_cstr.append(b)
-        # Append to the dissipation slacks - TODO: Update how the slack is determined for multiple contacts
-        vs = np.max(-b) * np.ones((self._D.shape[0],))
-        self._slacks.append(vs)
-        # Increase the feasibility to ensure the constraint is trivially satisfied
-        fT = self._forces[-1][self.num_contacts:]
-        w = (self._D.T.dot(vs) + b) * fT
         self._feasibility[-1] += np.max(np.abs(w))
 
     def _append_friction(self):
@@ -539,15 +564,12 @@ class ContactEstimationTrajectory(ContactTrajectory):
         self._friction_cstr.append(mu)
         # Use the most recent value of the forces to calculate the friction cone defecit
         fN, fT = np.split(self._forces[-1], [self.num_contacts])
-        fc = np.diag(mu).dot(fN) - self._D.dot(fT)
-        mu_err = np.zeros_like(mu)
-        err_index = fc < 0 and fN > 0
-        if np.any(err_index):
-            mu_err[fc < 0 and fN > 0] = -fc[fc < 0 and fN > 0]/fN[fc < 0 and fN > 0]
-        self._friction_error.append(mu_err)
-        # Update the feasibility to ensure the nonlinear constraint is trivially satisfied
-        g = self._slacks[-1]
-        w = (mu * fN - self._D.dot(fT)) * g
+        vs = self._slacks[-1]
+        A = np.diag(vs * fN)
+        b = vs * self._D.dot(fT)
+        z = nnls(A, b)[0]
+        self._friction_error.append(z - mu)
+        w = vs * (z * fN - self._D.dot(fT))
         self._feasibility[-1] += np.max(np.abs(w))
 
     def getDynamicsConstraint(self, index):
@@ -594,7 +616,7 @@ class ContactEstimationTrajectory(ContactTrajectory):
                 g: (nC,) array, the maximum tangential velocity slack variables
         """
         assert index >= 0 and index < len(self._dissipation_cstr), "index out of bounds"
-        return self._D.transpose(), self._dissipation_cstr[index]
+        return self._dissipation_matrix.transpose(), self._dissipation_cstr[index]
 
     def getFrictionConstraint(self, index):
         """
@@ -641,6 +663,22 @@ class ContactEstimationTrajectory(ContactTrajectory):
         """
         if index < len(self._slacks):
             return self._slacks[index]
+        else:
+            v = self.getDissipationSlackGuess(index)
+            return self._dissipation_to_velocity.dot(v)
+
+    def getDissipationSlackGuess(self, index):
+        """
+        Return the initial guess for the double-parameterized dissipation slacks at the specified index
+
+        Arguments:
+            index (int): a scalar index variables
+
+        Return value:
+            v: (nF, ) array of nonnegative guesses for the tangential velocity slack variable, where nF is the number of friction forces
+        """
+        if index < len(self._slacks):
+            return self._dissipation_slacks[index]
         else:
             D, v = self.getDissipationConstraint(index)
             return np.max(-v)*np.ones((D.shape[1], ))
@@ -689,6 +727,83 @@ class ContactEstimationTrajectory(ContactTrajectory):
         """Returns the total number of friction force components in the model"""
         return self._plant.num_friction()
 
+    @property
+    def num_dissipation(self):
+        """Returns the number of velocities in the dissipation constraint"""
+        return (self._plant.dlevel + 1) * self.num_contacts
+
+    def _refine_guess(self, atol=1e-4):
+        # Use the most recent value of the forces to calculate errors
+        fN, fT = np.split(self._forces[-1], [self.num_contacts])
+        inf_b =np.full((self.num_contacts,), np.inf)
+        inf_t = np.full((self.num_friction,), np.inf)
+        # Prior constraint values
+        dist = self._distance_cstr[-1]
+        vs = self._dissipation_cstr[-1]
+        mu = self._friction_cstr[-1]
+        # Recalculate the force and slack variables
+        A, b = self._dynamics_cstr[-1]
+        # Solve for the forces and sliding velocity simultaneously
+        prog = MathematicalProgram()
+        nforce = prog.NewContinuousVariables(rows = self.num_contacts)
+        tforce = prog.NewContinuousVariables(rows = self.num_friction)
+        dslack = prog.NewContinuousVariables(rows = self.num_dissipation)
+        # Add the dynamics as a quadratic cost
+        prog.AddQuadraticCost(A.T.dot(A), -b.T.dot(A), 1/2*b.dot(b), np.concatenate([nforce, tforce])).evaluator().set_description('Dynamics')
+        # Add the remaining constraints
+        prog.AddBoundingBoxConstraint(np.zeros((self.num_contacts, )), inf_b, nforce).evaluator().set_description('normal_force_bbox')
+        prog.AddBoundingBoxConstraint(np.zeros((self.num_dissipation,)), np.full((self.num_dissipation,), np.inf), dslack).evaluator().set_description('sliding_velocity_bbox')
+        cstr = mlcp.ConstantRelaxedPseudoLinearComplementarityConstraint(A = self._dissipation_matrix.transpose(), c = vs, relax=atol)
+        cstr.name = 'velocity'
+        cstr.addToProgram(prog, dslack, tforce)
+        # Solve the program using SNOPT
+        dvals = np.concatenate([fN, fT, self._dissipation_slacks[-1]], axis=0)
+        dvals[dvals<0.1] = 0.1
+        prog.SetInitialGuess(np.concatenate([nforce, tforce, dslack], axis=0), dvals)
+        cstr.initializeSlackVariables()
+
+        result = SnoptSolver().Solve(prog)
+        if result.is_success():
+            print(f'refinement succeeded with final cost {result.get_optimal_cost()}')
+            fN = result.GetSolution(nforce)
+            fT = result.GetSolution(tforce)
+            sliding_vel = result.GetSolution(dslack)
+            self._forces[-1] = np.concatenate([fN, fT], axis=0)
+            self._dissipation_slacks[-1] = sliding_vel
+            self._slacks[-1] = self._dissipation_to_velocity.dot(sliding_vel)
+            self._feasibility[-1] = np.array([max(np.sqrt(result.get_optimal_cost()), atol)])
+        else:
+            print('refinement step failed')
+
+        # Based on this step, estimate the terrain errors
+        fN, fT = np.split(self._forces[-1], [self.num_contacts])
+        vs = self._slacks[-1]
+        prog = MathematicalProgram()
+        d_err = prog.NewContinuousVariables(rows = self.num_contacts)
+        f_err = prog.NewContinuousVariables(rows = self.num_contacts)
+        # add costs
+        Q = np.eye(self.num_contacts)
+        b = np.zeros((self.num_contacts, ))
+        prog.AddQuadraticCost(Q, b, vars=d_err)
+        prog.AddQuadraticCost(Q, b, vars=f_err)
+        # Add distance constraints
+        prog.AddLinearConstraint(Q, -dist, inf_b, d_err).evaluator().set_description('DistancePositivity')
+        prog.AddLinearConstraint(np.diag(fN), - inf_b,  atol -fN * dist, d_err).evaluator().set_description('DistanceOrthogonality')
+        prog.SetInitialGuess(d_err, self._distance_error[-1])
+        # Add friction constraints
+        c = np.diag(mu).dot(fN) - self._D.dot(fT)
+        prog.AddLinearConstraint(np.diag(fN), -c, inf_b, f_err).evaluator().set_description('FrictionConePositivity')
+        prog.AddLinearConstraint(np.diag(vs * fN), -inf_b, -vs * c + atol, f_err).evaluator().set_description('FrictionConeOrthogonality')
+        prog.AddLinearConstraint(Q, -mu, inf_b, f_err).evaluator().set_description('FrictionCoefficientPositivity')
+        prog.SetInitialGuess(f_err, self._friction_error[-1])
+
+        result = SnoptSolver().Solve(prog)
+        if result.is_success():
+            self._distance_error[-1] = result.GetSolution(d_err)
+            self._friction_error[-1] = result.GetSolution(f_err)
+        else:
+            print('Error refinement failed')
+
 class ContactModelEstimator(OptimizationMixin):
     def __init__(self, esttraj, horizon, lcp = mlcp.VariableRelaxedPseudoLinearComplementarityConstraint):
         """
@@ -707,6 +822,10 @@ class ContactModelEstimator(OptimizationMixin):
         self._distance_cost_weight = 1.
         self._friction_cost_weight = 1.
         self._solver = SnoptSolver()
+        # Constraint scaling
+        self._velocity_scaling = 1
+        # Force scaling
+        self._force_scaling = 1
 
     def estimate_contact(self, t, x, u):
         # Append new samples
@@ -744,13 +863,15 @@ class ContactModelEstimator(OptimizationMixin):
             Update the contact estimation trajectory from the problem result
         """
         # Stash the forces, slack variables, etc
-        forces = result.GetSolution(self.forces).reshape(self.forces.shape)
+        forces = result.GetSolution(self.forces).reshape(self.forces.shape) * self._force_scaling
         vslacks = result.GetSolution(self.velocities).reshape(self.velocities.shape)
         relax = result.GetSolution(self.feasibilities).reshape(self.feasibilities.shape)
+        dslacks = result.GetSolution(self.dissipationslacks).reshape(self.dissipationslacks.shape)
         idx = self.traj.getTimeIndex(t)
         self.traj.set_force(idx, forces[:, -1])
         self.traj.set_dissipation(idx, vslacks[:, -1])
         self.traj.set_feasibility(idx, relax[:, -1])
+        self.traj.set_dissipation_slack(idx, dslacks[:, -1])
         # Get the distance and friction weights
         dweights = result.GetSolution(self._distance_weights).reshape(self._distance_weights.shape)
         fweights = result.GetSolution(self._friction_weights).reshape(self._friction_weights.shape)
@@ -797,6 +918,7 @@ class ContactModelEstimator(OptimizationMixin):
         self._normal_forces = []
         self._friction_forces = []
         self._velocity_slacks = []
+        self._dissipation_slacks = []
         self._relaxation_vars = []
         self._distance_kernel = None
         self._friction_kernel = None
@@ -863,7 +985,7 @@ class ContactModelEstimator(OptimizationMixin):
         # Initialize the friction kernel weights
         ferr = np.concatenate(self.traj.get_friction_error(self._startptr, self._startptr + self.horizon), axis=0)
         force = np.column_stack(self.traj.get_forces(self._startptr, self._startptr + self.horizon))
-        fN = force[:self.traj.num_contacts, :].reshape(-1)
+        fN = force[:self.traj.num_contacts, :].reshape(-1) /self._force_scaling
         fweights = np.linalg.lstsq(self._friction_kernel, ferr * fN, rcond = None)[0]
         self._prog.SetInitialGuess(self._friction_weights, fweights)
 
@@ -874,10 +996,12 @@ class ContactModelEstimator(OptimizationMixin):
         # Parameters
         nc = self.traj.num_contacts
         nf = self.traj.num_friction
+        nd = self.traj.num_dissipation
         # Add the forces, etc
         self._normal_forces.append(self._prog.NewContinuousVariables(rows=nc, name='normal_forces'))
         self._friction_forces.append(self._prog.NewContinuousVariables(rows=nf, name='friction_forces'))
         self._velocity_slacks.append(self._prog.NewContinuousVariables(rows=nc, name='velocity_slacks'))
+        self._dissipation_slacks.append(self._prog.NewContinuousVariables(rows=nd, name='dissipation_slacks'))
         # Add the relaxation variables
         self._relaxation_vars.append(self._prog.NewContinuousVariables(rows=1, name='relaxation'))
 
@@ -892,21 +1016,21 @@ class ContactModelEstimator(OptimizationMixin):
         self._force_cost.evaluator().set_description('Force Cost')
         # Relaxation cost 
         all_relax = np.concatenate(self._relaxation_vars, axis=0)
-        r_weights = self._relax_cost_weight * np.eye(all_relax.shape[0])
-        r_ref = np.zeros((all_relax.shape[0],))
-        self._relax_cost = self._prog.AddQuadraticErrorCost(r_weights, r_ref, all_relax)
+        r_weights = 2 *self._relax_cost_weight * np.eye(all_relax.shape[0])
+        r_ref =  self._relax_cost_weight * np.ones((all_relax.shape[0],))
+        self._relax_cost = self._prog.AddQuadraticCost(r_weights, r_ref, np.zeros((1,)), all_relax)
         self._relax_cost.evaluator().set_description('Relaxation Cost')
         # Bounding box constraint on the relaxations
-        self._prog.AddBoundingBoxConstraint(r_ref, np.full(r_ref.shape, np.inf), all_relax).evaluator().set_description("Relaxation Nonnegativity")
+        self._prog.AddBoundingBoxConstraint(np.zeros((all_relax.shape[0],)), np.full(r_ref.shape, np.inf), all_relax).evaluator().set_description("Relaxation Nonnegativity")
 
     def _add_dynamics_constraints(self, index):
         """Add and initialize the linear dynamics constraints for force estimation"""
         A, b = self.traj.getDynamicsConstraint(self._startptr + index)
-        self._dyns_cstr.append(cstr.RelaxedLinearConstraint(A, b))
+        self._dyns_cstr.append(cstr.RelaxedLinearConstraint(self._force_scaling * A, b))
         force  = np.concatenate([self._normal_forces[-1], self._friction_forces[-1]], axis=0)
         self._dyns_cstr[-1].addToProgram(self._prog, force, relax=self._relaxation_vars[-1])
         # Set the initial guess
-        self._prog.SetInitialGuess(force, self.traj.getForceGuess(self._startptr + index))
+        self._prog.SetInitialGuess(force, self.traj.getForceGuess(self._startptr + index)/self._force_scaling)
         # Set the initial guess for the relaxation variables
         self._prog.SetInitialGuess(self._relaxation_vars[-1], self.traj.getFeasibilityGuess(self._startptr + index))
 
@@ -922,13 +1046,17 @@ class ContactModelEstimator(OptimizationMixin):
     def _add_dissipation_constraints(self, index):
         """Add and initialize the parametric maximum dissipation constraints"""
         D, v = self.traj.getDissipationConstraint(self._startptr + index)
-        self._diss_cstr.append(self.lcp(D, v))
+        self._diss_cstr.append(self.lcp(self.velocity_scaling*D, self.velocity_scaling*v))
         self._diss_cstr[-1].set_description('dissipation')
-        self._diss_cstr[-1].addToProgram(self._prog, self._velocity_slacks[-1], self._friction_forces[-1], rvar=self._relaxation_vars[-1])
+        self._diss_cstr[-1].addToProgram(self._prog, self._dissipation_slacks[-1], self._friction_forces[-1], rvar=self._relaxation_vars[-1])
         # Set the initial guess for the slack variables
         self._prog.SetInitialGuess(self._velocity_slacks[-1], self.traj.getDissipationGuess(self._startptr + index))
+        self._prog.SetInitialGuess(self._dissipation_slacks[-1], self.traj.getDissipationSlackGuess(self._startptr + index))
         self._diss_cstr[-1].initializeSlackVariables()
-        
+        # Add a constraint between the dissipation and velocity slacks
+        A = np.concatenate([self.traj._dissipation_to_velocity, -np.eye(self.traj.num_contacts)], axis=1)
+        self._prog.AddLinearEqualityConstraint(Aeq=A, beq=np.zeros(self._velocity_slacks[-1].shape), vars=np.concatenate([self._dissipation_slacks[-1], self._velocity_slacks[-1]])).evaluator().set_description('TangentVelocityEquality')
+
     def _add_friction_cone_constraints(self, index):
         """Add and initialize the friction cone constraints"""
         # Get the appropriate kernel slice
@@ -1035,11 +1163,36 @@ class ContactModelEstimator(OptimizationMixin):
             return None
 
     @property
+    def dissipationslacks(self):
+        if self._dissipation_slacks is not []:
+            return np.column_stack(self._dissipation_slacks)
+        else:
+            return None
+
+    @property
     def feasibilities(self):
         if self._relaxation_vars is not []:
             return np.column_stack(self._relaxation_vars)
         else:
             return None
+
+    @property
+    def velocity_scaling(self):
+        return self._velocity_scaling
+
+    @velocity_scaling.setter
+    def velocity_scaling(self, val):
+        assert isinstance(val, (int, float)) and val > 0, "velocity_scaling must be a positive number"
+        self._velocity_scaling = val
+
+    @property
+    def force_scaling(self):
+        return self._force_scaling
+
+    @force_scaling.setter
+    def force_scaling(self, val):
+        assert isinstance(val, (int, float)) and val > 0, "force_scaling must be a positive number"
+        self._force_scaling = val
 
 class ContactModelEstimatorNonlinearFrictionCone(ContactModelEstimator):
     def _add_friction_cone_constraints(self, index):
@@ -1300,7 +1453,6 @@ class EstimatedContactModelRectifier(OptimizationMixin):
         model.add_samples(cpts, surf_global, fric_global)
         return model
 
-    
 class ContactEstimationPlotter():
     def __init__(self, traj):
         assert isinstance(traj, ContactEstimationTrajectory), 'ContactEstimationPlotter requires a ContactEstimationTrajectory object'

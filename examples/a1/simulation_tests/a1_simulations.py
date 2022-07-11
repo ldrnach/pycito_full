@@ -122,7 +122,6 @@ def run_timestepping():
     utils.save(os.path.join(SAVEDIR, filepart, FILENAME), simresults)
     plot_mpc_logs(controller, os.path.join(SAVEDIR, filepart,'mpclogs'))
     save_mpc_logs(controller, os.path.join(SAVEDIR, filepart,'mpclogs'))
-    plot_tracking_error(simresults, controller, os.path.join(SAVEDIR, filepart))
 
 def run_implicit():
     filepart = 'implicit'

@@ -87,12 +87,14 @@ class ReferenceTrajectory():
 
     def getTimeIndex(self, t, x=None, last_index=None):
         """Return the index of the last timepoint less than the current time"""
-        if t < self._time[0]:
-            return 0
-        elif t > self._time[-1]:
-            return self.num_timesteps
-        else:
-            return np.argmax(self._time > t) - 1
+        d = np.abs(t - self._time)
+        return np.argmin(d)
+        # if t < self._time[0]:
+        #     return 0
+        # elif t > self._time[-1]:
+        #     return self.num_timesteps
+        # else:
+        #     return np.argmax(self._time > t) - 1
     
     def getNearestStateIndex(self, t, x, last_index = 0):
         """Return the index of the nearest state in the trajectory"""
@@ -250,6 +252,7 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
         new_instance = cls(plant, _time, _state, _control, _force, _jlimit)
         data.pop('plant')
         data.pop('isLinearizedContactTrajectory')
+        data.pop('_tracking_method')
         for key, value in data.items():
             setattr(new_instance, key, value)
         # Add in the constraints
@@ -372,8 +375,12 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         # Default complementarity cost weight
         self._complementarity_penalty = 1
         self._schedule = [1]
+        self._forcescale = 1.
         # Set default strategy for the initial guess
         self._guess = self.InitializationStrategy.LINEAR
+        # Warmstarting with the basis file
+        self._use_basis = False
+        self._old_basis, self._new_basis = 0, 0
         # Set the results cache
         self._cache = None
         # Set the solver
@@ -525,9 +532,10 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             self.prog.SetInitialGuess(ds, self.lintraj.getSlack(index + k + 1))
         for k, djl in enumerate(self._djl):
             self.prog.SetInitialGuess(djl, self.lintraj.getJointLimit(index + k + 1))
-   
+        if self._use_basis and self._cache is not None:
+            self.prog.SetInitialGuess(self.prog.decision_variables(), self._cache)
         # Initialize states and controls        
-        if self._guess == self.InitializationStrategy.ZERO:
+        elif self._guess == self.InitializationStrategy.ZERO:
             # Initialize states and controls to zero
             self.prog.SetInitialGuess(self.dx, np.zeros((self.state_dim, self.horizon + 1)))
             self.prog.SetInitialGuess(self.du, np.zeros((self.control_dim, self.horizon)))
@@ -537,17 +545,17 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             self.prog.SetInitialGuess(self.du, np.random.default_rng().standard_normal(size = self.du.shape))
         elif self._guess == self.InitializationStrategy.CACHE and self._cache is not None:
             # Initialize ALL variables using the cached results
-            self.prog.SetInitialGuess(self.dx, self._cache['dx'])
-            self.prog.SetInitialGuess(self.du, self._cache['du'])
-            self.prog.SetInitialGuess(self.dl, self._cache['dl'])
-            self.prog.SetInitialGuess(self.ds, self._cache['ds'])
+            self.prog.SetInitialGuess(self.dx[:,1:-1], self._cache['dx'][:,2:])
+            self.prog.SetInitialGuess(self.du[:,:-1], self._cache['du'][:,1:])
+            self.prog.SetInitialGuess(self.dl[:,:-1], self._cache['dl'][:,1:])
+            self.prog.SetInitialGuess(self.ds[:,:-1], self._cache['ds'][:,1:])
+            self.prog.SetInitialGuess(self.dx[:,-1], self._cache['dx'][:,-1])
+            self.prog.SetInitialGuess(self.du[:,-1], self._cache['du'][:,-1])
+            self.prog.SetInitialGuess(self.dl[:,-1], self._cache['dl'][:,-1])
+            self.prog.SetInitialGuess(self.ds[:,-1], self._cache['ds'][:,-1])
             if 'djl' in self._cache:
-                self.prog.SetInitialGuess(self.djl, self._cache['djl'])
-            # Initialize all slack variables
-            for (dist, diss, fric) in zip(self._distance, self._dissipation, self._friccone):
-                dist.initializeSlackVariables()
-                diss.initializeSlackVariables()
-                fric.initializeSlackVariables()
+                self.prog.SetInitialGuess(self.djl[:,:-1], self._cache['djl'][:,1:])
+                self.prog.SetInitialGuess(self.djl[:,-1], self._cache['djl'][:,-1])
         else:
             # Initialize using a linear guess
             dx0 = self.prog.GetInitialGuess(self._dx[0])
@@ -570,8 +578,11 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
 
     def _update_dynamics(self, index):
         """Update the dynamics constraints"""
+        start = 2 * self.lintraj.state_dim + self.lintraj.control_dim
         for k, dyn in enumerate(self._dynamics):
             A, b = self.lintraj.getDynamicsConstraint(index + k)
+            A = np.copy(A)
+            A[:, start:] *= self.forcescale
             dyn.updateCoefficients(A, b)
                 
     def _update_limits(self, index):
@@ -600,7 +611,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             xcost.evaluator().UpdateCoefficients(2 * self._state_weight, np.zeros((self.state_dim,)), np.zeros((1,)))
             ucost.evaluator().UpdateCoefficients(2 * self._control_weight, np.zeros((self.control_dim)), np.zeros((1,)))
         for k, (fcost, scost) in enumerate(zip(self._force_cost, self._slack_cost)):
-            f_ref = self.lintraj.getForce(index + k)
+            f_ref = self.lintraj.getForce(index + k) / self.forcescale
             fcost.evaluator().UpdateCoefficients(2*self._force_weight,
                                      -2*self._force_weight.dot(f_ref), f_ref.dot(self._force_weight.dot(f_ref)))
             s_ref = self.lintraj.getSlack(index + k)
@@ -608,7 +619,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
                                     -2 * self._slack_weight.dot(s_ref),
                                     s_ref.dot(self._slack_weight.dot(s_ref)))
         for k, jcost in enumerate(self._limit_cost):
-            j_ref = self.lintraj.getJointLimit(index + k)
+            j_ref = self.lintraj.getJointLimit(index + k) / self.forcescale
             jcost.evaluator().UpdateCoefficients(2 * self._jlimit_weight, 
                                     -2 * self._jlimit_weight.dot(j_ref),
                                     j_ref.dot(self._jlimit_weight.dot(j_ref)))
@@ -634,7 +645,15 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         index = self.lintraj.getIndex(t, x0)
         u = self.lintraj.getControl(index)
         # Cache the results, if necessary
-        if self._guess == self.InitializationStrategy.CACHE:
+        if self._use_basis:
+            self._cache = result.GetSolution(self.prog.decision_variables())
+            if self._old_basis == 0:
+                self._old_basis = 2
+            self._new_basis = 1
+            self.setSolverOptions({'Old basis file': self._old_basis,
+                                    'New basis file': self._new_basis})
+            #self.complementarity_schedule = self.complementarity_schedule[-1:]
+        elif self._guess == self.InitializationStrategy.CACHE:
             self._cache = {'dx': result.GetSolution(self.dx),
                             'du': result.GetSolution(self.du),
                             'dl': result.GetSolution(self.dl),
@@ -653,6 +672,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             else:
                 insert = ''
             print(f"MPC failed at time {t:0.3f} using {result.get_solver_id().name()} {insert}. Returning open loop control")
+            utils.printProgramReport(result, self.prog, verbose=True)
             return u
 
     def progressive_solve(self):
@@ -672,7 +692,10 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             if self._log_enabled:
                 last_log = self.logger.logs.pop()
                 total_time += last_log['solvetime']
-
+            if self._use_basis:
+                self._old_basis, self._new_basis = self._new_basis, self._new_basis + 1
+                self.setSolverOptions({'Old basis file': self._old_basis,
+                                        'New basis file': self._new_basis})
             self.prog.SetInitialGuess(self.prog.decision_variables(), result.GetSolution(self.prog.decision_variables()))
         if self._log_enabled:
             if result.is_success():
@@ -823,6 +846,15 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         else:
             return None
 
+    @property
+    def forcescale(self):
+        return self._forcescale
+
+    @forcescale.setter
+    def forcescale(self, val):
+        assert isinstance(val, (int, float)) and val >= 0, 'forcescale must be a positive scalar'
+        self._forcescale = val
+
     def use_zero_guess(self):
         self._guess = self.InitializationStrategy.ZERO
 
@@ -834,6 +866,12 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
 
     def use_cached_guess(self):
         self._guess = self.InitializationStrategy.CACHE
+
+    def use_basis_file(self):
+        self._use_basis = True
+        self._old_basis = 0
+        self._new_basis = 1
+        self.setSolverOptions({'New basis file': self._new_basis})
 
     def generate_report(self):
         """Generate a text string describing the settings for the MPC"""

@@ -26,7 +26,6 @@ def make_stepterrain_model():
 
 # Make the true terrain model
 truemodel = make_stepterrain_model()
-
 # Make the semiparametric model
 W = np.diag([0.1, 0.1, 0.0])
 surfkernel = kernels.CompositeKernel(kernels.CenteredLinearKernel(W), kernels.ConstantKernel(1), kernels.WhiteNoiseKernel(0.01))

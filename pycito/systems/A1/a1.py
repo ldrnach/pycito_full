@@ -243,7 +243,7 @@ class A1(TimeSteppingMultibodyPlant):
         for n in range(3):
             # Loop over each leg
             for k in range(4):
-                axs[n].plot(t, jpos[4*n+k,:], linewidth=1.5, label=legs[k])
+                axs[n].plot(t, jpos[3*k+n,:], linewidth=1.5, label=legs[k])
             axs[n].set_ylabel(angles[n])
         axs[-1].set_xlabel('Time (s)')
         axs[0].set_title("Joint Angles")
@@ -261,7 +261,7 @@ class A1(TimeSteppingMultibodyPlant):
         for n in range(3):
             # Loop over each leg
             for k in range(4):
-                axs[n].plot(t, jvel[4*n+k, :], linewidth=1.5, label=legs[k])
+                axs[n].plot(t, jvel[3*k+n, :], linewidth=1.5, label=legs[k])
             axs[n].set_ylabel(angles[n] + " Rate")
         axs[-1].set_xlabel('Time (s)')
         axs[0].set_title("Joint Rates")
@@ -766,11 +766,11 @@ def example_pose():
     print(f"The normal distances are {a1.GetNormalDistances(context)}")
     
 def run_configuration_sweep():
-    a1 = PlanarA1()
+    a1 = A1VirtualBase()
     a1.Finalize()
     a1.configuration_sweep()
 
 if __name__ == "__main__":
-    describe_a1()
-    #run_configuration_sweep()
+    #describe_a1()
+    run_configuration_sweep()
     #example_pose()
