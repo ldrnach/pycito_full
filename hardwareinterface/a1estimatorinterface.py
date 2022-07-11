@@ -44,7 +44,7 @@ class A1ContactEstimationInterface():
         """
         null = np.zeros((3,))
         grad = model.surface.gradient(null)
-        return np.arctan2(-grad[0,0], grad[0, 2]) * 180 / np.pi
+        return np.arctan2(grad[0,0], grad[0, 2])
 
     @staticmethod
     def _lcm_to_arrays(msg):
@@ -63,9 +63,8 @@ class A1ContactEstimationInterface():
         control = np.column_stack(msg['leg_control_data']['tau_est'])
         # Get the timestamp
         time = np.column_stack(msg['leg_control_data']['lcm_timestamp'])
-        time = np.squeeze(time)
         
-        return time, state, control
+        return np.squeeze(time), np.squeeze(state), np.squeeze(control)
     
     def _generate_a1_initial_state(self, config):
         """
@@ -76,7 +75,7 @@ class A1ContactEstimationInterface():
         q[6:9] = np.array(config['InitialLegPose'])
         q[9:12] = np.array(config['InitialLegPose'])
         q[12:15] = np.array(config['InitialLegPose'])
-        q[15:] = np.array(config['IntialLegPose'])
+        q[15:] = np.array(config['InitialLegPose'])
         context = self.a1.multibody.CreateDefaultContext()
         self.a1.multibody.SetPositions(context, q)
         d = self.a1.GetNormalDistances(context)
@@ -94,8 +93,8 @@ class A1ContactEstimationInterface():
             noise = config['SurfaceModel']['KernelRegularization'])
         self.a1.terrain = cm.SemiparametricContactModel(
             surface = cm.SemiparametricModel(
-                prior = cm.FlatModel(location = config['SurfaceMode']['Location'],
-                                    direction = np.array(config['SurfaceModel']['Direction'])),
+                prior = cm.FlatModel(location = config['SurfaceModel']['PriorLocation'],
+                                    direction = np.array(config['SurfaceModel']['PriorDirection'])),
                 kernel = surfkernel
             ),
             friction = cm.SemiparametricModel(
