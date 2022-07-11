@@ -4,7 +4,7 @@ import pycito.utilities as utils
 
 START_TIME = 0.
 STOP_TIME = 15.0
-DOWNSAMPLING = 1
+DOWNSAMPLING = 10
 
 SOURCE = os.path.join('data','a1_experiment','a1_simulation.pkl')
 TARGET = os.path.join('data','a1_experiment','a1_simulation_samples.pkl')

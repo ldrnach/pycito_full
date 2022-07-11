@@ -1165,6 +1165,7 @@ class ContactModelEstimator(OptimizationMixin):
         text += f"\n\tForce Cost: {self.forcecost}"
         text += f"\n\tDistance Cost: {self.distancecost}"
         text += f"\n\tFriction Cost: {self.frictioncost}"
+        text += f"\n\tVelocity Cost: {self.velocitycost}"
         text += f"\n\tVelocity scaling: {self.velocity_scaling}"
         text += f"\n\tForce Scaling: {self.force_scaling}"
         text += f'\n\nSemiparametric Contact Model:'
