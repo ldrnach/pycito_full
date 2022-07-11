@@ -8,8 +8,8 @@ import pycito.systems.contactmodel as cm
 import pycito.systems.kernels as kernels
 
 HORIZON = 5
-SOURCE = os.path.join('data','a1_experiment','a1_simulation_samples.pkl')
-TARGET = os.path.join('examples','experiments','a1_offline_estimation','hardware_simulation','test1')
+SOURCE = os.path.join('data','a1_experiment','a1_hardware_samples.pkl')
+TARGET = os.path.join('examples','experiments','a1_offline_estimation','finalrun')
 
 TRAJNAME = 'estimatedtrajectory.pkl'
 FIGURENAME = 'EstimationResults.png'
@@ -34,9 +34,9 @@ def make_estimator(data):
     traj._time[0] = data['time'][0]
     estimator = ce.ContactModelEstimator(traj, horizon=HORIZON)
     # Set the costs appropriately
-    estimator.forcecost = 1e2
-    estimator.relaxedcost = 1e3
-    estimator.distancecost = 1
+    estimator.forcecost = 1e1
+    estimator.relaxedcost = 1e2
+    estimator.distancecost = 1e3
     estimator.frictioncost = 1
     estimator.velocity_scaling = 1e-3
     estimator.force_scaling = 1e2

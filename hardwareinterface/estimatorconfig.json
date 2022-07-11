@@ -1,8 +1,8 @@
 {
     "Estimator": {
-        "DistanceCost": 1,
+        "DistanceCost": 1000.0,
         "EnableLogging": false,
-        "ForceCost": 100.0,
+        "ForceCost": 10.0,
         "ForceScaling": 100.0,
         "FrictionCost": 1,
         "Horizon": 5,
@@ -11,7 +11,7 @@
             0.8,
             -1.6
         ],
-        "RelaxationCost": 1000.0,
+        "RelaxationCost": 100.0,
         "VelocityScaling": 0.001
     },
     "FrictionModel": {

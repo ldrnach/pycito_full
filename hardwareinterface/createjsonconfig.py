@@ -5,9 +5,9 @@ filename = os.path.join('hardwareinterface','estimatorconfig.json')
 configuration = {
     'Estimator': {
         'Horizon': 5,
-        'ForceCost': 1e2,
-        'RelaxationCost': 1e3,
-        'DistanceCost': 1,
+        'ForceCost': 1e1,
+        'RelaxationCost': 1e2,
+        'DistanceCost': 1e3,
         'FrictionCost': 1,
         'VelocityScaling': 1e-3,
         'ForceScaling': 1e2,
