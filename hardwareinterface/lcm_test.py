@@ -1,6 +1,6 @@
 import os, sys
 from lcm import LCM
-from interface_test import EstimationInterfaceTest
+from a1estimatorinterface import A1ContactEstimationInterface
 from lcmscripts import state_estimator_lcmt, pycito_cmd_lcmt
 
 
@@ -8,6 +8,7 @@ class my_handler:
     def __init__(self):
         self._lcm = LCM()
         self._lcm.subscribe("state_estimator", self._handle_msg)
+        self.estimator = A1ContactEstimationInterface()
 
     def _run_handler(self):
         while True:
@@ -19,7 +20,7 @@ class my_handler:
         # print("   position   = %s" % str(msg.p))
         # print("")
         # print("Checked here")
-
+        pitch = self.estimator.estimate(msg)
         command = pycito_cmd_lcmt.pycito_cmd_lcmt()
         command.pitch = msg.p[0]
         self._lcm.publish("pycito_command", command.encode())
