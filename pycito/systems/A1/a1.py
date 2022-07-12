@@ -131,9 +131,9 @@ class A1(TimeSteppingMultibodyPlant):
         context = self.multibody.CreateDefaultContext()
         pos = self.multibody.GetPositions(context)
         # Change the hip pitch to 45 degrees
-        pos[11:15] = np.pi/4
+        pos[[8,11,14,17]] = np.pi/4
         # Change the knee pitch to keep the foot under the hip
-        pos[15:] = -np.pi/2
+        pos[[9, 12, 15, 18]] = -np.pi/2
         # Adjust the base height to make the normal distances 0
         self.multibody.SetPositions(context, pos)
         dist = self.GetNormalDistances(context)
