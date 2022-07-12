@@ -51,18 +51,16 @@ class A1ContactEstimationInterface():
         """
         Get the timestamp, state data, and control signal from the lcm channel and return them as numpy arrays 
         """
-        #TODO: Replace msg['state_estimator'] with state_msg
-
         # Collect the state data
-        joint_angles = np.column_stack(msg.jointpos)
-        joint_velocities = np.column_stack(msg.jointvel)
-        position = np.column_stack(msg.basepose)
-        velocity = np.column_stack(msg.basevel)
-        rpy = np.column_stack(msg.baseori_rpy)
-        angular_velocity = np.column_stack(msg.base_angular_vel)
+        joint_angles = np.column_stack(msg.q)
+        joint_velocities = np.column_stack(msg.qd)
+        position = np.column_stack(msg.p)
+        velocity = np.column_stack(msg.vWorld)
+        rpy = np.column_stack(msg.rpy)
+        angular_velocity = np.column_stack(msg.omegaBody)
         state = np.row_stack([position, rpy, joint_angles, velocity, angular_velocity, joint_velocities])
         # Get the control signal
-        control = np.column_stack(msg.est_torque)
+        control = np.column_stack(msg.tau_est)
         
         return np.squeeze(state), np.squeeze(control)
     
