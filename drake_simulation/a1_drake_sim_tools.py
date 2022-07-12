@@ -6,7 +6,7 @@ from pydrake.all import PiecewisePolynomial as pp
 
 from pycito.utilities import FindResource
 from pycito.systems.A1.a1 import A1VirtualBase
-from examples.a1.drake_simulation.controllers import BasicController
+from drake_simulation.controllers import BasicController
 
 # SIMULATION PARAMETERS
 dt = 0.01       # TIMESTEP
