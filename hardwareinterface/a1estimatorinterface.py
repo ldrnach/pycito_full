@@ -6,6 +6,7 @@ July 11, 2022
 """
 import os, json, sys
 import numpy as np
+import time
 
 from pycito.systems.A1.a1 import A1VirtualBase
 import pycito.controller.contactestimator as ce
@@ -27,6 +28,7 @@ class A1ContactEstimationInterface():
         self.estimator.setSolverOptions(config['Solver'])
         # Store the slope estimate in case one iteration fails
         self.slope = 0.
+        self.lasttime = time.perf_counter()
         print('Created A1 Contact Estimation Interface')
 
     @staticmethod
@@ -49,20 +51,20 @@ class A1ContactEstimationInterface():
         """
         Get the timestamp, state data, and control signal from the lcm channel and return them as numpy arrays 
         """
+        #TODO: Replace msg['state_estimator'] with state_msg
+
         # Collect the state data
-        joint_angles = np.column_stack(msg['leg_control_data']['q'])
-        joint_velocities = np.column_stack(msg['leg_control_data']['qd'])
-        position = np.column_stack(msg['state_estimator']['p'])
-        velocity = np.column_stack(msg['state_estimator']['vWorld'])
-        rpy = np.column_stack(msg['state_estimator']['rpy'])
-        angular_velocity = np.column_stack(msg['state_estimator']['omegaBody'])
+        joint_angles = np.column_stack(msg.jointpos)
+        joint_velocities = np.column_stack(msg.jointvel)
+        position = np.column_stack(msg.basepose)
+        velocity = np.column_stack(msg.basevel)
+        rpy = np.column_stack(msg.baseori_rpy)
+        angular_velocity = np.column_stack(msg.base_angular_vel)
         state = np.row_stack([position, rpy, joint_angles, velocity, angular_velocity, joint_velocities])
         # Get the control signal
-        control = np.column_stack(msg['leg_control_data']['tau_est'])
-        # Get the timestamp
-        time = np.column_stack(msg['leg_control_data']['lcm_timestamp'])
+        control = np.column_stack(msg.est_torque)
         
-        return np.squeeze(time), np.squeeze(state), np.squeeze(control)
+        return np.squeeze(state), np.squeeze(control)
     
     def _generate_a1_initial_state(self, config):
         """
@@ -129,7 +131,11 @@ class A1ContactEstimationInterface():
         Return values:
             (float): the estimated ground slope        
         """
-        t, x, u = self._lcm_to_arrays(msg)
+        # Keep track of time
+        new_t = time.perf_counter()
+        t, self.lasttime = np.array( new_t - self.lasttime), new_t
+        # Covert data in lcm message to numpy array
+        x, u = self._lcm_to_arrays(msg)
         self.traj.append_sample(t, x, u)
         self.estimator.create_estimator()
         print(f'Estimating ground slope at time {t:.2f}')
