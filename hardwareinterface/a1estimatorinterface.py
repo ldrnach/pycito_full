@@ -28,7 +28,7 @@ class A1ContactEstimationInterface():
         self.estimator.setSolverOptions(config['Solver'])
         # Store the slope estimate in case one iteration fails
         self.slope = 0.
-        self.lasttime = time.perf_counter()
+        self.starttime = time.perf_counter()
         print('Created A1 Contact Estimation Interface')
 
     @staticmethod
@@ -58,7 +58,7 @@ class A1ContactEstimationInterface():
         velocity = np.column_stack(msg.vWorld)
         rpy = np.column_stack(msg.rpy)
         angular_velocity = np.column_stack(msg.omegaBody)
-        state = np.row_stack([position, rpy, joint_angles, velocity, angular_velocity, joint_velocities])
+        state = np.column_stack([position, rpy, joint_angles, velocity, angular_velocity, joint_velocities])
         # Get the control signal
         control = np.column_stack(msg.tau_est)
         
@@ -130,8 +130,7 @@ class A1ContactEstimationInterface():
             (float): the estimated ground slope        
         """
         # Keep track of time
-        new_t = time.perf_counter()
-        t, self.lasttime = np.array( new_t - self.lasttime), new_t
+        t = time.perf_counter() - self.starttime
         # Covert data in lcm message to numpy array
         x, u = self._lcm_to_arrays(msg)
         self.traj.append_sample(t, x, u)

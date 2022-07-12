@@ -1,13 +1,13 @@
 import os, sys
 from lcm import LCM
 from a1estimatorinterface import A1ContactEstimationInterface
-from lcmscripts import state_estimator_lcmt, pycito_cmd_lcmt
+from lcmscripts import full_observer_data_lcmt, pycito_cmd_lcmt
 
 
 class my_handler:
     def __init__(self):
         self._lcm = LCM()
-        self._lcm.subscribe("state_estimator", self._handle_msg)
+        self._lcm.subscribe("full_observer_data", self._handle_msg)
         self.estimator = A1ContactEstimationInterface()
 
     def _run_handler(self):
@@ -15,14 +15,15 @@ class my_handler:
             self._lcm.handle()
 
     def _handle_msg(self, channel, data):
-        msg = state_estimator_lcmt.state_estimator_lcmt.decode(data)
+        msg = full_observer_data_lcmt.full_observer_data_lcmt.decode(data)
         # print("Received message on channel \"%s\"" % channel)
         # print("   position   = %s" % str(msg.p))
         # print("")
         # print("Checked here")
         pitch = self.estimator.estimate(msg)
         command = pycito_cmd_lcmt.pycito_cmd_lcmt()
-        command.pitch = msg.p[0]
+        command.pitch = pitch
+        print(pitch)
         self._lcm.publish("pycito_command", command.encode())
 
 if __name__ == '__main__':
