@@ -44,7 +44,7 @@ class A1StandingPDController(LeafSystem):
             self.SetLoggingOutputs
         )
         # Setup any internals in the controller
-        self.control = np.zeros((self.plant.num_actuators,))
+        self.control = np.zeros((self.plant.num_actuators(),))
         self._setup()
 
     def _setup(self):
@@ -57,10 +57,11 @@ class A1StandingPDController(LeafSystem):
         # Set the position and velocity references
         q_guess = self._internal_plant.standing_pose()
         self.q_ref, _ = self._internal_plant.standing_pose_ik(base_pose = q_guess[:6], guess=q_guess)
-        self.v_ref = np.zeros((self._internal_plant.multibdy.num_velocities(),))
+        self.v_ref = np.zeros((self._internal_plant.multibody.num_velocities(),))
 
     def quaternion2rpy(self, q):
         """Convert the floating base quaternion into roll-pitch-yaw angles"""
+        q = q / np.sqrt(np.sum(q**2))
         rpy = RollPitchYaw(Quaternion(q))
         return rpy.vector()
 
@@ -97,8 +98,8 @@ class A1StandingPDController(LeafSystem):
         This is called at the beginning of each timestep
         """
         state = self.EvalVectorInput(context, 0).get_value()
-        q = state[self.plant.num_positions()]
-        v = self[-self.plant.num_velocities():]
+        q = state[:self.plant.num_positions()]
+        v = state[-self.plant.num_velocities():]
 
         self.plant.SetPositions(self.context, q)
         self.plant.SetVelocities(self.context, v)
@@ -148,7 +149,7 @@ class A1StandingPDController(LeafSystem):
             control torque        
         """
         q, v = self.plant.GetPositions(self.context), self.plant.GetVelocities(self.context)
-        output.setFromVector(np.concatenate([q, v, self.control], axis=0))
+        output.SetFromVector(np.concatenate([q, v, self.control], axis=0))
 
     def SetReference(self, q_ref, v_ref):
         """Set the position and velocity references"""

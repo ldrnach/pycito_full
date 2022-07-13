@@ -1,19 +1,30 @@
 import os
+import numpy as np
 
 import pycito.utilities as utils
-import pycito.systems.A1.a1 as A1
+from pycito.systems.A1.a1 import A1
 
-from pydrake.all import DiagramBuilder, Parser, SceneGraph, MultibodyPlant, LogVectorOutput, DrakeVisualizer, ConnectContactResultsToDrakeVisualizer, Simulator, PiecewisePolynomial
+from pydrake.systems.meshcat_visualizer import ConnectMeshcatVisualizer
+from pydrake.geometry import  MeshcatVisualizerParams, Role, StartMeshcat
+from pydrake.systems.framework import DiagramBuilder
+from pydrake.systems.analysis import Simulator
+from pydrake.multibody.parsing import Parser
+
+from pydrake.all import MeshcatVisualizer, SceneGraph, MultibodyPlant, LogVectorOutput, PiecewisePolynomial
 
 URDF = os.path.join("systems","A1","A1_description","urdf","a1_foot_collision.urdf")
+
+#TODO: Refactor. Use https://github.com/RobotLocomotion/drake/blob/master/tutorials/authoring_multibody_simulation.ipynb as a reference
+#TODO: Finish adding meshcat visualization
 
 class A1DrakeSimulationBuilder():
     def __init__(self, timestep = 0.01):
         path = utils.FindResource(URDF)
         # Setup the diagram
+        self.timestep = timestep
         self.builder = DiagramBuilder()
         self.scene_graph = self.builder.AddSystem(SceneGraph())
-        self.plant = self.builder.AddSystem(MultibodyPlant(dt = timestep))
+        self.plant = self.builder.AddSystem(MultibodyPlant(time_step = timestep))
         self.plant.RegisterAsSourceForSceneGraph(self.scene_graph)
         self.model_id = Parser(plant = self.plant).AddModelFromFile(path, 'quad')
 
@@ -35,6 +46,20 @@ class A1DrakeSimulationBuilder():
         simulator = this._createSimulator()
         return simulator, this
 
+    @staticmethod
+    def get_a1_standing_state():
+        """Create an initial state where A1 is standing"""
+        a1 = A1()
+        a1.Finalize()
+        q0 = a1.standing_pose()
+        q, status = a1.standing_pose_ik(q0[:7], guess=q0)
+        if not status:
+            print('IK Failed')
+            return False
+        else:
+            v = np.zeros((a1.multibody.num_velocities(),))
+            return np.concatenate([q, v], axis=0)
+
     def _addEnvironment(self, environment):
         """Add the contact environment to the diagram"""
         # Add the environment geometry
@@ -51,13 +76,14 @@ class A1DrakeSimulationBuilder():
             self.scene_graph.get_source_pose_port(self.plant.get_source_id())
         )
 
-    def _addController(self, controller):
+    def _addController(self, controller_cls):
         """Add the controller and logger to the diagram"""
         # Add the controller to the system and wire within builder
+        controller = controller_cls(self.plant, self.timestep)
         controller_sys = self.builder.AddSystem(controller)
         self.builder.Connect(
             controller_sys.GetOutputPort('torques'),
-            self.plant.get_actuation_input_torques(self.model_id)
+            self.plant.get_actuation_input_port(self.model_id)
         )
         self.builder.Connect(
             self.plant.get_state_output_port(),
@@ -67,9 +93,25 @@ class A1DrakeSimulationBuilder():
         self.logger = LogVectorOutput(controller_sys.GetOutputPort('logging'), self.builder)
 
     def _addVisualizer(self):
-        """Add the Drake visualizer to the diagram"""
-        DrakeVisualizer().AddToBuilder(self.builder, self.scene_graph)
-        ConnectContactResultsToDrakeVisualizer(self.builder, self.plant, self.scene_graph)
+        """Add the Meshcat visualizer to the diagram"""
+        self.meshcat = StartMeshcat()
+        self.visualizer = ConnectMeshcatVisualizer(
+            self.builder, 
+            self.scene_graph, 
+            zmq_url='default',
+            open_browser=True,
+            role = Role.kIllustration,
+            prefix = 'visual'
+            )
+        self.collision_viz = ConnectMeshcatVisualizer(
+            self.builder,
+            self.scene_graph,
+            zmq_url='default',
+            open_browser=False,
+            role = Role.kProximity,
+            prefix = 'collision'
+        )
+        self.meshcat.SetProperty('collision','visible',False)
 
     def _compileDiagram(self):
         self.diagram = self.builder.Build()
@@ -77,7 +119,15 @@ class A1DrakeSimulationBuilder():
         self.diagram_context = self.diagram.CreateDefaultContext()
 
     def _createSimulator(self):
-        return Simulator(self.diagram, self.diagram_context)
+        """Create and return the simulator object"""
+        simulator = Simulator(self.diagram, self.diagram_context)
+        simulator.set_target_realtime_rate(1.0)
+        return simulator
+
+    def set_initial_state(self, x0):
+        """Set the initial state of the plant"""
+        context = self.get_plant_context()
+        self.plant.SetPositionsAndVelocities(context, x0)
 
     def get_plant(self):
         """Get the multibody plant object"""
@@ -90,6 +140,9 @@ class A1DrakeSimulationBuilder():
     def get_logs(self):
         """Return the data from the logger"""
         return self.logger.FindLog(self.diagram_context)
+
+    def get_visualizer(self):
+        return self.visualizer
 
 class A1SimulationPlotter():
     """
