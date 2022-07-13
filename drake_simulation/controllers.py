@@ -127,8 +127,8 @@ class A1StandingPDController(LeafSystem):
         """
         B = self.plant.MakeActuationMatrix()
         # Tuning parameters
-        Kp = 30 * np.eye(self.plant.num_velocities())
-        Kv = 1.5 * np.eye(self.plant.num_velocities())
+        Kp = 60 * np.eye(self.plant.num_velocities())
+        Kv = 3 * np.eye(self.plant.num_velocities())
         # Convert to internal position and velocity
         q = self.toVirtualPosition(q)
         v = self.toVirtualVelocity(q)

@@ -18,10 +18,8 @@ initial_state = simbuilder.get_a1_standing_state()
 simbuilder.set_initial_state(initial_state)
 
 # Run the simulation
-viz = simbuilder.get_visualizer()
-viz.StartRecording()
-simulation.AdvanceTo(sim_time)
-viz.PublishRecordin()
+simbuilder.initialize_sim()
+simbuilder.run_simulation(sim_time)
 print('Simulation complete')
 
 # Get and plot the logs from the simulation

@@ -58,7 +58,7 @@ class A1DrakeSimulationBuilder():
             return False
         else:
             v = np.zeros((a1.multibody.num_velocities(),))
-            return np.concatenate([q, v], axis=0)
+            return np.concatenate([q, v], axis=0)      
 
     def _addEnvironment(self, environment):
         """Add the contact environment to the diagram"""
@@ -98,20 +98,20 @@ class A1DrakeSimulationBuilder():
         self.visualizer = ConnectMeshcatVisualizer(
             self.builder, 
             self.scene_graph, 
-            zmq_url='default',
+            zmq_url='new',
             open_browser=True,
             role = Role.kIllustration,
             prefix = 'visual'
             )
-        self.collision_viz = ConnectMeshcatVisualizer(
-            self.builder,
-            self.scene_graph,
-            zmq_url='default',
-            open_browser=False,
-            role = Role.kProximity,
-            prefix = 'collision'
-        )
-        self.meshcat.SetProperty('collision','visible',False)
+        # self.collision_viz = ConnectMeshcatVisualizer(
+        #     self.builder,
+        #     self.scene_graph,
+        #     zmq_url='default',
+        #     open_browser=False,
+        #     role = Role.kProximity,
+        #     prefix = 'collision'
+        # )
+        # self.meshcat.SetProperty('collision','visible',False)
 
     def _compileDiagram(self):
         self.diagram = self.builder.Build()
@@ -120,14 +120,26 @@ class A1DrakeSimulationBuilder():
 
     def _createSimulator(self):
         """Create and return the simulator object"""
-        simulator = Simulator(self.diagram, self.diagram_context)
-        simulator.set_target_realtime_rate(1.0)
-        return simulator
+        self.simulator = Simulator(self.diagram, self.diagram_context)
+        self.simulator.set_target_realtime_rate(1.0)
+        return self.simulator
 
     def set_initial_state(self, x0):
         """Set the initial state of the plant"""
         context = self.get_plant_context()
         self.plant.SetPositionsAndVelocities(context, x0)
+
+    def initialize_sim(self):
+        """Initialize the simulation"""
+        self.simulator.Initialize()
+        self.simulator.set_target_realtime_rate(1.0)
+
+    def run_simulation(self, end_time = 1.0):
+        """Run the simulation"""
+        self.visualizer.reset_recording()
+        self.visualizer.start_recording()
+        self.simulator.AdvanceTo(end_time)
+        self.visualizer.publish_recording()
 
     def get_plant(self):
         """Get the multibody plant object"""
