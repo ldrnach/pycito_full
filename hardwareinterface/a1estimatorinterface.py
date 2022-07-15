@@ -29,7 +29,12 @@ class A1ContactEstimationInterface():
         # Store the slope estimate in case one iteration fails
         self.slope = 0.
         self.starttime = time.perf_counter()
+        self.savecounter = 1
         print('Created A1 Contact Estimation Interface')
+
+    def __del__(self):
+        if self.logging_enabled:
+            self.save_debug_logs()
 
     @staticmethod
     def _get_configuration():
@@ -139,17 +144,23 @@ class A1ContactEstimationInterface():
         self.traj.append_sample(t, x, u)
         self.estimator.create_estimator()
         print(f'Estimating ground slope at time {t:.2f}')
-        result = self.estimator.solve()
-        if result.is_success():
-            print('Estimation successful')
-            self.estimator.update_trajectory(t, result)
-            model = self.estimator.get_updated_contact_model(result)
-            self.slope = self._calculate_ground_slope(model)
-        else:
-            print('Estimation failed. Returning previous estimate')
+        try:
+            result = self.estimator.solve()
+            if result.is_success():
+                print('Estimation successful')
+                self.estimator.update_trajectory(t, result)
+                model = self.estimator.get_updated_contact_model(result)
+                self.slope = self._calculate_ground_slope(model)
+            else:
+                print('Estimation failed. Returning previous estimate')
+        except:
+            pass
         # Flush the estimator to prevent too much memory from being consumed
-        if not self.logging_enabled():
+        if not self.logging_enabled:
             self.estimator.flush()
+        elif t > 5 * self.savecounter:
+            self.save_debug_logs()
+            self.savecounter += 1
         return self.slope
 
     def save_debug_logs(self, directory=None):
@@ -158,6 +169,7 @@ class A1ContactEstimationInterface():
             directory = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'debuglogs')
         self.estimator.traj.save(os.path.join(directory, 'contact_trajectory.pkl'))
         self.estimator.logger.save(filename = os.path.join(directory, 'estimator_logs.pkl'))
+        print(f"Logs saved to {directory}")
 
 if __name__ == '__main__':
     print('Hello from A1 Estimator Interface!')
