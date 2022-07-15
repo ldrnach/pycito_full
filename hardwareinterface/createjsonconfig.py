@@ -11,8 +11,8 @@ configuration = {
         'FrictionCost': 1,
         'VelocityScaling': 1e-3,
         'ForceScaling': 1e2,
-        'EnableLogging': False,
-        'InitialLegPose': [0.0, 0.8, -1.6]
+        'EnableLogging': True,
+        'InitialLegPose': [0.0, 0.8, -1.6],
     },
     'Solver':{
         'Major feasibility tolerance': 1e-6,

@@ -118,6 +118,9 @@ class A1ContactEstimationInterface():
         self.estimator.force_scaling = config['ForceScaling']
         if config['EnableLogging']:
             self.estimator.enableLogging()
+            self.logging_enabled = True
+        else:
+            self.logging_enabled=False
 
     def estimate(self, msg):
         """
@@ -145,8 +148,16 @@ class A1ContactEstimationInterface():
         else:
             print('Estimation failed. Returning previous estimate')
         # Flush the estimator to prevent too much memory from being consumed
-        self.estimator.flush()
+        if not self.logging_enabled():
+            self.estimator.flush()
         return self.slope
+
+    def save_debug_logs(self, directory=None):
+        """Save the debugging logs from the estimator"""
+        if directory is None:
+            directory = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'debuglogs')
+        self.estimator.traj.save(os.path.join(directory, 'contact_trajectory.pkl'))
+        self.estimator.logger.save(filename = os.path.join(directory, 'estimator_logs.pkl'))
 
 if __name__ == '__main__':
     print('Hello from A1 Estimator Interface!')
