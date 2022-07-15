@@ -1,6 +1,10 @@
+import os
 import numpy as np
 
 from pycito.systems.A1.a1 import A1VirtualBase
+from pycito.controller import mpc, contactestimator
+from pycito.controller import mlcp as lcp
+
 from pydrake.all import LeafSystem, BasicVector, Quaternion
 from pydrake.math import RollPitchYaw
 
@@ -138,7 +142,7 @@ class A1StandingPDController(LeafSystem):
         # Compute desired generalized forces
         tau = -Kp.dot(q_err) - Kv.dot(v_err)
         self.control = B.transpose().dot(tau)
-        return B.transpose().dot(tau)
+        return self.control
 
     def SetLoggingOutputs(self, context, output):
         """
@@ -157,6 +161,79 @@ class A1StandingPDController(LeafSystem):
         assert v_ref.shape == self.v_ref.shape, 'Velocity reference is the wrong shape'
         self.q_ref = q_ref
         self.v_rev = v_ref
+
+
+class A1ContactMPCController(A1StandingPDController):
+    def __init__(self, 
+                plant,
+                dt,
+                reference = os.path.join('data','a1','reference','3m','reftraj.pkl'),
+                horizon = 5,
+                lcptype = lcp.ConstantRelaxedPseudoLinearComplementarityConstraint):
+        
+        self.reference = reference
+        self.horizon = horizon
+        self.lcptype = lcptype
+        self.control = []
+        # Initialize        
+        super().__init__(plant, dt)
+        
+    def _setup(self):
+        """Setup the Linear Contact MPC"""
+        # Create the reference trajectory
+        a1 = A1VirtualBase()
+        a1.terrain.friction = 1.0
+        a1.Finalize()
+        print('Loading reference trajectory...\t',end='', flush=True)
+        reftraj = mpc.LinearizedContactTrajectory.loadLinearizedTrajectory(a1, self.reference)
+        print('Done!', end='\n', flush=True)
+        # Create the MPC Controller
+        print('Creating MPC...', end='', flush=True)
+        self.controller = mpc.LinearContactMPC(reftraj, self.horizon, self.lcptype)
+        # Set the solver parameters for the MPC
+        self._set_controller_options()
+        print('Done!', end='\n', flush=True)
+
+    def _set_controller_options(self):
+        """
+        Set the cost weights and solver options for the MPC controller
+
+        #TODO: Refactor this into a configuration file
+        """
+        a1 = self.controller.lintraj.plant
+        Kp = np.ones((a1.multibody.num_positions(),))
+        Kv = np.ones((a1.multibody.num_velocities(), ))
+        Ks = np.diag(np.concatenate([1e2 * Kp, 1e-2*Kv], axis=0))   #1e2, 1e-2
+        self.controller.statecost = Ks
+        self.controller.controlcost = 1e-1*np.eye(self.controller.control_dim)    #1e-3
+        self.controller.forcecost = 1e-4 * np.eye(self.controller.force_dim)      #1e-2
+        self.controller.slackcost = 1e-4 * np.eye(self.controller.slack_dim)      #1e-4
+        self.controller.limitcost = 1e-4 * np.eye(self.controller.jlimit_dim)     #1e-4
+        #controller.complementarity_penalty = 1e-3
+        self.controller.complementarity_schedule = [1e-2, 1e-4]    #originally 1e4
+        self.controller.useSnoptSolver()
+        self.controller.setSolverOptions({"Major feasibility tolerance": 1e-5,
+                                    "Major optimality tolerance": 1e-5,
+                                    'Scale option': 0,          #0
+                                    'Major step limit':2.0,
+                                    'Superbasics limit':1000,
+                                    'Linesearch tolerance':0.9,
+                                    'Iterations limit': 10000})
+        self.controller.use_basis_file()
+        self.controller.lintraj.useNearestTime()
+
+
+    def ControlLaw(self, context, q, v):
+        """Execute the MPC as the control law"""
+        t = context.get_time()
+        # Convert to internal position and velocity
+        q = self.toVirtualPosition(q)
+        v = self.toVirtualVelocity(q)
+        state = np.concatenate([q, v], axis=0)
+        # Run MPC to get the control
+        self.control = self.controller.get_control(t, state, self.control)
+        return self.control
+        
 
 class BasicController(LeafSystem):
     """
@@ -195,7 +272,6 @@ class BasicController(LeafSystem):
             self.SetLoggingOutputs
         )
 
-        # Relevant frames
 
     def UpdateStoredContext(self, context):
         """
