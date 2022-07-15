@@ -168,10 +168,10 @@ def add_force_symmetry_cost(trajopt, weight):
     """
     Add a quadratic cost on the difference in normal force between different feet
     """
-    Q = np.array([[1, 0, -1, 0],
-                [0, 1, 0, -1],
-                [-1, 0, 1, 0],
-                [0, -1, 0, 1]])
+    Q = np.array([[1, 0, 0, -1],
+                [0, 1, -1, 0],
+                [0, -1, 1, 0],
+                [-1, 0, 0, 1]])
     Q = weight*Q
     nF = trajopt.numN
     trajopt.add_quadratic_running_cost(Q, np.zeros((nF,)), vars=trajopt.l[:nF,:], name='ForceSymmetry')
