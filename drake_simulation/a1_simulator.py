@@ -5,17 +5,18 @@ import pycito.utilities as utils
 from pycito.systems.A1.a1 import A1
 
 from pydrake.systems.meshcat_visualizer import ConnectMeshcatVisualizer
-from pydrake.geometry import  MeshcatVisualizerParams, Role, StartMeshcat
+from pydrake.geometry import  Role, StartMeshcat
 from pydrake.systems.framework import DiagramBuilder
 from pydrake.systems.analysis import Simulator
 from pydrake.multibody.parsing import Parser
 
-from pydrake.all import MeshcatVisualizer, SceneGraph, MultibodyPlant, LogVectorOutput, PiecewisePolynomial
+from pydrake.all import MeshcatVisualizer, SceneGraph, MultibodyPlant, LogVectorOutput, PiecewisePolynomial, ContactModel
 
 URDF = os.path.join("systems","A1","A1_description","urdf","a1_foot_collision.urdf")
 
 #TODO: Refactor. Use https://github.com/RobotLocomotion/drake/blob/master/tutorials/authoring_multibody_simulation.ipynb as a reference
-#TODO: Finish adding meshcat visualization
+#TODO: Double check conversion from quaternion model to virutal link model
+
 
 class A1DrakeSimulationBuilder():
     def __init__(self, timestep = 0.01):
@@ -27,6 +28,7 @@ class A1DrakeSimulationBuilder():
         self.plant = self.builder.AddSystem(MultibodyPlant(time_step = timestep))
         self.plant.RegisterAsSourceForSceneGraph(self.scene_graph)
         self.model_id = Parser(plant = self.plant).AddModelFromFile(path, 'quad')
+        self.plant.set_contact_model(ContactModel.kPoint)
 
     @classmethod
     def createSimulator(cls, timestep, environment, controller):
@@ -132,13 +134,16 @@ class A1DrakeSimulationBuilder():
     def initialize_sim(self):
         """Initialize the simulation"""
         self.simulator.Initialize()
-        self.simulator.set_target_realtime_rate(1.0)
+        self.simulator.set_target_realtime_rate(0.01)
 
     def run_simulation(self, end_time = 1.0):
         """Run the simulation"""
         self.visualizer.reset_recording()
         self.visualizer.start_recording()
-        self.simulator.AdvanceTo(end_time)
+        try:
+            self.simulator.AdvanceTo(end_time)
+        except:
+            print('Simulation failed')
         self.visualizer.publish_recording()
 
     def get_plant(self):
@@ -175,6 +180,17 @@ class A1SimulationPlotter():
         utraj = PiecewisePolynomial.ZeroOrderHold(t, u)
         # Plot the data
         self.a1.plot_trajectories(xtraj, utraj, show=show, savename=savename)
+
+    def save_data(self, logs, savename):
+        """Save the logging data to a file"""
+        # Grab the data
+        t = logs.sample_times()
+        nX = self.a1.multibody.num_positions() + self.a1.multibody.num_velocities()
+        x, u = logs.data()[:nX, :], logs.data()[nX:, :]
+        data = {'time': t,
+                'state': x,
+                'control': u}
+        utils.save(savename, data)
 
 if __name__ == '__main__':
     print("Hello from a1_simulator")
