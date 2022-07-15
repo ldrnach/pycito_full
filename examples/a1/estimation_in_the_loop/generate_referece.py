@@ -8,7 +8,7 @@ import pycito.trajopt.contactimplicit as ci
 
 DISTANCE = 3
 SOURCE = os.path.join('data','a1','ellipse_foot_tracking','fast','fullstep','weight_1e+03','trajoptresults.pkl')
-TARGETDIR = os.path.join('data','a1','reference',f'{DISTANCE}m')
+TARGETDIR = os.path.join('data','a1','reference','fast',f'{DISTANCE}m')
 TARGETNAME = 'reftraj.pkl'
 
 def join_backward_euler_trajectories(dataset):
