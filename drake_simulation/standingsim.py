@@ -23,4 +23,6 @@ simbuilder.run_simulation(sim_time)
 print('Simulation complete')
 
 # Get and plot the logs from the simulation
-A1SimulationPlotter().plot(simbuilder.get_logs())
+contactdict = simbuilder.contact_logger.to_dictionary()
+simplotter = A1SimulationPlotter()
+simplotter.plot(simbuilder.get_logs())
