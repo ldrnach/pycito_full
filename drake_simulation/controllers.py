@@ -5,8 +5,10 @@ from pycito.systems.A1.a1 import A1VirtualBase
 from pycito.controller import mpc, contactestimator
 from pycito.controller import mlcp as lcp
 
-from pydrake.all import LeafSystem, BasicVector, Quaternion
+from pydrake.all import LeafSystem, BasicVector, Quaternion, AbstractValue, ContactResults
 from pydrake.math import RollPitchYaw
+
+REFERENCE = os.path.join('data','a1','reference','symmetric','3m','reftraj.pkl')
 
 class A1StandingPDController(LeafSystem):
     """
@@ -132,7 +134,7 @@ class A1StandingPDController(LeafSystem):
         B = self.plant.MakeActuationMatrix()
         # Tuning parameters
         Kp = 60 * np.eye(self.plant.num_velocities())
-        Kv = 3 * np.eye(self.plant.num_velocities())
+        Kv = 0.3 * np.eye(self.plant.num_velocities())
         # Convert to internal position and velocity
         q = self.toVirtualPosition(q)
         v = self.toVirtualVelocity(q)
@@ -150,10 +152,13 @@ class A1StandingPDController(LeafSystem):
 
         Outputs include:
             state
-            control torque        
+            control torque,
+            forces        
         """
         q, v = self.plant.GetPositions(self.context), self.plant.GetVelocities(self.context)
+
         output.SetFromVector(np.concatenate([q, v, self.control], axis=0))
+
 
     def SetReference(self, q_ref, v_ref):
         """Set the position and velocity references"""
@@ -167,7 +172,7 @@ class A1ContactMPCController(A1StandingPDController):
     def __init__(self, 
                 plant,
                 dt,
-                reference = os.path.join('data','a1','reference','3m','reftraj.pkl'),
+                reference = REFERENCE,
                 horizon = 5,
                 lcptype = lcp.ConstantRelaxedPseudoLinearComplementarityConstraint):
         
