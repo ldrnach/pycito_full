@@ -6,7 +6,7 @@ from a1_simulator import A1DrakeSimulationBuilder, A1SimulationPlotter
 
 from pycito.systems.A1.a1 import A1
 
-target = os.path.join('drake_simulation','mpc_walking_sim')
+target = os.path.join('drake_simulation','mpc_walking_sim','symmetric_2',)
 if not os.path.exists(target):
     os.makedirs(target)
 
@@ -29,6 +29,6 @@ simbuilder.run_simulation(sim_time)
 print('Simulation complete')
 
 # Get and plot the logs from the simulation
-#simplotter = A1SimulationPlotter()
-#simplotter.plot(simbuilder.get_logs(), show=False, savename=os.path.join(target, 'sim.png'))
-#simplotter.save_data(simbuilder.get_logs(), savename=os.path.join(target, 'simdata.pkl'))
+simplotter = A1SimulationPlotter()
+simplotter.plot(simbuilder.get_logs(), show=False, savename=os.path.join(target, 'sim.png'))
+simplotter.save_data(simbuilder.get_logs(), savename=os.path.join(target, 'simdata.pkl'))
