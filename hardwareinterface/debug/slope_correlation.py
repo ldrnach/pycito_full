@@ -42,3 +42,18 @@ axs[1].text(-40, 600, f"Correlation shift: {lags[np.argmax(xcorr)] * dt:0.4f} s"
 fig.set_tight_layout(True)
 plt.show()
 fig.savefig(os.path.join(DIR, 'figures','lcm_pitch_correlation.png'), dpi=fig.dpi)
+
+fig, axs = plt.subplots(2,1)
+pypitch_rate = np.diff(py_pitch)
+mitpitch_rate = np.diff(mit_pitch)
+axs[0].plot(time[1:], mitpitch_rate, linewidth=1.5, label='MIT')
+axs[0].plot(time[1:], pypitch_rate, linewidth=1.5, label='PYCITO')
+axs[0].set_xlabel('Time (s)')
+axs[0].set_ylabel('Change in slope')
+
+axs[0].legend(frameon=False)
+slopestart = dt * np.argmax(np.abs(pypitch_rate) > 0)
+axs[0].text(4, 0.03, f'PYCITO first change\n in slope at {slopestart:0.3}s')
+fig.set_tight_layout(True)
+plt.show()
+fig.savefig(os.path.join(DIR, 'figures','slopechange.png'), dpi=fig.dpi)
