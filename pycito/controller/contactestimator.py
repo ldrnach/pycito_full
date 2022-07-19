@@ -861,15 +861,15 @@ class ContactModelEstimator(OptimizationMixin):
         """Get the contact model at the specified index"""
         index = self.traj.getTimeIndex(t)
         model = copy.deepcopy(self.traj.contact_model)
-        start = max(0, index - self.maxhorizon)
+        start = max(0, index - self.maxhorizon + 1)
         Kd, Kf = self.traj.getContactKernels(start, index + 1)
         cpts = np.column_stack(self.traj.get_contacts(start, index + 1))
         forces = np.column_stack(self.traj.get_forces(start, index + 1))
         derr = np.row_stack(self.traj.get_distance_error(start, index + 1))
         ferr = np.row_stack(self.traj.get_friction_error(start, index + 1))
         # Calculate model weights
-        dweights = np.linalg.lstsq(Kd, derr, rcond=None)[0]
-        fc_weights = np.linalg.lstsq(Kf, ferr, rcond=None)[0]
+        dweights = np.linalg.lstsq(Kd, derr.reshape(-1), rcond=None)[0]
+        fc_weights = np.linalg.lstsq(Kf, ferr.reshape(-1), rcond=None)[0]
         fc_weights = self._variables_to_friction_weights(fc_weights, forces)
         model.add_samples(cpts, np.ravel(dweights), np.ravel(fc_weights))
         return model

@@ -43,7 +43,7 @@ axs[2].set_ylabel('Vertical (m)')
 axs[2].set_xlabel('LCM Time (s)')
 axs[0].set_title('LCM Foot Trajectories')
 axs[0].legend(frameon=False)
-
+fig.savefig(os.path.join(DIR, 'figures','LCM_Foot_Trajectory.png'), dpi=fig.dpi)
 # Plot the estimator foot trajectory
 fig, axs = plt.subplots(3,1)
 for k in range(3):
@@ -55,7 +55,7 @@ axs[2].set_ylabel('Vertical (m)')
 axs[2].set_xlabel('Estimator Time (s)')
 axs[0].set_title('Estimator Foot Trajectories')
 axs[0].legend(frameon=False)
-
+fig.savefig(os.path.join(DIR, 'figures', 'Estimator Foot Trajectory.png'), dpi=fig.dpi)
 #plt.show()
 
 print('Running cross-correlation analysis')
@@ -65,6 +65,8 @@ indices = np.arange(0, lcm_time.size+1, DOWNSAMPLING)
 lcm_ds_time = lcm_time[indices]
 print(f'After downsampling, LCM average sampling time: {np.mean(np.diff(lcm_ds_time))} +- {np.std(np.diff(lcm_ds_time))}')
 lcm_ds_feet = lcm_foot[:, indices]
+
+dt = np.mean(np.diff(lcm_ds_time))
 
 xcorr = []
 for k in range(12):
@@ -78,17 +80,18 @@ lags = np.arange(-lcm_ds_feet.shape[1]+2, traj_foot.shape[1])
 fig, axs = plt.subplots(3,1)
 for k in range(3):
     for n in range(4):
-        axs[k].plot(lags, xcorr[3*n + k, 1:], linewidth=1.5, label=f"Foot {n}")
+        axs[k].plot(dt*lags, xcorr[3*n + k, 1:], linewidth=1.5, label=f"Foot {n}")
 axs[0].set_ylabel('Horizontal (m)')
 axs[1].set_ylabel('Lateral (m)')
 axs[2].set_ylabel('Vertical (m)')
-axs[2].set_xlabel('Lag (0.01s)')
+axs[2].set_xlabel(f'Lag ({dt:0.4f}s)')
 axs[0].set_title('Cross-Correlation Functions')
 axs[0].legend(frameon=False)
 
 # Print the maximum lags
 shift = [lags[np.argmax(xcorr[k,:])] for k in range(12)]
 print(f'Maximum correlation at lag: {shift}')
-print(f"Average signal shift: {np.mean(shift) * 0.01}")
-
+print(f"Average signal shift: {np.mean(shift) * dt:0.4f}s")
+axs[2].text(-40, 0.5, f"Average correlation shift:\n{np.mean(shift) * dt :0.4f}s")
 plt.show()
+fig.savefig(os.path.join(DIR, 'figures', 'foot_correlations.png'), dpi=fig.dpi)
