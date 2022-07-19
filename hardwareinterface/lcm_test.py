@@ -1,3 +1,4 @@
+import concurrent.futures
 import os, sys
 from lcm import LCM
 from a1estimatorinterface import A1ContactEstimationInterface
@@ -13,23 +14,36 @@ class my_handler:
     def _run_handler(self):
         while True:
             self._lcm.handle()
-            command = pycito_cmd_lcmt.pycito_cmd_lcmt()
-            command.pitch = self.pitch
-            print(self.pitch)
-            self._lcm.publish("pycito_command", command.encode())
+            # self.pitch = self.estimator.estimate(self.msg)
+            # command = pycito_cmd_lcmt.pycito_cmd_lcmt()
+            # command.pitch = self.pitch
+            # print(self.pitch)
+            # self._lcm.publish("pycito_command", self.command.encode())
 
     def _handle_msg(self, channel, data):
-        msg = full_observer_data_lcmt.full_observer_data_lcmt.decode(data)
+        self.msg = full_observer_data_lcmt.full_observer_data_lcmt.decode(data)
         # print("Received message on channel \"%s\"" % channel)
-        # print("   position   = %s" % str(msg.p))
+        # print("position = %s" % str(self.msg.p[0]))
         # print("")
         # print("Checked here")
-        self.pitch = self.estimator.estimate(msg)
+
+    def _run_estimator(self):
+        while True:
+            # self._lcm_pitch.handle()
+            self.pitch = self.estimator.estimate(self.msg)
+            self.command = pycito_cmd_lcmt.pycito_cmd_lcmt()
+            self.command.pitch = self.pitch
+            print("pitch = %s" % self.pitch)
+            self._lcm.publish("pycito_command", self.command.encode())
 
 
 if __name__ == '__main__':
     h = my_handler()
     try:
-        h._run_handler()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            executor.submit(h._run_handler)
+            executor.submit(h._run_estimator)
+
+
     except KeyboardInterrupt:
         pass
