@@ -25,6 +25,7 @@ class A1ContactEstimationInterface():
         config = self._get_configuration()
         self._make_a1_model(config)
         self._make_estimator(config['Estimator'])
+        self.estimator.useSnoptSolver()
         self.estimator.setSolverOptions(config['Solver'])
         # Store the slope estimate in case one iteration fails
         self.slope = 0.
