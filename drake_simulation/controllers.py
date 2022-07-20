@@ -173,13 +173,14 @@ class A1ContactMPCController(A1StandingPDController):
                 plant,
                 dt,
                 reference = REFERENCE,
-                horizon = 5,
+                horizon = 17,
                 lcptype = lcp.ConstantRelaxedPseudoLinearComplementarityConstraint):
         
         self.reference = reference
         self.horizon = horizon
         self.lcptype = lcptype
         self.control = []
+        self.lasttimeindex = -1
         # Initialize        
         super().__init__(plant, dt)
         
@@ -206,9 +207,13 @@ class A1ContactMPCController(A1StandingPDController):
         #TODO: Refactor this into a configuration file
         """
         a1 = self.controller.lintraj.plant
+        
+        
         Kp = np.ones((a1.multibody.num_positions(),))
         Kv = np.ones((a1.multibody.num_velocities(), ))
-        Ks = np.diag(np.concatenate([1e2 * Kp, 1e-2*Kv], axis=0))   #1e2, 1e-2
+        Kp[:6] = 1e2
+        Kp[6:] = 1e2
+        Ks = np.diag(np.concatenate([Kp, 1e-2*Kv], axis=0))   #1e2, 1e-2
         self.controller.statecost = Ks
         self.controller.controlcost = 1e-1*np.eye(self.controller.control_dim)    #1e-3
         self.controller.forcecost = 1e-4 * np.eye(self.controller.force_dim)      #1e-2
@@ -231,14 +236,27 @@ class A1ContactMPCController(A1StandingPDController):
     def ControlLaw(self, context, q, v):
         """Execute the MPC as the control law"""
         t = context.get_time()
-        # Convert to internal position and velocity
-        q = self.toVirtualPosition(q)
-        v = self.toVirtualVelocity(q)
-        state = np.concatenate([q, v], axis=0)
-        # Run MPC to get the control
-        self.control = self.controller.get_control(t, state, self.control)
+        if self._check_time(t):
+            # Convert to internal position and velocity
+            q = self.toVirtualPosition(q)
+            v = self.toVirtualVelocity(q)
+            state = np.concatenate([q, v], axis=0)
+            # Run MPC to get the control
+            self.control = self.controller.get_control(t, state, self.control)
         return self.control
         
+    def get_reference_trajectory(self):
+        """Return the reference trajectory used by the controller"""
+        return self.controller.lintraj
+
+    def _check_time(self, t):
+        return True
+        # current_time = self.controller.lintraj.getTime(self.lasttimeindex + 1)
+        # if current_time - t <= 1e-4:
+        #     self.lasttimeindex += 1
+        #     return True
+        # else:
+        #     return False
 
 class BasicController(LeafSystem):
     """

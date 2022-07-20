@@ -56,6 +56,7 @@ class ContactResultsLogger(LeafSystem):
                 datadict[name]['penetration_depth'][k] = info.point_pair().depth
                 datadict[name]['contact_normal'][:,k] = info.point_pair().nhat_BA_W
         return datadict
+
 class A1DrakeSimulationBuilder():
     def __init__(self, timestep = 0.01):
         path = utils.FindResource(URDF)
@@ -119,8 +120,8 @@ class A1DrakeSimulationBuilder():
     def _addController(self, controller_cls):
         """Add the controller and logger to the diagram"""
         # Add the controller to the system and wire within builder
-        controller = controller_cls(self.plant, self.timestep)
-        controller_sys = self.builder.AddSystem(controller)
+        self.controller = controller_cls(self.plant, self.timestep)
+        controller_sys = self.builder.AddSystem(self.controller)
         self.builder.Connect(
             controller_sys.GetOutputPort('torques'),
             self.plant.get_actuation_input_port(self.model_id)
@@ -206,6 +207,14 @@ class A1DrakeSimulationBuilder():
     def get_visualizer(self):
         return self.visualizer
 
+    def get_simulation_data(self):
+        """Return the simulation data from the logger as a dictionary"""
+        logs = self.logger.FindLog(self.diagram_context)
+        nX = self.plant.num_positions() - 1 + self.plant.num_velocities()
+        return {'time': np.array(logs.sample_times()),
+                'state': logs.data()[:nX, :],
+                'control': logs.data()[nX:, :],
+        }
 class A1SimulationPlotter():
     """
     Plotting tool for a1 simulations
