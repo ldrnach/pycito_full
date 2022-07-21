@@ -34,6 +34,11 @@ class Visualizer():
         else:
             self.model_index.append(Parser(self.plant).AddModelFromFile(FindResource(urdf), model_name=name))
     
+    def setModelColor(self, model_ind, color):
+        """Set the color of an entire model in multibodyplant"""
+        for body_ind in self.plant.GetBodyIndices(model_ind):
+            self.setBodyColor(body_ind, color)
+
     def setBodyColor(self, body_ind, color):
         """Set the color of a specific body in the multibodyplant"""
         frameID = self.plant.GetBodyFrameIdIfExists(body_ind)
