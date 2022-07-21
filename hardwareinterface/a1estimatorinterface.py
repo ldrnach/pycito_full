@@ -28,7 +28,8 @@ class A1ContactEstimationInterface():
         self.estimator.useSnoptSolver()
         self.estimator.setSolverOptions(config['Solver'])
         # Store the slope estimate in case one iteration fails
-        self.slope = 0.
+        self.slope = np.zeros((3,))
+        self.forces = np.zeros((4,))
         self.starttime = time.perf_counter()
         self.savecounter = 1
         print('Created A1 Contact Estimation Interface')
@@ -44,13 +45,26 @@ class A1ContactEstimationInterface():
         return config
 
     @staticmethod
-    def _calculate_ground_slope(model):
+    def _calculate_ground_slope(model, yaw):
         """
         Calculate ground slope from the linear kernel model
+        
+        Based on the MIT code for calculating roll-pitch-yaw
         """
         null = np.zeros((3,))
         grad = model.surface.gradient(null)
-        return np.arctan2(grad[0,0], grad[0, 2])
+        grad = np.squeeze(grad)
+
+        R = np.array([[np.cos(yaw), -np.sin(yaw)],
+                    [np.sin(yaw), np.cos(yaw)]])
+        coef = -1*grad[:2].T.dot(R.T)
+
+        pitch = np.arctan2(coef[0], 1)
+        roll = np.arctan2(coef[1], 1)
+        offset = np.mean(model.surface._sample_points)
+        yaw = grad[:1].dot(offset[:1])
+
+        return np.array([roll, pitch, yaw])
 
     @staticmethod
     def _lcm_to_arrays(msg):
@@ -142,6 +156,7 @@ class A1ContactEstimationInterface():
         t = time.perf_counter() - self.starttime
         # Covert data in lcm message to numpy array
         x, u = self._lcm_to_arrays(msg)
+        yaw = x[5]
         self.traj.append_sample(t, x, u)
         self.estimator.create_estimator()
         print(f'Estimating ground slope at time {t:.2f}')
@@ -151,7 +166,8 @@ class A1ContactEstimationInterface():
                 print('Estimation successful')
                 self.estimator.update_trajectory(t, result)
                 model = self.estimator.get_updated_contact_model(result)
-                self.slope = self._calculate_ground_slope(model)
+                self.rpy = self._calculate_ground_slope(model, yaw)
+                self.forces = self.estimator.traj._forces[-1]
             else:
                 print('Estimation failed. Returning previous estimate')
         except:
@@ -162,7 +178,7 @@ class A1ContactEstimationInterface():
         elif t > 5 * self.savecounter:
             self.save_debug_logs()
             self.savecounter += 1
-        return self.slope
+        return self.rpy, self.forces
 
     def save_debug_logs(self, directory=None):
         """Save the debugging logs from the estimator"""
