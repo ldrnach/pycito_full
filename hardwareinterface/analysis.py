@@ -25,10 +25,22 @@ print(f"Estimator solve frequency: {np.mean(fs):0.2f} +- {np.std(fs):0.2f}Hz")
 fig, axs = plt.subplots(2,1)
 axs[0].plot(mittime, mitpitch, linewidth=1.5, label='MIT')
 axs[0].plot(pytime, pypitch, linewidth=1.5, label='PYCITO')
+axs[0].plot([pytime[0], pytime[-1]], [12, 12], 'k--')
+axs[0].plot([pytime[0], pytime[-1]], [-12, -12], 'k--')
 axs[0].set_ylabel('Pitch (deg)')
 axs[0].set_xlabel('Time (s)')
-fig.set_tight_layout(True)
+
 axs[0].legend(frameon=False)
+
+# Plot the foot trajectories as well
+feet = np.column_stack(data['wbc_lcm_data']['foot_pos'])
+feet_z = feet[[2,5,8,11],:]
+feet_time = data['wbc_lcm_data']['lcm_timestamp']
+axs[1].plot(feet_time, feet_z.T, linewidth=1.5)
+axs[1].set_ylabel('Foot Vertical Position (m)')
+axs[1].set_xlabel('Time (s)')
+axs[1].set_xlim(axs[0].get_xlim())
+fig.set_tight_layout(True)
 fig.savefig(TARGET, dpi=fig.dpi)
 plt.show()
 
