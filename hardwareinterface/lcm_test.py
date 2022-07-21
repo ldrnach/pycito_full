@@ -10,6 +10,8 @@ class my_handler:
         self._lcm = LCM()
         self._lcm.subscribe("full_observer_data", self._handle_msg)
         self.estimator = A1ContactEstimationInterface()
+        self.rpy = []
+        self.force = []
 
     def _run_handler(self):
         while True:
@@ -30,10 +32,10 @@ class my_handler:
     def _run_estimator(self):
         while True:
             # self._lcm_pitch.handle()
-            self.pitch = self.estimator.estimate(self.msg)
+            self.rpy, self.force = self.estimator.estimate(self.msg)
             self.command = pycito_cmd_lcmt.pycito_cmd_lcmt()
-            self.command.pitch = self.pitch
-            print("pitch = %s" % self.pitch)
+            self.command.pitch = self.rpy[1]
+            print("pitch = %s" % self.rpy[1])
             self._lcm.publish("pycito_command", self.command.encode())
 
 
