@@ -28,7 +28,7 @@ class A1ContactEstimationInterface():
         self.estimator.useSnoptSolver()
         self.estimator.setSolverOptions(config['Solver'])
         # Store the slope estimate in case one iteration fails
-        self.slope = np.zeros((3,))
+        self.orientation = np.zeros((3,))
         self.forces = np.zeros((4,))
         self.starttime = time.perf_counter()
         self.savecounter = 1
@@ -61,8 +61,8 @@ class A1ContactEstimationInterface():
 
         pitch = np.arctan2(coef[0], 1)
         roll = np.arctan2(coef[1], 1)
-        offset = np.mean(model.surface._sample_points)
-        yaw = grad[:1].dot(offset[:1])
+        offset = np.mean(model.surface._sample_points, axis=1)
+        yaw = grad[:2].dot(offset[:2])
 
         return np.array([roll, pitch, yaw])
 
@@ -142,7 +142,7 @@ class A1ContactEstimationInterface():
         else:
             self.logging_enabled=False
 
-    def estimate(self, msg):
+    def estimate(self, msg, t = None):
         """
         Estimate ground slope
 
@@ -153,7 +153,8 @@ class A1ContactEstimationInterface():
             (float): the estimated ground slope        
         """
         # Keep track of time
-        t = time.perf_counter() - self.starttime
+        if t is None:
+            t = time.perf_counter() - self.starttime
         # Covert data in lcm message to numpy array
         x, u = self._lcm_to_arrays(msg)
         yaw = x[5]
@@ -166,7 +167,7 @@ class A1ContactEstimationInterface():
                 print('Estimation successful')
                 self.estimator.update_trajectory(t, result)
                 model = self.estimator.get_updated_contact_model(result)
-                self.rpy = self._calculate_ground_slope(model, yaw)
+                self.orientation = self._calculate_ground_slope(model, yaw)
                 self.forces = self.estimator.traj._forces[-1]
             else:
                 print('Estimation failed. Returning previous estimate')
@@ -178,7 +179,7 @@ class A1ContactEstimationInterface():
         elif t > 5 * self.savecounter:
             self.save_debug_logs()
             self.savecounter += 1
-        return self.rpy, self.forces
+        return self.orientation, self.forces
 
     def save_debug_logs(self, directory=None):
         """Save the debugging logs from the estimator"""

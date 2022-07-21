@@ -44,13 +44,13 @@ class EstimationInterfaceTest(unittest.TestCase):
             surface = cm.FlatModel(location = 0., direction = np.array([0, 0, 1])),
             friction = cm.ConstantModel(1.)
         )
-        slope = self.estimator._calculate_ground_slope(model)
-        self.assertAlmostEqual(slope, 0., delta=1e-6, msg='Calculated ground slope is not accurate for zero slope')
+        slope = self.estimator._calculate_ground_slope(model, 0)
+        self.assertAlmostEqual(slope[1], 0., delta=1e-6, msg='Calculated ground slope is not accurate for zero slope')
         # Test when the ground slope is nonzero
         true_slope = -np.pi/6
         model.surface._direction = np.array([np.sin(true_slope), 0, np.cos(true_slope)])
         est_slope = self.estimator._calculate_ground_slope(model)
-        self.assertAlmostEqual(est_slope, true_slope, delta=1e-6, msg=f'Calculated slope {est_slope:.4f} does not match the true slope {true_slope:.4f}')
+        self.assertAlmostEqual(est_slope[1], true_slope, delta=1e-6, msg=f'Calculated slope {est_slope:.4f} does not match the true slope {true_slope:.4f}')
 
     def test_lcm_to_arrays(self):
         """Check that we can convert an LCM message to a set of data arrays"""
@@ -69,7 +69,7 @@ class EstimationInterfaceTest(unittest.TestCase):
     def test_estimate(self):
         """Check that we can pass an lcm message to estimate and get back a float"""
         msg = self.get_lcm_sample()
-        slope = self.estimator.estimate(msg)
+        slope, _ = self.estimator.estimate(msg)
         print(f'Estimated slope: {slope:.4f}')
         self.assertTrue(isinstance(slope, float), 'returned slope is not a float')
 
