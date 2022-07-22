@@ -10,17 +10,19 @@ except ImportError:
 import struct
 
 class pycito_cmd_debug_lcmt(object):
-    __slots__ = ["pitch_pycito", "pitch_mit", "pitch_filtered_mit", "pitch_filtered_pycito"]
+    __slots__ = ["pitch_pycito", "pitch_mit", "pitch_filtered_mit", "pitch_filtered_pycito", "roll_pycito", "roll_mit"]
 
-    __typenames__ = ["float", "float", "float", "float"]
+    __typenames__ = ["float", "float", "float", "float", "float", "float"]
 
-    __dimensions__ = [None, None, None, None]
+    __dimensions__ = [None, None, None, None, None, None]
 
     def __init__(self):
         self.pitch_pycito = 0.0
         self.pitch_mit = 0.0
         self.pitch_filtered_mit = 0.0
         self.pitch_filtered_pycito = 0.0
+        self.roll_pycito = 0.0
+        self.roll_mit = 0.0
 
     def encode(self):
         buf = BytesIO()
@@ -29,7 +31,7 @@ class pycito_cmd_debug_lcmt(object):
         return buf.getvalue()
 
     def _encode_one(self, buf):
-        buf.write(struct.pack(">ffff", self.pitch_pycito, self.pitch_mit, self.pitch_filtered_mit, self.pitch_filtered_pycito))
+        buf.write(struct.pack(">ffffff", self.pitch_pycito, self.pitch_mit, self.pitch_filtered_mit, self.pitch_filtered_pycito, self.roll_pycito, self.roll_mit))
 
     def decode(data):
         if hasattr(data, 'read'):
@@ -43,13 +45,13 @@ class pycito_cmd_debug_lcmt(object):
 
     def _decode_one(buf):
         self = pycito_cmd_debug_lcmt()
-        self.pitch_pycito, self.pitch_mit, self.pitch_filtered_mit, self.pitch_filtered_pycito = struct.unpack(">ffff", buf.read(16))
+        self.pitch_pycito, self.pitch_mit, self.pitch_filtered_mit, self.pitch_filtered_pycito, self.roll_pycito, self.roll_mit = struct.unpack(">ffffff", buf.read(24))
         return self
     _decode_one = staticmethod(_decode_one)
 
     def _get_hash_recursive(parents):
         if pycito_cmd_debug_lcmt in parents: return 0
-        tmphash = (0xbbc2a3948f1f437c) & 0xffffffffffffffff
+        tmphash = (0x74972ddc3b13104a) & 0xffffffffffffffff
         tmphash  = (((tmphash<<1)&0xffffffffffffffff) + (tmphash>>63)) & 0xffffffffffffffff
         return tmphash
     _get_hash_recursive = staticmethod(_get_hash_recursive)

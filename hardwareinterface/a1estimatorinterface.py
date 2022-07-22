@@ -55,9 +55,9 @@ class A1ContactEstimationInterface():
         grad = model.surface.gradient(null)
         grad = np.squeeze(grad)
 
-        R = np.array([[np.cos(yaw), -np.sin(yaw)],
-                    [np.sin(yaw), np.cos(yaw)]])
-        coef = -1*grad[:2].T.dot(R.T)
+        R = np.array([[np.cos(yaw), np.sin(yaw)],
+                   [-np.sin(yaw), np.cos(yaw)]])
+        coef = grad[:2].T.dot(R.T)
 
         pitch = np.arctan2(coef[0], 1)
         roll = np.arctan2(coef[1], 1)

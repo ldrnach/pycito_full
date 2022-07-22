@@ -10,14 +10,17 @@ except ImportError:
 import struct
 
 class pycito_cmd_lcmt(object):
-    __slots__ = ["pitch"]
+    __slots__ = ["pitch", "roll", "yaw", "footforce"]
 
-    __typenames__ = ["float"]
+    __typenames__ = ["float", "float", "float", "float"]
 
-    __dimensions__ = [None]
+    __dimensions__ = [None, None, None, [4]]
 
     def __init__(self):
         self.pitch = 0.0
+        self.roll = 0.0
+        self.yaw = 0.0
+        self.footforce = [ 0.0 for dim0 in range(4) ]
 
     def encode(self):
         buf = BytesIO()
@@ -26,7 +29,8 @@ class pycito_cmd_lcmt(object):
         return buf.getvalue()
 
     def _encode_one(self, buf):
-        buf.write(struct.pack(">f", self.pitch))
+        buf.write(struct.pack(">fff", self.pitch, self.roll, self.yaw))
+        buf.write(struct.pack('>4f', *self.footforce[:4]))
 
     def decode(data):
         if hasattr(data, 'read'):
@@ -40,13 +44,14 @@ class pycito_cmd_lcmt(object):
 
     def _decode_one(buf):
         self = pycito_cmd_lcmt()
-        self.pitch = struct.unpack(">f", buf.read(4))[0]
+        self.pitch, self.roll, self.yaw = struct.unpack(">fff", buf.read(12))
+        self.footforce = struct.unpack('>4f', buf.read(16))
         return self
     _decode_one = staticmethod(_decode_one)
 
     def _get_hash_recursive(parents):
         if pycito_cmd_lcmt in parents: return 0
-        tmphash = (0x2f4da988afcba20f) & 0xffffffffffffffff
+        tmphash = (0x7e3bbfa02fe297e0) & 0xffffffffffffffff
         tmphash  = (((tmphash<<1)&0xffffffffffffffff) + (tmphash>>63)) & 0xffffffffffffffff
         return tmphash
     _get_hash_recursive = staticmethod(_get_hash_recursive)

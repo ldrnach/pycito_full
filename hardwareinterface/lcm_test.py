@@ -34,8 +34,11 @@ class my_handler:
             # self._lcm_pitch.handle()
             self.rpy, self.force = self.estimator.estimate(self.msg)
             self.command = pycito_cmd_lcmt.pycito_cmd_lcmt()
+            self.command.roll = self.rpy[0]
             self.command.pitch = self.rpy[1]
-            print("pitch = %s" % self.rpy[1])
+            self.command.yaw = self.rpy[2]
+            self.command.footforce = self.force[:4]
+            # print("pitch = %s" % self.rpy[1])
             self._lcm.publish("pycito_command", self.command.encode())
 
 
