@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 import pycito.utilities as utils
-from pycito.systems.A1.a1 import A1
+from pycito.systems.A1.a1 import A1, A1VirtualBase
 import pycito.decorators as deco
 
 from pydrake.systems.meshcat_visualizer import ConnectMeshcatVisualizer
@@ -220,7 +220,7 @@ class A1SimulationPlotter():
     Plotting tool for a1 simulations
     """
     def __init__(self):
-        self.a1 = A1()
+        self.a1 = A1VirtualBase()
         self.a1.Finalize()
 
     def plot(self, logs, show=True, savename=None):
