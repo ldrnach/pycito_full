@@ -74,8 +74,10 @@ pypitches = np.array([py_pitch_poly.value(time) for time in times])
 mitpitches = np.array([mit_pitch_poly.value(time) for time in times])
 
 #RMSE = np.sqrt(np.mean((pypitches - mitpitches)**2))
-MAE = np.mean(np.abs(pypitches - mitpitches))
-print(f"Pitch Mean Absolute Error: {MAE:0.2f} degrees")
+AE = np.abs(pypitches - mitpitches)
+
+print(f"Pitch Mean Absolute Error: {np.mean(AE):0.2f} degrees")
+print(f"Pitch Maximum Absolute Error: {np.max(AE):0.2f} degrees")
 
 if useroll:
     # Resample the data and to create even trajectories for analysis
@@ -90,7 +92,8 @@ if useroll:
 
     #RMSE = np.sqrt(np.mean((pyrolls - mitrolls)**2))
     #print(f"Roll Mean Absolute Error: {RMSE:0.2f} degrees")
-    MAE = np.mean(np.abs(pyrolls - mitrolls))
-    print(f"Roll Mean Absolute Error: {MAE:0.2f} degrees")
+    rAE = np.abs(pyrolls - mitrolls)
+    print(f"Roll Mean Absolute Error: {np.mean(rAE):0.2f} degrees")
+    print(f"Roll Max Absolute Error: {np.max(rAE):0.2f} degrees")
 
 plt.show()

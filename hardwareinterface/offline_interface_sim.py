@@ -55,8 +55,9 @@ class MessageIterator():
 
 
 # Get the hardware data
-SOURCE = os.path.join('hardwareinterface','data','hardware_test_07_19.pkl')
+SOURCE = os.path.join('hardwareinterface','data','hardware_test_07_21.pkl')
 TARGET = os.path.join('hardwareinterface','offline')
+TARGETNAME = 'offline_data_07_21.pkl'
 if not os.path.exists(TARGET):
     os.makedirs(TARGET)
 
@@ -77,7 +78,7 @@ force = np.column_stack(force)
 
 # Save the data first
 output = {'rpy': rpy, 'force': force, 'time': t}
-utils.save(os.path.join(TARGET, 'data.pkl'), output)
+utils.save(os.path.join(TARGET, TARGETNAME), output)
 
 fig, axs = plt.subplots(2,1)
 for k, label in enumerate(['Roll','Pitch','Yaw']):
@@ -92,4 +93,4 @@ axs[1].set_xlabel('Time (s)')
 axs[1].legend(frameon=False)
 
 plt.show()
-fig.savefig(os.path.join(TARGET, 'slopefigure.png'), dpi=fig.dpi)
+fig.savefig(os.path.join(TARGET, 'slopefigure_offline_07_21_2022.png'), dpi=fig.dpi)
