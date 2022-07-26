@@ -46,7 +46,7 @@ class A1StandingPDController(LeafSystem):
         # Declare the output port for logging'
         self.DeclareVectorOutputPort(
             'logging',
-            BasicVector(self.plant.num_positions() + self.plant.num_velocities() + self.plant.num_actuators()),
+            BasicVector(self.plant.num_positions() + self.plant.num_velocities() + self.plant.num_actuators() - 1),
             self.SetLoggingOutputs
         )
         # Setup any internals in the controller
@@ -64,6 +64,7 @@ class A1StandingPDController(LeafSystem):
         q_guess = self._internal_plant.standing_pose()
         self.q_ref, _ = self._internal_plant.standing_pose_ik(base_pose = q_guess[:6], guess=q_guess)
         self.v_ref = np.zeros((self._internal_plant.multibody.num_velocities(),))
+        self.feedforward_control, _ = self._internal_plant.static_controller(self.q_ref)
 
     def quaternion2rpy(self, q):
         """Convert the floating base quaternion into roll-pitch-yaw angles"""
@@ -133,8 +134,8 @@ class A1StandingPDController(LeafSystem):
         """
         B = self.plant.MakeActuationMatrix()
         # Tuning parameters
-        Kp = 60 * np.eye(self.plant.num_velocities())
-        Kv = 0.3 * np.eye(self.plant.num_velocities())
+        Kp = 30 * np.eye(self.plant.num_velocities())
+        Kv = 0.1* np.eye(self.plant.num_velocities())
         # Convert to internal position and velocity
         q = self.toVirtualPosition(q)
         v = self.toVirtualVelocity(q)
@@ -142,8 +143,8 @@ class A1StandingPDController(LeafSystem):
         q_err = self.MapQDotToVelocityVirtual(q, q - self.q_ref)
         v_err = v - self.v_ref
         # Compute desired generalized forces
-        tau = -Kp.dot(q_err) - Kv.dot(v_err)
-        self.control = B.transpose().dot(tau)
+        tau = -Kp.dot(q_err) - Kv.dot(v_err) 
+        self.control = self.feedforward_control + B.transpose().dot(tau)
         return self.control
 
     def SetLoggingOutputs(self, context, output):
@@ -156,9 +157,9 @@ class A1StandingPDController(LeafSystem):
             forces        
         """
         q, v = self.plant.GetPositions(self.context), self.plant.GetVelocities(self.context)
-
+        q = self.toVirtualPosition(q)
+        v = self.toVirtualVelocity(v)
         output.SetFromVector(np.concatenate([q, v, self.control], axis=0))
-
 
     def SetReference(self, q_ref, v_ref):
         """Set the position and velocity references"""
@@ -166,8 +167,6 @@ class A1StandingPDController(LeafSystem):
         assert v_ref.shape == self.v_ref.shape, 'Velocity reference is the wrong shape'
         self.q_ref = q_ref
         self.v_rev = v_ref
-
-
 class A1ContactMPCController(A1StandingPDController):
     def __init__(self, 
                 plant,
