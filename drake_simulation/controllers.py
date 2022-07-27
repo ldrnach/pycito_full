@@ -51,6 +51,8 @@ class A1StandingPDController(LeafSystem):
         )
         # Setup any internals in the controller
         self.control = np.zeros((self.plant.num_actuators(),))
+        self.Kp = None  # Proportional Gain
+        self.Kv = None  # Derivative Gain
         self._setup()
 
     def _setup(self):
@@ -167,12 +169,14 @@ class A1StandingPDController(LeafSystem):
         assert v_ref.shape == self.v_ref.shape, 'Velocity reference is the wrong shape'
         self.q_ref = q_ref
         self.v_rev = v_ref
+
+
 class A1ContactMPCController(A1StandingPDController):
     def __init__(self, 
                 plant,
                 dt,
                 reference = REFERENCE,
-                horizon = 17,
+                horizon = 5,
                 lcptype = lcp.ConstantRelaxedPseudoLinearComplementarityConstraint):
         
         self.reference = reference
@@ -206,18 +210,15 @@ class A1ContactMPCController(A1StandingPDController):
         #TODO: Refactor this into a configuration file
         """
         a1 = self.controller.lintraj.plant
-        
-        
-        Kp = np.ones((a1.multibody.num_positions(),))
-        Kv = np.ones((a1.multibody.num_velocities(), ))
-        Kp[:6] = 1e2
-        Kp[6:] = 1e2
-        Ks = np.diag(np.concatenate([Kp, 1e-2*Kv], axis=0))   #1e2, 1e-2
-        self.controller.statecost = Ks
-        self.controller.controlcost = 1e-1*np.eye(self.controller.control_dim)    #1e-3
-        self.controller.forcecost = 1e-4 * np.eye(self.controller.force_dim)      #1e-2
-        self.controller.slackcost = 1e-4 * np.eye(self.controller.slack_dim)      #1e-4
-        self.controller.limitcost = 1e-4 * np.eye(self.controller.jlimit_dim)     #1e-4
+        Qp = np.ones((a1.multibody.num_positions(),))
+        Qv = np.ones((a1.multibody.num_velocities(), ))
+        Qp[:6] = 1e2
+        Qp[6:] = 1e2
+        self.controller.statecost =  np.diag(np.concatenate([Qp, 1e-2*Qv], axis=0))   #1e2, 1e-2
+        self.controller.controlcost = 1e-3*np.eye(self.controller.control_dim)    #1e-3
+        self.controller.forcecost = 0 * np.eye(self.controller.force_dim)      #1e-2
+        self.controller.slackcost = 0 * np.eye(self.controller.slack_dim)      #1e-4
+        self.controller.limitcost = 0 * np.eye(self.controller.jlimit_dim)     #1e-4
         #controller.complementarity_penalty = 1e-3
         self.controller.complementarity_schedule = [1e-2, 1e-4]    #originally 1e4
         self.controller.useSnoptSolver()
@@ -231,6 +232,13 @@ class A1ContactMPCController(A1StandingPDController):
         self.controller.use_basis_file()
         self.controller.lintraj.useNearestTime()
 
+    def get_mpc(self):
+        """Return the MPC controller object"""
+        return self.controller
+
+    def enable_logging(self):
+        """Enable logging within the MPC"""
+        self.controller.enableLogging()
 
     def ControlLaw(self, context, q, v):
         """Execute the MPC as the control law"""
@@ -238,7 +246,7 @@ class A1ContactMPCController(A1StandingPDController):
         if self._check_time(t):
             # Convert to internal position and velocity
             q = self.toVirtualPosition(q)
-            v = self.toVirtualVelocity(q)
+            v = self.toVirtualVelocity(v)
             state = np.concatenate([q, v], axis=0)
             # Run MPC to get the control
             self.control = self.controller.get_control(t, state, self.control)
@@ -257,6 +265,29 @@ class A1ContactMPCController(A1StandingPDController):
         # else:
         #     return False
 
+
+class A1ContactMPCConrollerWithPD(A1ContactMPCController):
+    def __init__(self, *args, **kwargs):
+        super.__init__(*args, **kwargs)
+        self.feedforward_control = np.zeros((self.plant.num_actuators(),))
+        self.Kd = np.diag(np.ones((self.plant.num_velocities(),)))
+        self.Kv = np.diag(np.ones((self.plant.num_velocities(),)))
+
+    def ControlLaw(self, context, q, v):
+        t = context.get_time()
+        if self._check_time(t):
+            self._update_feedforward_control(context, q, v)
+        u_fb = self.feedback_control(context, q, v)
+        return self.feedforward_control + u_fb
+        
+    def _update_feedfoward_control(self, context, q, v):
+        """Update the MPC feedforward controller"""
+        # Convert to internal position and velocity
+        q = self.toVirtualPosition(q)
+        v = self.toVirtualVelocity(q)
+        state = np.concatenate([q, v], axis=0)
+        # Run MPC to get the control
+        self.control = self.controller.get_control(t, state, self.control)
 class BasicController(LeafSystem):
     """
     Basic controller for quadruped robot
