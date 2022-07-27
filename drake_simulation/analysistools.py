@@ -5,7 +5,8 @@ from pycito.systems.A1.a1 import A1VirtualBase
 import pycito.decorators as deco
 
 from pydrake.all import PiecewisePolynomial as pp
-
+LOGNAME = 'mpclogs.pkl'
+LOGFIGURENAME = 'mpclogs'
 EXT = '.png'
 class _A1ErrorPlotter(A1VirtualBase):
     def __init__(self):
@@ -18,8 +19,8 @@ class _A1ErrorPlotter(A1VirtualBase):
         """Plot the tracking errors"""
         # calculate the state error
         state_error = calculate_tracking_error(simdata, reftraj)
-        time = simdata['time']
-        
+        time = simdata['time'][1:]
+        state_error = state_error[:, 1:]
         all_fig = []
         all_axs = []
         q, v = np.split(state_error, [self.multibody.num_positions()])
@@ -54,6 +55,9 @@ class _A1ErrorPlotter(A1VirtualBase):
         # First, calculate the state erorr
         state_error = calculate_tracking_error(simdata, reftraj)
         time = simdata['time']
+        time = time[1:]
+        state_error = state_error[:, 1:]
+
         q, v = np.split(state_error, [self.multibody.num_positions()])
         base_pos_mse = np.sqrt(np.mean(q[:6,:]**2, axis=0))
         joint_pos_mse = np.sqrt(np.mean(q[6:, :]**2, axis=0))
@@ -77,7 +81,7 @@ class _A1ErrorPlotter(A1VirtualBase):
         labels = ['FR','FL','BR','BL']
         for ref_foot, sim_foot, label in zip(ref_feet, sim_feet, labels):
             foot_err = np.sqrt(np.mean((ref_foot - sim_foot)**2, axis=0))
-            axs[2].plot(time, foot_err, linewidth=1.5, label=label)
+            axs[2].plot(time, foot_err[1:], linewidth=1.5, label=label)
         axs[2].set_ylabel('Foot Position\nError')
         axs[2].set_xlabel('Time (s)')
         axs[2].legend(frameon=False, ncol=4)
@@ -97,3 +101,13 @@ def plot_tracking_error(simdata, reftraj, savedir):
     plotter = _A1ErrorPlotter()
     plotter.plot_individual_tracking_errors(simdata, reftraj, show=False, savename=os.path.join(savedir, 'individual_tracking_errors'+EXT))
     plotter.plot_tracking_error_summary(simdata, reftraj, show=False, savename=os.path.join(savedir, 'tracking_error_summary'+EXT))
+
+def save_mpc_logs(controller, savedir):
+    print("Saving MPC logs...", end="", flush=True)
+    controller.logger.save(os.path.join(savedir, LOGNAME))
+    print("\tDone!")
+
+def plot_mpc_logs(controller, savedir=None):
+    print("Plotting MPC logs...", end="", flush=True)
+    controller.logger.plot(show=False, savename=os.path.join(savedir, LOGFIGURENAME + EXT))
+    print('\tDone!')
