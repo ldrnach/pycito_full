@@ -1,0 +1,27 @@
+Solved with SNOPT/fortran
+Optimization successful? True
+Optimal cost = 2.469587251737777
+SNOPT Exit Status 1: optimality conditions satisfied
+Infeasible constraints: set()
+Individual Costs: 
+state_cost: 	 2.3701E+00
+control_cost: 	 4.6519E-03
+force_cost: 	 9.4844E-02
+slack_cost: 	 9.0136E-06
+joint_limit_cost: 	 4.8028E-25
+
+Constraint Violations: 
+joint limits_orthogonality: 	 1.5079E-12
+distance_orthogonality: 	 0.0000E+00
+dissipation_orthogonality: 	 0.0000E+00
+friction cone_orthogonality: 	 2.7105E-20
+initial state: 	 2.8726E-12
+linear_dynamics: 	 5.2051E-13
+joint limits_equality: 	 7.2806E-12
+distance_equality: 	 9.2040E-14
+dissipation_equality: 	 9.6311E-14
+friction cone_equality: 	 3.6467E-13
+joint limits_nonnegativity: 	 7.8771E-13
+distance_nonnegativity: 	 0.0000E+00
+dissipation_nonnegativity: 	 2.5849E-26
+friction cone_nonnegativity: 	 0.0000E+00

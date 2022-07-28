@@ -1,0 +1,27 @@
+Solved with SNOPT/fortran
+Optimization successful? False
+Optimal cost = 24.42002088752713
+SNOPT Exit Status 31: iteration limit reached
+Infeasible constraints: {'distance_orthogonality', 'friction cone_orthogonality', 'dissipation_orthogonality'}
+Individual Costs: 
+state_cost: 	 2.4222E+01
+control_cost: 	 1.4959E-01
+force_cost: 	 4.7013E-02
+slack_cost: 	 1.0484E-03
+joint_limit_cost: 	 1.0564E-26
+
+Constraint Violations: 
+joint limits_orthogonality: 	 2.1763E-13
+distance_orthogonality: 	 8.5043E-02
+dissipation_orthogonality: 	 5.1155E-01
+friction cone_orthogonality: 	 5.6722E-02
+initial state: 	 1.1238E-12
+linear_dynamics: 	 2.7943E-09
+joint limits_equality: 	 1.4463E-12
+distance_equality: 	 2.5672E-14
+dissipation_equality: 	 3.7774E-14
+friction cone_equality: 	 1.6651E-07
+joint limits_nonnegativity: 	 1.9892E-13
+distance_nonnegativity: 	 0.0000E+00
+dissipation_nonnegativity: 	 0.0000E+00
+friction cone_nonnegativity: 	 0.0000E+00

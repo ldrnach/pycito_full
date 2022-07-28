@@ -1,0 +1,109 @@
+ContactImplicitDirectTranscription with A1VirtualBase on FlatTerrainwith height 0.0 and friction 1.0
+Source files:
+	/home/ldrnach3/Projects/drake/pyCITO/pycito/systems/A1/A1_description/urdf/a1_foot_collision.urdf
+Friction discretization level: 1
+
+	Knot points: 51
+	Time range: [0.5000000000000001,0.5000000000000001]
+	
+Date: April 26, 2022
+
+Problem has 6170 variables, 355 cost terms, and 9303 constraints
+
+Solver: SnoptSolver
+Solver halted after 0 hours, 10 minutes, and 4.71 seconds
+Solved with SNOPT/fortran
+Optimization successful? True
+Optimal cost = 352.0925718100455
+SNOPT Exit Status 1: optimality conditions satisfied
+Infeasible constraints: set()
+Individual Costs: 
+normal_distanceCost: 	 2.8166E-03
+sliding_velocityCost: 	 1.0418E-06
+friction_coneCost: 	 2.7792E-10
+FootTrackingCost: 	 6.4984E+01
+ControlCost: 	 2.0327E+00
+ForceCost: 	 4.6823E+01
+ControlDifference: 	 3.0401E+01
+ForceDifference: 	 2.0475E+02
+BaseTrackingCost: 	 3.0941E+00
+
+Constraint Violations: 
+dynamics: 	 5.3592E-07
+joint_limits: 	 3.2409E-11
+normal_distance: 	 1.2467E-05
+sliding_velocity: 	 1.0311E-06
+friction_cone: 	 1.2418E-08
+EqualTimeConstraints: 	 0.0000E+00
+StateConstraint: 	 2.1485E-08
+control_periodicity: 	 3.8691E-14
+force_periodicity: 	 5.3255E-09
+jointlimit_periodicity: 	 6.4670E-23
+TimestepConstraint: 	 0.0000E+00
+Solver options:
+	 Iterations limit: 10000000
+	 Major iterations limit: 5000
+	 Major feasibility tolerance: 1e-06
+	 Major optimality tolerance: 1e-06
+	 Scale option: 2
+CostRelaxedLinearEqualityComplementarity on the function _normal_distance with input dimension 36 and output dimension 4
+	Cost weight: 1000.0
+CostRelaxedLinearEqualityComplementarity on the function _sliding_velocity with input dimension 40 and output dimension 16
+	Cost weight: 1000.0
+CostRelaxedLinearEqualityComplementarity on the function _friction_cone with input dimension 56 and output dimension 4
+	Cost weight: 1000.0
+
+Normal Dissipation Enforced? False
+Equal time steps enforced? True
+
+State Constraints: 
+	x[0, [ 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22 23
+ 24 25 26 27 28 29 30 31 32 33 34 35]] = [ 4.99999973e-02 -1.32918265e-20  2.92842712e-01  6.26421213e-12
+ -8.86065680e-12  3.88990985e-12  3.52380612e-09  9.44739669e-01
+ -1.53954126e+00  2.92818808e-09  5.94801609e-01 -1.53954131e+00
+ -3.03720602e-09  5.94801609e-01 -1.53954130e+00  5.82231701e-10
+  9.44739669e-01 -1.53954126e+00  3.02689452e-12 -9.95646592e-12
+ -2.67231381e-12 -3.46716064e-12 -3.89927814e-12  2.50524680e-11
+  2.68882611e-11 -7.39644131e-11  1.71191781e-10  5.81558708e-11
+ -2.42772781e-11  3.86130895e-11  5.04489074e-11  0.00000000e+00
+  6.34687827e-11  5.93062908e-11 -1.59814042e-11  3.22472664e-11]
+	x[50, [ 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22 23
+ 24 25 26 27 28 29 30 31 32 33 34 35]] = [ 2.49999997e-01 -2.83275883e-12  2.92842712e-01  3.45934611e-13
+ -3.60446645e-11  4.08349978e-11 -6.47532155e-10  9.44739667e-01
+ -1.53954126e+00  6.99744292e-11  5.94801605e-01 -1.53954129e+00
+  2.53374739e-11  5.94801605e-01 -1.53954129e+00 -3.14717663e-12
+  9.44739659e-01 -1.53954124e+00  1.00668031e-11 -8.16628343e-11
+ -1.82852169e-12  1.52461282e-10 -7.20404448e-11 -5.06220322e-11
+  1.60064661e-10  1.49127190e-10 -1.11203891e-10  1.37836839e-10
+  1.71390732e-10  0.00000000e+00  1.12456647e-10 -1.20670906e-10
+  4.93973750e-10  9.45590313e-11  8.72101560e-11  7.52228183e-11]
+
+Running Costs: 
+	ControlCost: Quadratic cost on u with weights Q = 
+[[0.01 0.   0.   0.   0.   0.   0.   0.   0.   0.   0.   0.  ]
+ [0.   0.01 0.   0.   0.   0.   0.   0.   0.   0.   0.   0.  ]
+ [0.   0.   0.01 0.   0.   0.   0.   0.   0.   0.   0.   0.  ]
+ [0.   0.   0.   0.01 0.   0.   0.   0.   0.   0.   0.   0.  ]
+ [0.   0.   0.   0.   0.01 0.   0.   0.   0.   0.   0.   0.  ]
+ [0.   0.   0.   0.   0.   0.01 0.   0.   0.   0.   0.   0.  ]
+ [0.   0.   0.   0.   0.   0.   0.01 0.   0.   0.   0.   0.  ]
+ [0.   0.   0.   0.   0.   0.   0.   0.01 0.   0.   0.   0.  ]
+ [0.   0.   0.   0.   0.   0.   0.   0.   0.01 0.   0.   0.  ]
+ [0.   0.   0.   0.   0.   0.   0.   0.   0.   0.01 0.   0.  ]
+ [0.   0.   0.   0.   0.   0.   0.   0.   0.   0.   0.01 0.  ]
+ [0.   0.   0.   0.   0.   0.   0.   0.   0.   0.   0.   0.01]] 
+	and bias b = 
+[0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.]
+	ForceCost: Quadratic cost on normal_force with weights Q = 
+[[0.01 0.   0.   0.  ]
+ [0.   0.01 0.   0.  ]
+ [0.   0.   0.01 0.  ]
+ [0.   0.   0.   0.01]] 
+	and bias b = 
+[0. 0. 0. 0.]
+	ControlDifference: Differenced Cost on u
+	ForceDifference: Differenced Cost on normal_force
+
+Final Costs: 
+
+Solver halted after 154 iterations

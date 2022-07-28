@@ -1,0 +1,25 @@
+
+ Initial Guess Report
+Individual Costs: 
+state_cost: 	 2.3535E+00
+control_cost: 	 2.0840E-04
+force_cost: 	 7.8314E+00
+slack_cost: 	 2.1724E-03
+joint_limit_cost: 	 2.7314E-29
+
+Constraint Violations: 
+joint limits_orthogonality: 	 3.2256E-15
+distance_orthogonality: 	 5.1440E-02
+dissipation_orthogonality: 	 NAN
+friction cone_orthogonality: 	 1.0732E-02
+initial state: 	 1.8110E+00
+linear_dynamics: 	 1.0594E+01
+joint limits_equality: 	 2.2997E-02
+distance_equality: 	 2.0960E-03
+dissipation_equality: 	 NAN
+friction cone_equality: 	 3.1226E+00
+TangentVelocityEquality: 	 NAN
+joint limits_nonnegativity: 	 1.3178E-25
+distance_nonnegativity: 	 3.0228E-02
+dissipation_nonnegativity: 	 NAN
+friction cone_nonnegativity: 	 5.4188E-11
