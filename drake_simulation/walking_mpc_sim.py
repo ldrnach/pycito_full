@@ -3,16 +3,16 @@ import os
 from controllers import A1ContactMPCController
 from environments import FlatGroundEnvironment
 from a1_simulator import A1DrakeSimulationBuilder, A1SimulationPlotter
-from simtools import plot_tracking_error
+import analysistools
 
 from pycito.systems.A1.a1 import A1
 
-target = os.path.join('drake_simulation','mpc_walking_sim','finetimestep_horizon17',)
+target = os.path.join('drake_simulation','mpc_walking_sim','12s_test')
 if not os.path.exists(target):
     os.makedirs(target)
 
 # Simulation specification
-timestep = 0.001
+timestep = 0.01
 sim_time = 12.0 #Seconds
 env = FlatGroundEnvironment()
 control  = A1ContactMPCController
@@ -23,7 +23,7 @@ simulation, simbuilder = A1DrakeSimulationBuilder.createSimulator(timestep, env,
 # Set the initial condition
 initial_state = simbuilder.get_a1_standing_state()
 simbuilder.set_initial_state(initial_state)
-
+simbuilder.controller.enable_logging()
 # Run the simulation
 simbuilder.initialize_sim()
 simbuilder.run_simulation(sim_time)
@@ -37,4 +37,7 @@ simplotter.save_data(simbuilder.get_logs(), savename=os.path.join(target, 'simda
 data = simbuilder.get_simulation_data()
 ref = simbuilder.controller.get_reference_trajectory()
 
+analysistools.plot_tracking_error(data, ref, target)
 #plot_tracking_error(data, ref, savedir=os.path.join(target))
+analysistools.save_mpc_logs(simbuilder.controller.get_mpc(), target)
+analysistools.plot_mpc_logs(simbuilder.controller.get_mpc(), target)
