@@ -1,0 +1,10 @@
+Metadata-Version: 1.0
+Name: pycito
+Version: 2.0
+Summary: contact implicit trajectory optimization in python
+Home-page: https://github.gatech.edu/GeorgiaTechLIDARGroup/pyCITO
+Author: Luke Drnach
+Author-email: luke.drnach@gatech.edu
+License: UNKNOWN
+Description: UNKNOWN
+Platform: UNKNOWN
