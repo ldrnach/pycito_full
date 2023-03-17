@@ -4,6 +4,9 @@ import numpy as np
 from pycito.systems.A1.a1 import A1VirtualBase
 from pycito.controller import mpc, contactestimator
 from pycito.controller import mlcp as lcp
+import pycito.systems.kernels as kernels
+import pycito.systems.contactmodel as cm
+import copy
 
 from pydrake.all import LeafSystem, BasicVector, Quaternion, AbstractValue, ContactResults
 from pydrake.math import RollPitchYaw
@@ -265,29 +268,52 @@ class A1ContactMPCController(A1StandingPDController):
         # else:
         #     return False
 
+class A1ContactEILController(A1ContactMPCController):
+    def __init__(self, plant, dt, reference=REFERENCE, horizon=5, lcptype=lcp.ConstantRelaxedPseudoLinearComplementarityConstraint):
+        super().__init__(plant, dt, reference, horizon, lcptype)
 
-class A1ContactMPCConrollerWithPD(A1ContactMPCController):
-    def __init__(self, *args, **kwargs):
-        super.__init__(*args, **kwargs)
-        self.feedforward_control = np.zeros((self.plant.num_actuators(),))
-        self.Kd = np.diag(np.ones((self.plant.num_velocities(),)))
-        self.Kv = np.diag(np.ones((self.plant.num_velocities(),)))
+    def _setup(self) -> None:
+        """Setup the linear contact MPC with contact estimation in the loop"""
+        controller_model = self._create_semiparametric_model()
 
-    def ControlLaw(self, context, q, v):
-        t = context.get_time()
-        if self._check_time(t):
-            self._update_feedforward_control(context, q, v)
-        u_fb = self.feedback_control(context, q, v)
-        return self.feedforward_control + u_fb
-        
-    def _update_feedfoward_control(self, context, q, v):
-        """Update the MPC feedforward controller"""
-        # Convert to internal position and velocity
-        q = self.toVirtualPosition(q)
-        v = self.toVirtualVelocity(q)
-        state = np.concatenate([q, v], axis=0)
-        # Run MPC to get the control
-        self.control = self.controller.get_control(t, state, self.control)
+        print('Loading reference trajectory...\t', end='', flush=True)
+        reftraj = mpc.LinearizedContactTrajectory.loadLinearizedTrajectory(controller_model, self.reference)
+        print('Done!', end='\n', flush=True)
+        # Create the contact estimator
+        estimator_model = self._create_semiparametric_model()
+        estimation_trajectory = contactestimator.ContactEstimationTrajectory(plant = estimator_model, initial_state=reftraj.getState(0))
+        self.estimator = contactestimator.ContactModelEstimator(estimation_trajectory, horizon=1)
+        self._set_estimator_options()
+        # Now make the CAMPC controller
+        print('Creating MPC...', end='', flush=True)
+        self.controller = mpc.ContactAdaptiveMPC(self.estimator, reftraj, horizon=5, lcptype=self.lcptype)
+        self._set_controller_options()
+        print('Setup Complete!', end='\n', flush=True)
+
+    def _create_semiparametric_model(self) -> A1VirtualBase:
+        a1 = A1VirtualBase()
+        kernel = kernels.WhiteNoiseKernel(noise=1)
+        a1.terrain = cm.SemiparametricContactModel(
+            surface = cm.SemiparametricModel(cm.FlatModel(location = 0.0, direction = np.array([0., 0., 1.0])), kernel = kernel),
+            friction = cm.SemiparametricModel(cm.ConstantModel(const = 0.0), kernel = copy.deepcopy(kernel))
+        )
+        a1.Finalize()
+        return a1
+
+    def _set_estimator_options(self) -> None:
+        # Set the costs appropriately
+        self.estimator.forcecost = 1e0
+        self.estimator.relaxedcost = 1e3
+        self.estimator.distancecost = 1
+        self.estimator.frictioncost = 1
+        self.estimator.velocity_scaling = 1e-3
+        self.estimator.force_scaling = 1e2
+        self.estimator.useSnoptSolver()
+        self.estimator.setSolverOptions({'Major feasibility tolerance': 1e-6,
+                                    'Major optimality tolerance': 1e-6})
+        self.estimator.enableLogging()
+
+
 class BasicController(LeafSystem):
     """
     Basic controller for quadruped robot
