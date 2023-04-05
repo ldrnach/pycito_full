@@ -1,6 +1,8 @@
 import numpy as np
 from pydrake.all import RigidTransform, CoulombFriction, RollPitchYaw, Box
 
+from pycito.systems.contactmodel import ContactModel, FlatModel, PiecewiseModel, ConstantModel
+
 class FlatGroundEnvironment():
     """Create a flat ground (halfspace) contact environment with constant friction"""
     def __init__(self, friction = 1.0, shape = (20, 20, 0.1)):
@@ -53,6 +55,9 @@ class FlatGroundEnvironment():
         for loc in val:
             assert isinstance(loc, (int, float)), 'each element in shape must be an int or float'
         self._shape = val
+
+    def get_contact_model(self):
+        return ContactModel.FlatSurfaceWithConstantFriction(location=0.0, friction=self._friction)
 
 class FlatGroundWithFrictionPatch(FlatGroundEnvironment):
     """
@@ -125,6 +130,16 @@ class FlatGroundWithFrictionPatch(FlatGroundEnvironment):
         for loc in val:
             assert isinstance(loc, (int, float)), 'each element in patch_shape must be an int or float'
         self._patch_shape = val
+
+    def get_contact_model(self):
+        friction = PiecewiseModel(
+            breaks = [self.patch_location[0] - self.patch_shape[0]/2, self.patch_location[0] + self.patch_shape[0]/2],
+            models = [ConstantModel(self.friction), ConstantModel(self.patch_friction), ConstantModel(self.friction)]
+        )
+        return ContactModel(
+            surface = FlatModel(location = 0),
+            friction = friction
+        )
 
 class RampUpEnvironment(FlatGroundEnvironment):
     def __init__(self, friction=1.0, slope=15, length=1):
@@ -215,3 +230,15 @@ class RampUpEnvironment(FlatGroundEnvironment):
         assert isinstance(val, (int, float)) and val > 0, 'length must be a positive int or float'
         self._length = val
     
+    def get_contact_model(self):
+        slope_rad = np.deg2rad(self.slope)
+        platform_height = self.length * np.tan(slope_rad)
+
+        ground = PiecewiseModel(
+            breaks = [1, 1 + self.length],
+            models = [FlatModel(location=0, direction=np.array([0, 0, 1])), 
+                      FlatModel(location=0, direction = np.array([-np.sin(slope_rad), 0, np.cos(slope_rad)])), 
+                      FlatModel(location=platform_height, direction = np.array([0, 0, 1]))]
+        )
+        friction = ConstantModel(const = self.friction)
+        return ContactModel(ground, friction)
