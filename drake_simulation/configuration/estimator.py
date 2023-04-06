@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 from .optimization import SNOPTConfig
 from .contactmodel import ContactModelConfig
+from .lcptype import LCP
 
 
 @dataclass
@@ -20,3 +21,4 @@ class EstimatorConfig:
     cost: EstimatorCostConfig
     solver: SNOPTConfig
     contact_model: ContactModelConfig
+    lcp: LCP
