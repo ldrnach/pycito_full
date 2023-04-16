@@ -677,7 +677,7 @@ class RegularizedConstantKernel(CompositeKernel):
     def build_from_config(
         cls, config: RegularizedConstantKernelConfig
     ) -> RegularizedConstantKernel:
-        cls(const=config.const, noise=config.noise)
+        return cls(const=config.const, noise=config.noise)
 
 
 class RegularizedCenteredLinearKernel(CompositeKernel):

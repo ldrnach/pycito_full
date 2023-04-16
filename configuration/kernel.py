@@ -27,7 +27,7 @@ class LinearKernelConfig(LinearKernelBase):
 
 
 @dataclass
-class CenteredLinearKernelConfig(LinearKernelBase):
+class CenteredLinearKernelConfig:
     weights: List[List[float]]
     type: Literal["CenteredLinearKernel"] = "CenteredLinearKernel"
 
@@ -93,7 +93,7 @@ class RegularizedPolynomialKernelConfig(LinearKernelBase):
 class RegularizedConstantKernelConfig:
     const: float
     noise: float
-    type: Literal["RegularizedConstantKernelConfig"] = "RegularizedConstantKernelConfig"
+    type: Literal["RegularizedConstantKernel"] = "RegularizedConstantKernel"
 
 
 @dataclass
