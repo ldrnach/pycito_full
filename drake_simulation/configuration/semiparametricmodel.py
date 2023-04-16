@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from typing import Literal
 
-from .parametricmodel import ParametricModelConfig
 from .kernel import KernelConfig
+from .parametricmodel import ParametricModelConfig
 
 
 @dataclass

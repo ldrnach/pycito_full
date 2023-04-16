@@ -63,7 +63,7 @@ class RegularizedRBFKernelConfig:
 
 
 @dataclass
-class RegularizedPsuedoHuberKernelConfig:
+class RegularizedPseudoHuberKernelConfig:
     length_scale: List[float]
     delta: float
     noise: float
@@ -77,7 +77,7 @@ class RegularizedLinearKernelConfig(LinearKernelBase):
 
 
 @dataclass
-class RegularizedHyberbolicKernelConfig(LinearKernelBase):
+class RegularizedHyperbolicKernelConfig(LinearKernelBase):
     noise: float
     type: Literal["RegularizedHyperbolicKernel"] = "RegularizedHyperbolicKernel"
 
@@ -114,9 +114,9 @@ KernelConfig = Union[
     ConstantKernelConfig,
     WhiteNoiseKernelConfig,
     RegularizedRBFKernelConfig,
-    RegularizedPsuedoHuberKernelConfig,
+    RegularizedPseudoHuberKernelConfig,
     RegularizedLinearKernelConfig,
-    RegularizedHyberbolicKernelConfig,
+    RegularizedHyperbolicKernelConfig,
     RegularizedPolynomialKernelConfig,
     RegularizedConstantKernelConfig,
     RegularizedCenteredLinearKernelConfig,

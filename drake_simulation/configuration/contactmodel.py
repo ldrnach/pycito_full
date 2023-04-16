@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Union, Literal
+from typing import Literal, Union
 
 from .parametricmodel import ParametricModelConfig
 from .semiparametricmodel import SemiparametricModelConfig
@@ -19,4 +19,17 @@ class SemiparametricContactModelConfig:
     type: Literal["SemiparametricContactModel"] = "SemiparametricContactModel"
 
 
-ContactModelConfig = Union[ContactModelConfig, SemiparametricContactModelConfig]
+@dataclass
+class SemiparametricContactModelWithAmbiguityConfig:
+    surface: SemiparametricModelConfig
+    friction: SemiparametricModelConfig
+    type: Literal[
+        "SemiparametricContactModelWithAmbiguity"
+    ] = "SemiparametricContactModelWithAmbiguity"
+
+
+ContactModelConfig = Union[
+    ContactModelConfig,
+    SemiparametricContactModelConfig,
+    SemiparametricContactModelWithAmbiguityConfig,
+]
