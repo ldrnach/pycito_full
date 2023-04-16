@@ -5,9 +5,12 @@ Luke Drnach
 February 22, 2022
 """
 from __future__ import annotations
-import numpy as np
+
 import abc
-from drake_simulation.configuration.kernel import *
+
+import numpy as np
+
+from configuration.kernel import *
 from pycito.tests.unittests.kernels_test import LinearKernelTest
 
 

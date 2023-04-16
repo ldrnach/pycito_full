@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from drake_simulation.configuration.build_from_config import build_from_config
-from drake_simulation.configuration.parametricmodel import PiecewiseModelConfig
+from configuration.build_from_config import build_from_config
+from configuration.parametricmodel import PiecewiseModelConfig
 
 from . import parametric_model
 

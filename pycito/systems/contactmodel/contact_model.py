@@ -9,8 +9,8 @@ from parametric_model import ConstantModel, DifferentiableModel, FlatModel
 from pydrake.all import MathematicalProgram, Solve
 
 import pycito.decorators as deco
-from drake_simulation.configuration.build_from_config import build_from_config
-from drake_simulation.configuration.contactmodel import ContactModelConfig
+from configuration.build_from_config import build_from_config
+from configuration.contactmodel import ContactModelConfig
 
 from . import parametric_model
 

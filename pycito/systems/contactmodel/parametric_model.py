@@ -4,10 +4,7 @@ import abc
 
 import numpy as np
 
-from drake_simulation.configuration.parametricmodel import (
-    ConstantModelConfig,
-    FlatModelConfig,
-)
+from configuration.parametricmodel import ConstantModelConfig, FlatModelConfig
 
 
 class DifferentiableModel(abc.ABC):

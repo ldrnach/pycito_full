@@ -4,7 +4,7 @@ import numpy as np
 from parametric_model import ConstantModel, DifferentiableModel, FlatModel
 
 import pycito.systems.kernels as kernels
-from drake_simulation.configuration.semiparametricmodel import SemiparametricModelConfig
+from configuration.semiparametricmodel import SemiparametricModelConfig
 
 from . import parametric_model
 

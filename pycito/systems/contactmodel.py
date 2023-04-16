@@ -20,7 +20,7 @@ from pydrake.all import MathematicalProgram, Solve
 
 import pycito.decorators as deco
 import pycito.systems.kernels as kernels
-from drake_simulation.configuration.parametricmodel import (
+from configuration.parametricmodel import (
     ConstantModelConfig,
     FlatModelConfig,
     PiecewiseModelConfig,

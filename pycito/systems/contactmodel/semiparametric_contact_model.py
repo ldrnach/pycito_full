@@ -5,8 +5,8 @@ import copy
 import numpy as np
 from semiparametric_model import SemiparametricModel
 
-from drake_simulation.configuration.build_from_config import build_from_config
-from drake_simulation.configuration.contactmodel import (
+from configuration.build_from_config import build_from_config
+from configuration.contactmodel import (
     SemiparametricContactModelConfig,
     SemiparametricContactModelWithAmbiguityConfig,
 )

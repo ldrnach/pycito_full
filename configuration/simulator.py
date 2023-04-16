@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Literal
-from drake_simulation.configuration.controller import ControllerConfig
+
+from configuration.controller import ControllerConfig
 
 
 @dataclass
