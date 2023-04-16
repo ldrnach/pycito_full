@@ -28,7 +28,7 @@ class SemiparametricContactModelWithAmbiguityConfig:
     ] = "SemiparametricContactModelWithAmbiguity"
 
 
-ContactModelConfig = Union[
+ContactConfig = Union[
     ContactModelConfig,
     SemiparametricContactModelConfig,
     SemiparametricContactModelWithAmbiguityConfig,

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import numpy as np
-from parametric_model import ConstantModel, DifferentiableModel, FlatModel
 
 import pycito.systems.kernels as kernels
 from configuration.semiparametricmodel import SemiparametricModelConfig
 
 from . import parametric_model
+from .parametric_model import ConstantModel, DifferentiableModel, FlatModel
 
 
 class SemiparametricModel(DifferentiableModel):

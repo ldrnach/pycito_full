@@ -1,9 +1,9 @@
 from dataclasses import dataclass
-from typing import Union, List, Literal
+from typing import List, Literal, Union
 
-from .optimization import SNOPTConfig
 from .estimator import EstimatorConfig
 from .lcptype import LCP
+from .optimization import SNOPTConfig
 
 
 @dataclass
@@ -17,7 +17,6 @@ class MPCCostConfig:
     complementarity_schedule: List[float]
 
 
-# TODO: Reference_path is not well-defined
 @dataclass
 class MPCControllerConfig:
     timestep: float
@@ -30,7 +29,13 @@ class MPCControllerConfig:
 
 
 @dataclass
-class ContactEILControllerConfig(MPCControllerConfig):
+class ContactEILControllerConfig:
+    timestep: float
+    reference_path: str
+    horizon: int
+    lcptype: LCP
+    cost: MPCCostConfig
+    solver_config: SNOPTConfig
     estimator: EstimatorConfig
     type: Literal["A1ContactEILController"] = "A1ContactEILController"
 

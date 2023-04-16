@@ -89,3 +89,7 @@ class FlatModel(DifferentiableModel):
         return np.reshape(
             self._direction + np.vdot(np.zeros_like(x), x), (1, self._direction.size)
         )
+
+
+if __name__ == "__main__":
+    print("Hello from parametric model!")

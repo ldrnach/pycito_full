@@ -5,7 +5,6 @@ import warnings
 
 import matplotlib.pyplot as plt
 import numpy as np
-from parametric_model import ConstantModel, DifferentiableModel, FlatModel
 from pydrake.all import MathematicalProgram, Solve
 
 import pycito.decorators as deco
@@ -13,6 +12,7 @@ from configuration.build_from_config import build_from_config
 from configuration.contactmodel import ContactModelConfig
 
 from . import parametric_model
+from .parametric_model import ConstantModel, DifferentiableModel, FlatModel
 
 
 def householderortho3D(normal):

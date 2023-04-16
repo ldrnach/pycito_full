@@ -7,6 +7,6 @@ from .parametricmodel import ParametricModelConfig
 
 @dataclass
 class SemiparametricModelConfig:
-    type: Literal["SemiparametricModel"] = "SemiparametricModel"
     prior: ParametricModelConfig
     kernel: KernelConfig
+    type: Literal["SemiparametricModel"] = "SemiparametricModel"

@@ -3,8 +3,8 @@ from __future__ import annotations
 import copy
 
 import numpy as np
-from semiparametric_model import SemiparametricModel
 
+import pycito.decorators as deco
 from configuration.build_from_config import build_from_config
 from configuration.contactmodel import (
     SemiparametricContactModelConfig,
@@ -13,6 +13,7 @@ from configuration.contactmodel import (
 
 from . import semiparametric_model
 from .contact_model import ContactModel
+from .semiparametric_model import SemiparametricModel
 
 
 class SemiparametricContactModel(ContactModel):
