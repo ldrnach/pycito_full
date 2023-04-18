@@ -8,6 +8,8 @@ class ClassConfiguration(Protocol):
         pass
 
 
-def build_from_config(module: ModuleType, config: ClassConfiguration) -> Any:
+def build_from_config(
+    module: ModuleType, config: ClassConfiguration, **kwargs: dict
+) -> Any:
     classtype = getattr(module, config.type)
-    return classtype.build_from_config(config)
+    return classtype.build_from_config(config, **kwargs)
