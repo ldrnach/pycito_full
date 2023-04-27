@@ -24,7 +24,8 @@ class SNOPTConfig:
             "Linesearch tolerance": self.linesearch_tolerance,
             "Iterations limit": self.iterations_limit,
         }
+        filtered_options = {}
         for key, value in options.items():
-            if value is None:
-                options.pop(key)
-        return options
+            if value is not None:
+                filtered_options[key] = value
+        return filtered_options

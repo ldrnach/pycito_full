@@ -202,13 +202,17 @@ class A1ContactMPCController(A1StandingPDController):
         reference=REFERENCE,
         horizon=5,
         lcptype=lcp.ConstantRelaxedPseudoLinearComplementarityConstraint,
-        setup_config=MPCControllerConfig(),
+        setup_config=None,
     ):
         self.reference = reference
         self.horizon = horizon
         self.lcptype = lcptype
         self.control = []
         self.lasttimeindex = -1
+        if setup_config is None:
+            setup_config = MPCControllerConfig(
+                timestep=dt, reference_path=reference, horizon=horizon, lcptype=lcptype
+            )
         # Initialize
         super().__init__(plant, dt, setup_config)
 
@@ -275,7 +279,7 @@ class A1ContactMPCController(A1StandingPDController):
             setup_config.cost.complementarity_schedule
         )  # originally 1e4
         self.controller.useSnoptSolver()
-        self.controller.setSolverOptions(setup_config.solver_config.solver_options())
+        self.controller.setSolverOptions(setup_config.solver_config.solver_options)
         if setup_config.solver_config.use_basis_file:
             self.controller.use_basis_file()
         self.controller.lintraj.useNearestTime()
@@ -322,8 +326,12 @@ class A1ContactEILController(A1ContactMPCController):
         reference=REFERENCE,
         horizon=5,
         lcptype=lcp.ConstantRelaxedPseudoLinearComplementarityConstraint,
-        setup_config=ContactEILControllerConfig(),
+        setup_config=None,
     ):
+        if setup_config is None:
+            setup_config = ContactEILControllerConfig(
+                timestep=dt, refernce_path=reference, horizon=horizon, lcptype=lcptype
+            )
         super().__init__(plant, dt, reference, horizon, lcptype, setup_config)
 
     @classmethod
@@ -361,7 +369,7 @@ class A1ContactEILController(A1ContactMPCController):
         self.estimator = contactestimator.ContactModelEstimator(
             estimation_trajectory,
             horizon=setup_config.estimator.horizon,
-            lcptype=getattr(lcp, setup_config.estimator.lcp),
+            lcp=getattr(lcp, setup_config.estimator.lcp),
         )
         self._set_estimator_options(setup_config)
         # Now make the CAMPC controller
@@ -387,7 +395,7 @@ class A1ContactEILController(A1ContactMPCController):
         self.estimator.velocity_scaling = setup_config.estimator.cost.velocity_scale
         self.estimator.force_scaling = setup_config.estimator.cost.force_scale
         self.estimator.useSnoptSolver()
-        self.estimator.setSolverOptions(setup_config.estimator.solver.solver_options())
+        self.estimator.setSolverOptions(setup_config.estimator.solver.solver_options)
         self.estimator.enableLogging()
 
 

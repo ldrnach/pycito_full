@@ -4,23 +4,30 @@ Class for Linear Contact-Implicit MPC
 January 26, 2022
 Luke Drnach
 """
-#TODO: Double check implementation of joint limit linearization in the dynamics
-#TODO: Test getTimeIndex when the time is the final value
-#TODO: Use the nearest state in the reference trajectory instead of the current time index
+# TODO: Double check implementation of joint limit linearization in the dynamics
+# TODO: Test getTimeIndex when the time is the final value
+# TODO: Use the nearest state in the reference trajectory instead of the current time index
 
-import numpy as np
-import abc, enum, copy
+import abc
+import copy
+import enum
 from datetime import date
 
-from pydrake.all import MathematicalProgram, SnoptSolver, OsqpSolver
+import numpy as np
+from pydrake.all import MathematicalProgram, OsqpSolver
 from pydrake.all import PiecewisePolynomial as pp
+from pydrake.all import SnoptSolver
 
-import pycito.utilities as utils
-import pycito.trajopt.constraints as cstr
 import pycito.controller.mlcp as mlcp
 import pycito.systems.contactmodel as cm
+import pycito.trajopt.constraints as cstr
+import pycito.utilities as utils
+from pycito.controller.contactestimator import (
+    ContactModelEstimator,
+    EstimatedContactModelRectifier,
+)
 from pycito.controller.optimization import OptimizationMixin
-from pycito.controller.contactestimator import ContactModelEstimator, EstimatedContactModelRectifier
+
 
 class _ControllerBase(abc.ABC):
     def __init__(self, plant):
@@ -31,20 +38,24 @@ class _ControllerBase(abc.ABC):
     def get_control(self, t, x, u=None):
         raise NotImplementedError
 
+
 class NullController(_ControllerBase):
     """
     NullController: returns zeros for all state and time pairs
     """
+
     def __init__(self, plant):
         super(NullController, self).__init__(plant)
 
     def get_control(self, t, x, u=None):
-        return np.zeros((self._plant.multibody.num_actuators(), ))
+        return np.zeros((self._plant.multibody.num_actuators(),))
+
 
 class OpenLoopController(_ControllerBase):
     """
     OpenLoopController: returns the value of the planned open loop controls
     """
+
     def __init__(self, plant, time, control):
         super(OpenLoopController, self).__init__(plant)
         self._utraj = pp.ZeroOrderHold(time, control)
@@ -58,28 +69,39 @@ class OpenLoopController(_ControllerBase):
         t = min(max(self._utraj.start_time(), t), self._utraj.end_time())
         return np.reshape(self._utraj.value(t), (-1,))
 
-class ReferenceTrajectory():
+
+class ReferenceTrajectory:
     """
     Container class for holding a optimized trajectory and it's respective plant model
     """
+
     def __init__(self, plant, time, state, control, force, jointlimit=None):
         self.plant = plant
         self._time = time
         self._state = state
         self._control = control
         nC, nF = plant.num_contacts(), plant.num_friction()
-        self._force = force[:nC+nF, :]
-        self._slack = force[nC+nF:, :]
+        self._force = force[: nC + nF, :]
+        self._slack = force[nC + nF :, :]
         self._jlimit = jointlimit
-        self._tracking_method = self.getTimeIndex 
+        self._tracking_method = self.getTimeIndex
 
     @classmethod
     def load(cls, plant, filename):
         data = utils.load(utils.FindResource(filename))
-        if data['jointlimit'] is not None:
-            return cls(plant, data['time'], data['state'], data['control'], data['force'], data['jointlimit'])
+        if data["jointlimit"] is not None:
+            return cls(
+                plant,
+                data["time"],
+                data["state"],
+                data["control"],
+                data["force"],
+                data["jointlimit"],
+            )
         else:
-            return cls(plant, data['time'], data['state'], data['control'], data['force'])
+            return cls(
+                plant, data["time"], data["state"], data["control"], data["force"]
+            )
 
     def getIndex(self, t, x, last_index=-1):
         """Get the index of the trajectory for the tracking point"""
@@ -95,58 +117,58 @@ class ReferenceTrajectory():
         #     return self.num_timesteps
         # else:
         #     return np.argmax(self._time > t) - 1
-    
-    def getNearestStateIndex(self, t, x, last_index = 0):
+
+    def getNearestStateIndex(self, t, x, last_index=0):
         """Return the index of the nearest state in the trajectory"""
-        dist = np.sum((self._state[:, last_index:] - x[:, None])**2, axis=0)
+        dist = np.sum((self._state[:, last_index:] - x[:, None]) ** 2, axis=0)
         return last_index + np.argmin(dist)
 
-    def getNearestPositionIndex(self, t, x, last_index = 0):
+    def getNearestPositionIndex(self, t, x, last_index=0):
         """Return the index of the nearest position configuration in the state trajectory"""
         nQ = self.plant.multibody.num_positions()
-        dist = np.sum((self._state[:nQ, last_index:] - x[:nQ, None])**2, axis=0)
+        dist = np.sum((self._state[:nQ, last_index:] - x[:nQ, None]) ** 2, axis=0)
         return last_index + np.argmin(dist)
 
     def getTime(self, index):
         """
         Return the time at the given index, returning the last time if the index is out of bounds
         """
-        index = min(max(0,index), self.num_timesteps-1)
+        index = min(max(0, index), self.num_timesteps - 1)
         return self._time[index]
 
     def getState(self, index):
         """
         Return the state at the given index, returning the last state if the index is out of bounds
         """
-        index = min(max(0,index), self.num_timesteps-1)
+        index = min(max(0, index), self.num_timesteps - 1)
         return self._state[:, index]
 
     def getControl(self, index):
         """
         Return the control at the given index, returning the last control if the index is out of bounds
         """
-        index = min(max(0,index), self.num_timesteps-1)
+        index = min(max(0, index), self.num_timesteps - 1)
         return self._control[:, index]
 
     def getForce(self, index):
         """
         Return the force at the given index, returning the last force vector if the index is out of bounds
         """
-        index = min(max(0, index), self.num_timesteps-1)
+        index = min(max(0, index), self.num_timesteps - 1)
         return self._force[:, index]
 
     def getSlack(self, index):
         """
         Return the velocity slacks at the given index, returning the last slack vector if the index is out of bounds
         """
-        index = min(max(index,0), self.num_timesteps-1)
+        index = min(max(index, 0), self.num_timesteps - 1)
         return self._slack[:, index]
-    
+
     def getJointLimit(self, index):
         """
         Return the joint limit forces at the given index, returning the last joint limit vector if the index is out of bounds
         """
-        index = min(max(0, index), self.num_timesteps-1)
+        index = min(max(0, index), self.num_timesteps - 1)
         return self._jlimit[:, index]
 
     def useNearestTime(self):
@@ -168,7 +190,7 @@ class ReferenceTrajectory():
     @property
     def state_dim(self):
         return self._state.shape[0]
-    
+
     @property
     def control_dim(self):
         return self._control.shape[0]
@@ -192,9 +214,12 @@ class ReferenceTrajectory():
     def has_joint_limits(self):
         return self._jlimit is not None
 
+
 class LinearizedContactTrajectory(ReferenceTrajectory):
     def __init__(self, plant, time, state, control, force, jointlimit=None):
-        super(LinearizedContactTrajectory, self).__init__(plant, time, state, control, force, jointlimit)           
+        super(LinearizedContactTrajectory, self).__init__(
+            plant, time, state, control, force, jointlimit
+        )
         # Setup the parameter lists
         self.joint_limit_cstr = None
         self.dynamics_cstr = []
@@ -208,41 +233,59 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
     def load(cls, plant, filename):
         """Class Method for generating a LinearizedContactTrajectory from a file containing a trajectory"""
         data = utils.load(filename)
-        if data['jointlimit'] is not None:
-            return cls(plant, data['time'], data['state'], data['control'], data['force'], data['jointlimit'])
+        if data["jointlimit"] is not None:
+            return cls(
+                plant,
+                data["time"],
+                data["state"],
+                data["control"],
+                data["force"],
+                data["jointlimit"],
+            )
         else:
-            return cls(plant, data['time'], data['state'], data['control'], data['force'])
+            return cls(
+                plant, data["time"], data["state"], data["control"], data["force"]
+            )
 
     def save(self, filename):
         """Save the current LinearizedContactTrajectory to a file"""
         var_dict = vars(self)
         plant_copy = self.plant
-        var_dict['plant'] = type(self.plant).__name__
-        var_dict['isLinearizedContactTrajectory'] = True
+        var_dict["plant"] = type(self.plant).__name__
+        var_dict["isLinearizedContactTrajectory"] = True
         # Remove the constraints
-        var_dict.pop('_distance')
-        var_dict.pop('_dissipation')
-        var_dict.pop('_friccone')
+        var_dict.pop("_distance")
+        var_dict.pop("_dissipation")
+        var_dict.pop("_friccone")
         utils.save(filename, var_dict)
         # Put the plant back in
         self.plant = plant_copy
-    
+
     @classmethod
     def loadLinearizedTrajectory(cls, plant, filename):
         """Load a LinearizedContactTrajectory and overwrite the current instance variables"""
+        print(f"file= {utils.FindResource(filename)}")
         data = utils.load(utils.FindResource(filename))
         # Type checking
-        if 'isLinearizedContactTrajectory' not in data:
-            raise ValueError(f"{filename} does not contait a LinearizedContactTrajectory")
-        if not data['isLinearizedContactTrajectory']:
-            raise ValueError(f"{filename} does not contain a LinearizedContactTrajectory")
-        if data['plant'] != type(plant).__name__:
-            raise ValueError(f"{filename} was made with a {data['plant']} model, but a {type(plant).__name__} was given instead")
+        if "isLinearizedContactTrajectory" not in data:
+            raise ValueError(
+                f"{filename} does not contait a LinearizedContactTrajectory"
+            )
+        if not data["isLinearizedContactTrajectory"]:
+            raise ValueError(
+                f"{filename} does not contain a LinearizedContactTrajectory"
+            )
+        if data["plant"] != type(plant).__name__:
+            raise ValueError(
+                f"{filename} was made with a {data['plant']} model, but a {type(plant).__name__} was given instead"
+            )
         # Create a new instance - Dummy variables
         _time = np.zeros((2,))
-        _state = np.zeros((plant.multibody.num_positions() + plant.multibody.num_velocities(), 2))
+        _state = np.zeros(
+            (plant.multibody.num_positions() + plant.multibody.num_velocities(), 2)
+        )
         _control = np.zeros((plant.multibody.num_actuators(), 2))
-        _force = np.zeros((2*plant.num_contacts() + plant.num_friction(), 2))
+        _force = np.zeros((2 * plant.num_contacts() + plant.num_friction(), 2))
         if plant.has_joint_limits:
             nJ = 2 * np.sum(np.isfinite(plant.multibody.GetPositionLowerLimits()))
             _jlimit = np.zeros((nJ, 2))
@@ -250,16 +293,16 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
             _jlimit = None
         # Create the new instance
         new_instance = cls(plant, _time, _state, _control, _force, _jlimit)
-        data.pop('plant')
-        data.pop('isLinearizedContactTrajectory')
-        data.pop('_tracking_method')
+        data.pop("plant")
+        data.pop("isLinearizedContactTrajectory")
+        data.pop("_tracking_method")
         for key, value in data.items():
             setattr(new_instance, key, value)
         # Add in the constraints
         new_instance._distance = cstr.NormalDistanceConstraint(plant)
         new_instance._dissipation = cstr.MaximumDissipationConstraint(plant)
         new_instance._friccone = cstr.FrictionConeConstraint(plant)
-        return new_instance    
+        return new_instance
 
     def linearize_trajectory(self):
         """Store the linearizations of all the parameters"""
@@ -279,21 +322,27 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
             self._linearize_normal_distance(k)
             self._linearize_maximum_dissipation(k)
             self._linearize_friction_cone(k)
-        
+
     def _linearize_dynamics(self):
         """Store the linearization of the dynamics constraints"""
-        force_idx = 2*self.state_dim + self.control_dim + 1
+        force_idx = 2 * self.state_dim + self.control_dim + 1
         dynamics = cstr.BackwardEulerDynamicsConstraint(self.plant)
         if self.has_joint_limits:
             force = np.concatenate([self._force, self._jlimit], axis=0)
         else:
             force = self._force
-        for n in range(self.num_timesteps-1):
-            h = np.array([self._time[n+1] - self._time[n]])
-            A, _ = dynamics.linearize(h, self._state[:,n], self._state[:, n+1], self._control[:,n], force[:, n+1])
-            b =  - A[:, force_idx:].dot(force[:, n+1])
+        for n in range(self.num_timesteps - 1):
+            h = np.array([self._time[n + 1] - self._time[n]])
+            A, _ = dynamics.linearize(
+                h,
+                self._state[:, n],
+                self._state[:, n + 1],
+                self._control[:, n],
+                force[:, n + 1],
+            )
+            b = -A[:, force_idx:].dot(force[:, n + 1])
             A = A[:, 1:]
-            self.dynamics_cstr.append((A,b))
+            self.dynamics_cstr.append((A, b))
 
     def _linearize_normal_distance(self, index):
         """Store the linearizations for the normal distance constraint"""
@@ -304,14 +353,14 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
         """Store the linearizations for the maximum dissipation function"""
         state, vslack = self.getState(index), self.getSlack(index)
         A, c = self._dissipation.linearize(state, vslack)
-        c -= A[:, state.shape[0]:].dot(vslack)       #Correction term for LCP 
+        c -= A[:, state.shape[0] :].dot(vslack)  # Correction term for LCP
         self.dissipation_cstr[index] = (A, c)
 
     def _linearize_friction_cone(self, index):
         """Store the linearizations for the friction cone constraint function"""
         state, force = self.getState(index), self.getForce(index)
         A, c = self._friccone.linearize(state, force)
-        c -= A[:, state.shape[0]:].dot(force)   #Correction term for LCP
+        c -= A[:, state.shape[0] :].dot(force)  # Correction term for LCP
         self.friccone_cstr[index] = (A, c)
 
     def _linearize_joint_limits(self):
@@ -321,32 +370,33 @@ class LinearizedContactTrajectory(ReferenceTrajectory):
         nQ = self.plant.multibody.num_positions()
         for x in self._state.transpose():
             A, c = jointlimits.linearize(x[:nQ])
-            self.joint_limit_cstr.append((A,c))
+            self.joint_limit_cstr.append((A, c))
 
     def getDynamicsConstraint(self, index):
         """Returns the linear dynamics constraint at the specified index"""
-        index = min(max(0, index), len(self.dynamics_cstr)-1)
+        index = min(max(0, index), len(self.dynamics_cstr) - 1)
         return self.dynamics_cstr[index]
 
     def getDistanceConstraint(self, index):
         """Returns the normal distance constraint at the specified index"""
-        index = min(max(0, index), len(self.distance_cstr)-1)
+        index = min(max(0, index), len(self.distance_cstr) - 1)
         return self.distance_cstr[index]
 
     def getDissipationConstraint(self, index):
         """Returns the maximum dissipation constraint at the specified index"""
-        index = min(max(0, index), len(self.dissipation_cstr)-1)
+        index = min(max(0, index), len(self.dissipation_cstr) - 1)
         return self.dissipation_cstr[index]
 
     def getFrictionConeConstraint(self, index):
         """Returns the friction cone constraint at the specified index"""
-        index = min(max(0, index), len(self.friccone_cstr)-1)
+        index = min(max(0, index), len(self.friccone_cstr) - 1)
         return self.friccone_cstr[index]
 
     def getJointLimitConstraint(self, index):
         """Returns the joint limit constraint at the specified index"""
-        index = min(max(0, index), len(self.joint_limit_cstr)-1)
+        index = min(max(0, index), len(self.joint_limit_cstr) - 1)
         return self.joint_limit_cstr[index]
+
 
 class LinearContactMPC(_ControllerBase, OptimizationMixin):
     class InitializationStrategy(enum.Enum):
@@ -354,7 +404,13 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         RANDOM = 1
         LINEAR = 2
         CACHE = 3
-    def __init__(self, linear_traj, horizon, lcptype=mlcp.CostRelaxedPseudoLinearComplementarityConstraint):
+
+    def __init__(
+        self,
+        linear_traj,
+        horizon,
+        lcptype=mlcp.CostRelaxedPseudoLinearComplementarityConstraint,
+    ):
         """
         Plant: a TimesteppingMultibodyPlant instance
         Traj: a LinearizedContactTrajectory
@@ -375,7 +431,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         # Default complementarity cost weight
         self._complementarity_penalty = 1
         self._schedule = [1]
-        self._forcescale = 1.
+        self._forcescale = 1.0
         # Set default strategy for the initial guess
         self._guess = self.InitializationStrategy.LINEAR
         # Warmstarting with the basis file
@@ -390,13 +446,13 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
     def _setup_program(self):
         """
         Seed the MPC program
-        
+
         _setup_program initializes the program with random values in the constraint matrices. The constraints can then be updated by calls to other functions
         """
         # Create holders for the variables, costs, and constraints
         self._clear()
         # Initialize the program with random values
-        self._initialize_mpc()        
+        self._initialize_mpc()
         for _ in range(self.horizon):
             self._add_decision_variables()
             self._initialize_constraints()
@@ -408,10 +464,10 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         """
         self._prog = None
         # Variables
-        self._dx = []   # States
-        self._du = []   # Controls
-        self._dl = []   # Forces
-        self._ds = []   # Slacks
+        self._dx = []  # States
+        self._du = []  # Controls
+        self._dl = []  # Forces
+        self._ds = []  # Slacks
         self._djl = []
         # Costs
         self._state_cost = []
@@ -433,23 +489,37 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         """
         self._prog = MathematicalProgram()
         # Create the initial state and constrain it
-        self._dx = [self.prog.NewContinuousVariables(rows = self.state_dim, name='state')]
+        self._dx = [self.prog.NewContinuousVariables(rows=self.state_dim, name="state")]
         dx0 = np.random.default_rng().random((self.state_dim,))
-        self.initial = self.prog.AddLinearEqualityConstraint(Aeq = np.eye(self.state_dim), beq=dx0, vars=self._dx[0])
-        self.initial.evaluator().set_description('initial state')
+        self.initial = self.prog.AddLinearEqualityConstraint(
+            Aeq=np.eye(self.state_dim), beq=dx0, vars=self._dx[0]
+        )
+        self.initial.evaluator().set_description("initial state")
 
     def _add_decision_variables(self):
         """
         Add and initialize decision variables to the program for the current time index
         """
         # Add new variables to the program
-        self._dx.append(self.prog.NewContinuousVariables(rows = self.state_dim, name='state'))
-        self._du.append(self.prog.NewContinuousVariables(rows = self.control_dim, name='control'))
-        self._dl.append(self.prog.NewContinuousVariables(rows = self.force_dim, name='force'))
-        self._ds.append(self.prog.NewContinuousVariables(rows = self.slack_dim, name='slack'))
+        self._dx.append(
+            self.prog.NewContinuousVariables(rows=self.state_dim, name="state")
+        )
+        self._du.append(
+            self.prog.NewContinuousVariables(rows=self.control_dim, name="control")
+        )
+        self._dl.append(
+            self.prog.NewContinuousVariables(rows=self.force_dim, name="force")
+        )
+        self._ds.append(
+            self.prog.NewContinuousVariables(rows=self.slack_dim, name="slack")
+        )
         # Add and initialize joint limits
         if self.jlimit_dim > 0:
-            self._djl.append(self.prog.NewContinuousVariables(rows = self.jlimit_dim, name='joint_limits'))
+            self._djl.append(
+                self.prog.NewContinuousVariables(
+                    rows=self.jlimit_dim, name="joint_limits"
+                )
+            )
 
     def _initialize_constraints(self):
         """Initialize the constraints with random values"""
@@ -461,72 +531,115 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         # Initialize the dynamics constraints
         if self.jlimit_dim > 0:
             dl_all = np.concatenate([self._dl[-1], self._djl[-1]], axis=0)
-            self._dynamics.append(cstr.LinearImplicitDynamics.random(2*self._dx[-1].size + self._du[-1].size + dl_all.size, nQ + nV))
-            self._dynamics[-1].name = 'linear dynamics'
-            self._dynamics[-1].addToProgram(self.prog, self._dx[-2], self._dx[-1], self._du[-1], dl_all)
+            self._dynamics.append(
+                cstr.LinearImplicitDynamics.random(
+                    2 * self._dx[-1].size + self._du[-1].size + dl_all.size, nQ + nV
+                )
+            )
+            self._dynamics[-1].name = "linear dynamics"
+            self._dynamics[-1].addToProgram(
+                self.prog, self._dx[-2], self._dx[-1], self._du[-1], dl_all
+            )
 
             self._limits.append(self.lcp.random(nQ, self._djl[-1].size))
-            self._limits[-1].name = 'joint limits'
+            self._limits[-1].name = "joint limits"
             self._limits[-1].addToProgram(self.prog, self._dx[-1][:nQ], self._djl[-1])
         else:
-            self._dynamics.append(cstr.LinearImplicitDynamics.random(2*self._dx[-1].size + self._du[-1].size + self._dl[-1].size, nQ + nV))
-            self._dynamics[-1].name = 'linear dynamics'
-            self._dynamics[-1].addToProgram(self.prog, self._dx[-2], self._dx[-1], self._du[-1], self._dl[-1])
+            self._dynamics.append(
+                cstr.LinearImplicitDynamics.random(
+                    2 * self._dx[-1].size + self._du[-1].size + self._dl[-1].size,
+                    nQ + nV,
+                )
+            )
+            self._dynamics[-1].name = "linear dynamics"
+            self._dynamics[-1].addToProgram(
+                self.prog, self._dx[-2], self._dx[-1], self._du[-1], self._dl[-1]
+            )
         # Initialize distance constraint
-        self._distance.append(self.lcp.random(nQ+nV, nC))
+        self._distance.append(self.lcp.random(nQ + nV, nC))
         self._distance[-1].penalty = self._complementarity_penalty
         self._distance[-1].name = "distance"
         self._distance[-1].addToProgram(self.prog, self._dx[-1], self._dl[-1][:nC])
         # Initialize dissipation constraint
         self._dissipation.append(self.lcp.random(nQ + nV + nC, nF))
         self._dissipation[-1].penalty = self._complementarity_penalty
-        self._dissipation[-1].name = 'dissipation'
-        self._dissipation[-1].addToProgram(self.prog, np.concatenate([self._dx[-1], self._ds[-1]], axis=0), self._dl[-1][nC:nC+nF])
+        self._dissipation[-1].name = "dissipation"
+        self._dissipation[-1].addToProgram(
+            self.prog,
+            np.concatenate([self._dx[-1], self._ds[-1]], axis=0),
+            self._dl[-1][nC : nC + nF],
+        )
         # Initialize friction cone constraint
         self._friccone.append(self.lcp.random(nQ + nV + nF + nC, nC))
         self._friccone[-1].penalty = self._complementarity_penalty
-        self._friccone[-1].name = 'friction cone'
-        self._friccone[-1].addToProgram(self.prog, np.concatenate([self._dx[-1], self._dl[-1][:nC+nF]], axis=0), self._ds[-1])
-        
+        self._friccone[-1].name = "friction cone"
+        self._friccone[-1].addToProgram(
+            self.prog,
+            np.concatenate([self._dx[-1], self._dl[-1][: nC + nF]], axis=0),
+            self._ds[-1],
+        )
+
     def _initialize_costs(self):
         """Add cost terms on the most recent variables"""
         # We add quadratic error costs on all variables, regularizing states and controls to 0 and complementarity variables to their trajectory values
-        self._state_cost.append(self.prog.AddQuadraticErrorCost(self._state_weight, np.zeros((self.state_dim, 1)), vars=self._dx[-1]))
-        self._state_cost[-1].evaluator().set_description('state_cost')
-        
-        self._control_cost.append(self.prog.AddQuadraticErrorCost(self._control_weight, np.zeros((self.control_dim, 1)), vars=self._du[-1]))
-        self._control_cost[-1].evaluator().set_description('control_cost')
-    
-        self._force_cost.append(self.prog.AddQuadraticErrorCost(self._force_weight, np.ones(self._dl[-1].shape), vars=self._dl[-1]))
-        self._force_cost[-1].evaluator().set_description('force_cost')
-        
-        self._slack_cost.append(self.prog.AddQuadraticErrorCost(self._slack_weight, np.ones(self._ds[-1].shape), vars=self._ds[-1]))
-        self._slack_cost[-1].evaluator().set_description('slack_cost')
-        
+        self._state_cost.append(
+            self.prog.AddQuadraticErrorCost(
+                self._state_weight, np.zeros((self.state_dim, 1)), vars=self._dx[-1]
+            )
+        )
+        self._state_cost[-1].evaluator().set_description("state_cost")
+
+        self._control_cost.append(
+            self.prog.AddQuadraticErrorCost(
+                self._control_weight, np.zeros((self.control_dim, 1)), vars=self._du[-1]
+            )
+        )
+        self._control_cost[-1].evaluator().set_description("control_cost")
+
+        self._force_cost.append(
+            self.prog.AddQuadraticErrorCost(
+                self._force_weight, np.ones(self._dl[-1].shape), vars=self._dl[-1]
+            )
+        )
+        self._force_cost[-1].evaluator().set_description("force_cost")
+
+        self._slack_cost.append(
+            self.prog.AddQuadraticErrorCost(
+                self._slack_weight, np.ones(self._ds[-1].shape), vars=self._ds[-1]
+            )
+        )
+        self._slack_cost[-1].evaluator().set_description("slack_cost")
+
         # Add a cost for joint limits
         if self.jlimit_dim > 0:
-            self._limit_cost.append(self.prog.AddQuadraticErrorCost(self._jlimit_weight, np.ones(self._djl[-1].shape), vars=self._djl[-1]))
-            self._limit_cost[-1].evaluator().set_description('joint_limit_cost')
-        
+            self._limit_cost.append(
+                self.prog.AddQuadraticErrorCost(
+                    self._jlimit_weight,
+                    np.ones(self._djl[-1].shape),
+                    vars=self._djl[-1],
+                )
+            )
+            self._limit_cost[-1].evaluator().set_description("joint_limit_cost")
+
     def create_mpc_program(self, t, x0):
         """
-            Update all the costs and constraints within the MPC program
-        
-            Arguments: 
-                t: (1,) numpy array, time value
-                x0: (N,) numpy array, initial state vector
+        Update all the costs and constraints within the MPC program
+
+        Arguments:
+            t: (1,) numpy array, time value
+            x0: (N,) numpy array, initial state vector
         """
         index = self.lintraj.getIndex(t, x0)
         self._update_initial_constraint(index, x0)
         self._initialize_variables(index)
         self._update_dynamics(index)
-        self._update_limits(index+1)
-        self._update_contact(index+1)
-        self._update_costs(index+1)
+        self._update_limits(index + 1)
+        self._update_contact(index + 1)
+        self._update_costs(index + 1)
 
     def _initialize_variables(self, index):
         """Set the initial guesses for all variables in the program"""
-        #Initialize the forces, slacks, and joint limits
+        # Initialize the forces, slacks, and joint limits
         for k, (df, ds) in enumerate(zip(self._dl, self._ds)):
             self.prog.SetInitialGuess(df, self.lintraj.getForce(index + k + 1))
             self.prog.SetInitialGuess(ds, self.lintraj.getSlack(index + k + 1))
@@ -534,28 +647,38 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             self.prog.SetInitialGuess(djl, self.lintraj.getJointLimit(index + k + 1))
         if self._use_basis and self._cache is not None:
             self.prog.SetInitialGuess(self.prog.decision_variables(), self._cache)
-        # Initialize states and controls        
+        # Initialize states and controls
         elif self._guess == self.InitializationStrategy.ZERO:
             # Initialize states and controls to zero
-            self.prog.SetInitialGuess(self.dx, np.zeros((self.state_dim, self.horizon + 1)))
-            self.prog.SetInitialGuess(self.du, np.zeros((self.control_dim, self.horizon)))
+            self.prog.SetInitialGuess(
+                self.dx, np.zeros((self.state_dim, self.horizon + 1))
+            )
+            self.prog.SetInitialGuess(
+                self.du, np.zeros((self.control_dim, self.horizon))
+            )
         elif self._guess == self.InitializationStrategy.RANDOM:
             # Initialize states and controls randomly
-            self.prog.SetInitialGuess(self.dx, np.random.default_rng().standard_normal(size = self.dx.shape))
-            self.prog.SetInitialGuess(self.du, np.random.default_rng().standard_normal(size = self.du.shape))
-        elif self._guess == self.InitializationStrategy.CACHE and self._cache is not None:
+            self.prog.SetInitialGuess(
+                self.dx, np.random.default_rng().standard_normal(size=self.dx.shape)
+            )
+            self.prog.SetInitialGuess(
+                self.du, np.random.default_rng().standard_normal(size=self.du.shape)
+            )
+        elif (
+            self._guess == self.InitializationStrategy.CACHE and self._cache is not None
+        ):
             # Initialize ALL variables using the cached results
-            self.prog.SetInitialGuess(self.dx[:,1:-1], self._cache['dx'][:,2:])
-            self.prog.SetInitialGuess(self.du[:,:-1], self._cache['du'][:,1:])
-            self.prog.SetInitialGuess(self.dl[:,:-1], self._cache['dl'][:,1:])
-            self.prog.SetInitialGuess(self.ds[:,:-1], self._cache['ds'][:,1:])
-            self.prog.SetInitialGuess(self.dx[:,-1], self._cache['dx'][:,-1])
-            self.prog.SetInitialGuess(self.du[:,-1], self._cache['du'][:,-1])
-            self.prog.SetInitialGuess(self.dl[:,-1], self._cache['dl'][:,-1])
-            self.prog.SetInitialGuess(self.ds[:,-1], self._cache['ds'][:,-1])
-            if 'djl' in self._cache:
-                self.prog.SetInitialGuess(self.djl[:,:-1], self._cache['djl'][:,1:])
-                self.prog.SetInitialGuess(self.djl[:,-1], self._cache['djl'][:,-1])
+            self.prog.SetInitialGuess(self.dx[:, 1:-1], self._cache["dx"][:, 2:])
+            self.prog.SetInitialGuess(self.du[:, :-1], self._cache["du"][:, 1:])
+            self.prog.SetInitialGuess(self.dl[:, :-1], self._cache["dl"][:, 1:])
+            self.prog.SetInitialGuess(self.ds[:, :-1], self._cache["ds"][:, 1:])
+            self.prog.SetInitialGuess(self.dx[:, -1], self._cache["dx"][:, -1])
+            self.prog.SetInitialGuess(self.du[:, -1], self._cache["du"][:, -1])
+            self.prog.SetInitialGuess(self.dl[:, -1], self._cache["dl"][:, -1])
+            self.prog.SetInitialGuess(self.ds[:, -1], self._cache["ds"][:, -1])
+            if "djl" in self._cache:
+                self.prog.SetInitialGuess(self.djl[:, :-1], self._cache["djl"][:, 1:])
+                self.prog.SetInitialGuess(self.djl[:, -1], self._cache["djl"][:, -1])
         else:
             # Initialize using a linear guess
             dx0 = self.prog.GetInitialGuess(self._dx[0])
@@ -564,9 +687,9 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             self.prog.SetInitialGuess(self.dx, dx_guess)
             for k, du in enumerate(self._du):
                 A, _ = self.lintraj.getDynamicsConstraint(index + k)
-                Ax = A[:, :2*self.dx.shape[0]]
-                Au = A[:, 2*self.dx.shape[0]:2*self.dx.shape[0] + du.shape[0]]
-                b = Ax.dot(dx_guess[:, k:k+2].ravel())
+                Ax = A[:, : 2 * self.dx.shape[0]]
+                Au = A[:, 2 * self.dx.shape[0] : 2 * self.dx.shape[0] + du.shape[0]]
+                b = Ax.dot(dx_guess[:, k : k + 2].ravel())
                 du0 = np.linalg.lstsq(Au, -b, rcond=None)[0]
                 self.prog.SetInitialGuess(du, du0)
 
@@ -584,7 +707,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             A = np.copy(A)
             A[:, start:] *= self.forcescale
             dyn.updateCoefficients(A, b)
-                
+
     def _update_limits(self, index):
         """update the joint limit constraints"""
         for k, limit in enumerate(self._limits):
@@ -594,7 +717,9 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
 
     def _update_contact(self, index):
         """Update the contact constraints"""
-        for k, (dist, diss, fric) in enumerate(zip(self._distance, self._dissipation, self._friccone)):
+        for k, (dist, diss, fric) in enumerate(
+            zip(self._distance, self._dissipation, self._friccone)
+        ):
             A, b = self.lintraj.getDistanceConstraint(index + k)
             dist.updateCoefficients(A, b)
             dist.initializeSlackVariables()
@@ -608,24 +733,35 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
     def _update_costs(self, index):
         """Update the quadratic cost values"""
         for xcost, ucost in zip(self._state_cost, self._control_cost):
-            xcost.evaluator().UpdateCoefficients(2 * self._state_weight, np.zeros((self.state_dim,)), np.zeros((1,)))
-            ucost.evaluator().UpdateCoefficients(2 * self._control_weight, np.zeros((self.control_dim)), np.zeros((1,)))
+            xcost.evaluator().UpdateCoefficients(
+                2 * self._state_weight, np.zeros((self.state_dim,)), np.zeros((1,))
+            )
+            ucost.evaluator().UpdateCoefficients(
+                2 * self._control_weight, np.zeros((self.control_dim)), np.zeros((1,))
+            )
         for k, (fcost, scost) in enumerate(zip(self._force_cost, self._slack_cost)):
             f_ref = self.lintraj.getForce(index + k) / self.forcescale
-            fcost.evaluator().UpdateCoefficients(2*self._force_weight,
-                                     -2*self._force_weight.dot(f_ref), f_ref.dot(self._force_weight.dot(f_ref)))
+            fcost.evaluator().UpdateCoefficients(
+                2 * self._force_weight,
+                -2 * self._force_weight.dot(f_ref),
+                f_ref.dot(self._force_weight.dot(f_ref)),
+            )
             s_ref = self.lintraj.getSlack(index + k)
-            scost.evaluator().UpdateCoefficients(2 * self._slack_weight, 
-                                    -2 * self._slack_weight.dot(s_ref),
-                                    s_ref.dot(self._slack_weight.dot(s_ref)))
+            scost.evaluator().UpdateCoefficients(
+                2 * self._slack_weight,
+                -2 * self._slack_weight.dot(s_ref),
+                s_ref.dot(self._slack_weight.dot(s_ref)),
+            )
         for k, jcost in enumerate(self._limit_cost):
             j_ref = self.lintraj.getJointLimit(index + k) / self.forcescale
-            jcost.evaluator().UpdateCoefficients(2 * self._jlimit_weight, 
-                                    -2 * self._jlimit_weight.dot(j_ref),
-                                    j_ref.dot(self._jlimit_weight.dot(j_ref)))
+            jcost.evaluator().UpdateCoefficients(
+                2 * self._jlimit_weight,
+                -2 * self._jlimit_weight.dot(j_ref),
+                j_ref.dot(self._jlimit_weight.dot(j_ref)),
+            )
 
     def get_control(self, t, x, u=None):
-        """"
+        """ "
         Return the MPC feedback controller
         Thin wrapper for do_mpc
         """
@@ -640,8 +776,8 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         print(f"Solving MPC at time {t:0.3f}")
         result = self.progressive_solve()
         if self._log_enabled:
-            self.logger.logs[-1]['time'] = t
-            self.logger.logs[-1]['initial_state'] = x0
+            self.logger.logs[-1]["time"] = t
+            self.logger.logs[-1]["initial_state"] = x0
         index = self.lintraj.getIndex(t, x0)
         u = self.lintraj.getControl(index)
         # Cache the results, if necessary
@@ -650,28 +786,33 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
             if self._old_basis == 0:
                 self._old_basis = 2
             self._new_basis = 1
-            self.setSolverOptions({'Old basis file': self._old_basis,
-                                    'New basis file': self._new_basis})
-            #self.complementarity_schedule = self.complementarity_schedule[-1:]
+            self.setSolverOptions(
+                {"Old basis file": self._old_basis, "New basis file": self._new_basis}
+            )
+            # self.complementarity_schedule = self.complementarity_schedule[-1:]
         elif self._guess == self.InitializationStrategy.CACHE:
-            self._cache = {'dx': result.GetSolution(self.dx),
-                            'du': result.GetSolution(self.du),
-                            'dl': result.GetSolution(self.dl),
-                            'ds': result.GetSolution(self.ds)}
+            self._cache = {
+                "dx": result.GetSolution(self.dx),
+                "du": result.GetSolution(self.du),
+                "dl": result.GetSolution(self.dl),
+                "ds": result.GetSolution(self.ds),
+            }
             if self.djl is not None:
-                self._cache['djl'] = result.GetSolution(self.djl)
+                self._cache["djl"] = result.GetSolution(self.djl)
         if result.is_success():
             print(f"MPC succeeded at time {t:0.3f}")
             du = result.GetSolution(self._du[0])
             return u + du
         else:
             if result.get_solver_id().name() == "SNOPT/fortran":
-                insert = f'with exit code {result.get_solver_details().info}'    
-            elif result.get_solver_id().name() == 'OSQP':
-                insert = f'with exit code {result.get_solver_details().status_val}'
+                insert = f"with exit code {result.get_solver_details().info}"
+            elif result.get_solver_id().name() == "OSQP":
+                insert = f"with exit code {result.get_solver_details().status_val}"
             else:
-                insert = ''
-            print(f"MPC failed at time {t:0.3f} using {result.get_solver_id().name()} {insert}. Returning open loop control")
+                insert = ""
+            print(
+                f"MPC failed at time {t:0.3f} using {result.get_solver_id().name()} {insert}. Returning open loop control"
+            )
             utils.printProgramReport(result, self.prog, verbose=True)
             return u
 
@@ -691,18 +832,25 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
                 break
             if self._log_enabled:
                 last_log = self.logger.logs.pop()
-                total_time += last_log['solvetime']
+                total_time += last_log["solvetime"]
             if self._use_basis:
                 self._old_basis, self._new_basis = self._new_basis, self._new_basis + 1
-                self.setSolverOptions({'Old basis file': self._old_basis,
-                                        'New basis file': self._new_basis})
-            self.prog.SetInitialGuess(self.prog.decision_variables(), result.GetSolution(self.prog.decision_variables()))
+                self.setSolverOptions(
+                    {
+                        "Old basis file": self._old_basis,
+                        "New basis file": self._new_basis,
+                    }
+                )
+            self.prog.SetInitialGuess(
+                self.prog.decision_variables(),
+                result.GetSolution(self.prog.decision_variables()),
+            )
         if self._log_enabled:
             if result.is_success():
-                last_log['solvetime'] = total_time
+                last_log["solvetime"] = total_time
                 self.logger.logs.append(last_log)
             else:
-                last_log['solvetime'] = total_time + self.logger.logs[-1]['solvetime']
+                last_log["solvetime"] = total_time + self.logger.logs[-1]["solvetime"]
                 self.logger.logs[-1] = last_log
         return last_result
 
@@ -732,7 +880,9 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
 
     @statecost.setter
     def statecost(self, val):
-        assert val.shape == self._state_weight.shape, f"statecost must be an {self._state_weight.shape} array"
+        assert (
+            val.shape == self._state_weight.shape
+        ), f"statecost must be an {self._state_weight.shape} array"
         self._state_weight = val
 
     @property
@@ -741,7 +891,9 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
 
     @controlcost.setter
     def controlcost(self, val):
-        assert val.shape == self._control_weight.shape, f"controlcost must be an {self._control_weight.shape} array"
+        assert (
+            val.shape == self._control_weight.shape
+        ), f"controlcost must be an {self._control_weight.shape} array"
         self._control_weight = val
 
     @property
@@ -750,7 +902,9 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
 
     @forcecost.setter
     def forcecost(self, val):
-        assert val.shape == self._force_weight.shape, f"forcecost must be an {self._force_weight.shape} array"
+        assert (
+            val.shape == self._force_weight.shape
+        ), f"forcecost must be an {self._force_weight.shape} array"
         self._force_weight = val
 
     @property
@@ -759,7 +913,9 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
 
     @slackcost.setter
     def slackcost(self, val):
-        assert val.shape == self._slack_weight.shape, f"slackcost  must be a {self._slack_weight.shape} array"
+        assert (
+            val.shape == self._slack_weight.shape
+        ), f"slackcost  must be a {self._slack_weight.shape} array"
         self._slack_weight = val
 
     @property
@@ -769,7 +925,9 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
     @limitcost.setter
     def limitcost(self, val):
         assert self.jlimit_dim > 0, f"Current model has no joint limits"
-        assert val.shape == self._jlimit_weight.shape, f"limitcost must be a {self._jlimit_weight.shape} array"
+        assert (
+            val.shape == self._jlimit_weight.shape
+        ), f"limitcost must be a {self._jlimit_weight.shape} array"
         self._jlimit_weight = val
 
     @property
@@ -778,7 +936,9 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
 
     @complementarity_penalty.setter
     def complementarity_penalty(self, val):
-        assert isinstance(val, (int, float)), f"complementarity_penalty must be a float or an int"
+        assert isinstance(
+            val, (int, float)
+        ), f"complementarity_penalty must be a float or an int"
         self._complementarity_penalty = val
         if len(self._schedule) == 1:
             self._schedule = [val]
@@ -798,12 +958,16 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
 
     @property
     def complementarity_schedule(self):
-        return self._schedule  
+        return self._schedule
 
     @complementarity_schedule.setter
     def complementarity_schedule(self, val):
-        assert isinstance(val, list), "complementarity_schedule must be a list of values"
-        assert all(v >= 0  for v in val), "complementarity_schedule must be a list of nonnegative ints or floats"
+        assert isinstance(
+            val, list
+        ), "complementarity_schedule must be a list of values"
+        assert all(
+            v >= 0 for v in val
+        ), "complementarity_schedule must be a list of nonnegative ints or floats"
         self._schedule = val
 
     @property
@@ -852,7 +1016,9 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
 
     @forcescale.setter
     def forcescale(self, val):
-        assert isinstance(val, (int, float)) and val >= 0, 'forcescale must be a positive scalar'
+        assert (
+            isinstance(val, (int, float)) and val >= 0
+        ), "forcescale must be a positive scalar"
         self._forcescale = val
 
     def use_zero_guess(self):
@@ -871,7 +1037,7 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         self._use_basis = True
         self._old_basis = 0
         self._new_basis = 1
-        self.setSolverOptions({'New basis file': self._new_basis})
+        self.setSolverOptions({"New basis file": self._new_basis})
 
     def generate_report(self):
         """Generate a text string describing the settings for the MPC"""
@@ -883,20 +1049,29 @@ class LinearContactMPC(_ControllerBase, OptimizationMixin):
         text += f"\n\tForce Cost: \n\t{self.forcecost}"
         text += f"\n\tSlack Cost: \n\t{self.slackcost}"
         text += f"\n\tJoint limit cost: \n\t{self.limitcost}"
-        text += f"\n\tComplementarity Schedule: \n\t{self.complementarity_schedule}"    
+        text += f"\n\tComplementarity Schedule: \n\t{self.complementarity_schedule}"
         return text
 
     def print_report(self, filename):
         """Write the MPC settings to a file"""
         report = self.generate_report()
-        with open(filename, 'w') as file:
+        with open(filename, "w") as file:
             file.write(report)
-        print(f'Wrote MPC report to {filename}')
+        print(f"Wrote MPC report to {filename}")
+
 
 class ContactAdaptiveMPC(LinearContactMPC):
-    def __init__(self, estimator, linear_traj, horizon, lcptype=mlcp.CostRelaxedPseudoLinearComplementarityConstraint):
+    def __init__(
+        self,
+        estimator,
+        linear_traj,
+        horizon,
+        lcptype=mlcp.CostRelaxedPseudoLinearComplementarityConstraint,
+    ):
         super().__init__(linear_traj, horizon, lcptype)
-        assert isinstance(estimator, ContactModelEstimator), f"estimator must be an instance of ContactModelEstimator"
+        assert isinstance(
+            estimator, ContactModelEstimator
+        ), f"estimator must be an instance of ContactModelEstimator"
         self.estimator = estimator
         self._resolve_contact_model = self._get_local_contact_model
         self._dist_max = 10
@@ -909,7 +1084,7 @@ class ContactAdaptiveMPC(LinearContactMPC):
         """Enable solution logging for both the estimator and the controller"""
         super().enableLogging()
         self.estimator.enableLogging()
-        
+
     def disableLogging(self):
         """Disable solution logging for both the estimator and the controller"""
         super().disableLoggin()
@@ -922,19 +1097,19 @@ class ContactAdaptiveMPC(LinearContactMPC):
     def getEstimatorLogs(self):
         """Return the contact estimator solution logs"""
         return self.estimator.logger
-        
+
     def get_control(self, t, x, u):
         """
-            Get a new control based on the previous control
-        
-            Arguments:
-                t: (1, ) numpy array, the current time
-                x: (N, ) numpy array, the current state
-                u_old: (M, ) numpy array, the previous control
-            
-            Return values:
-                u: (M, ) the updated current control
-        """    
+        Get a new control based on the previous control
+
+        Arguments:
+            t: (1, ) numpy array, the current time
+            x: (N, ) numpy array, the current state
+            u_old: (M, ) numpy array, the previous control
+
+        Return values:
+            u: (M, ) the updated current control
+        """
         model = self.estimator.estimate_contact(t, x, u)
         model = self._resolve_contact_model(model)
         self._update_contact_model(model)
@@ -948,13 +1123,17 @@ class ContactAdaptiveMPC(LinearContactMPC):
         """
         Calculate and return the global contact model
         """
-        rectifier = EstimatedContactModelRectifier(self.getContactEstimationTrajectory(), surf_max=self._dist_max, fric_max=self._fric_max)
+        rectifier = EstimatedContactModelRectifier(
+            self.getContactEstimationTrajectory(),
+            surf_max=self._dist_max,
+            fric_max=self._fric_max,
+        )
         gmodel = rectifier.get_global_model()
         return gmodel
 
     def _get_global_piecewise_model(self, model):
         """
-            Calculate and return a piecewise global contact model
+        Calculate and return a piecewise global contact model
         """
         traj = self.getContactEstimationTrajectory()
         buff_start = max(0, traj.num_timesteps - self._buffer_size)
@@ -966,10 +1145,13 @@ class ContactAdaptiveMPC(LinearContactMPC):
         subtraj._friction_cstr = copy.deepcopy(subtraj._friction_cstr)
         model_old = subtraj.contact_model
         # Get the rectifier for a nested contact model
-        rectifier = EstimatedContactModelRectifier.get_nested_model_rectifier(model, subtraj, self.surface_gkernel, self._dist_max, self._fric_max)
+        rectifier = EstimatedContactModelRectifier.get_nested_model_rectifier(
+            model, subtraj, self.surface_gkernel, self._dist_max, self._fric_max
+        )
         rectifier.useSnoptSolver()
-        rectifier.setSolverOptions({'Major feasibility tolerance': 1e-4,
-                                    'Major optimality tolerance': 1e-4})
+        rectifier.setSolverOptions(
+            {"Major feasibility tolerance": 1e-4, "Major optimality tolerance": 1e-4}
+        )
         piecewise_model = rectifier.get_global_model()
         # Restore the previous model
         traj.contact_model = model_old
@@ -978,7 +1160,7 @@ class ContactAdaptiveMPC(LinearContactMPC):
 
     def _update_contact_model(self, model):
         """Update the contact model used in the linear trajectory
-        
+
         Note: we should update both the terrain model in the plant AND the terrain model within the constraints. The constraints use an AUTODIFF version of the plant which is not linked to the original model
         """
         # Update the float version of the plant
@@ -988,21 +1170,23 @@ class ContactAdaptiveMPC(LinearContactMPC):
 
     def _update_contact_linearization(self, t, x):
         """
-            Update the contact constraints linearization used in MPC
+        Update the contact constraints linearization used in MPC
         """
         index = self.lintraj.getIndex(t, x)
-        for k in range(self.horizon+1):
+        for k in range(self.horizon + 1):
             # Update normal distance constraint
-            state, force = self.lintraj.getState(index+k), self.lintraj.getForce(index+k)
+            state, force = self.lintraj.getState(index + k), self.lintraj.getForce(
+                index + k
+            )
             _, c = self.lintraj._distance.linearize(state)
-            A, _ = self.lintraj.distance_cstr[index+k]
-            self.lintraj.distance_cstr[index+k] = (A, c)
+            A, _ = self.lintraj.distance_cstr[index + k]
+            self.lintraj.distance_cstr[index + k] = (A, c)
             # Update the friction cone constraint
             A, c = self.lintraj._friccone.linearize(state, force)
-            c -=A[:, state.shape[0]:].dot(force)
-            A_ = self.lintraj.friccone_cstr[index+k][0]
-            A[:, :state.shape[0]] = A_[:, :state.shape[0]]
-            self.lintraj.friccone_cstr[index+k] = (A, c)
+            c -= A[:, state.shape[0] :].dot(force)
+            A_ = self.lintraj.friccone_cstr[index + k][0]
+            A[:, : state.shape[0]] = A_[:, : state.shape[0]]
+            self.lintraj.friccone_cstr[index + k] = (A, c)
 
     def getContactEstimationTrajectory(self):
         return self.estimator.traj
@@ -1020,10 +1204,9 @@ class ContactAdaptiveMPC(LinearContactMPC):
         """Write the settings of the adaptive MPC to a file"""
         text = super().generate_report()
         text += self.estimator.generate_report()
-        with open(filename, 'w') as file:
+        with open(filename, "w") as file:
             file.write(text)
         print(f"Wrote report to {filename}")
-
 
     @property
     def global_dist_max(self):
@@ -1031,7 +1214,9 @@ class ContactAdaptiveMPC(LinearContactMPC):
 
     @global_dist_max.setter
     def global_dist_max(self, val):
-        assert isinstance(val, (int, float)) and val > 0, 'distance maximum must be a nonzero int or float'
+        assert (
+            isinstance(val, (int, float)) and val > 0
+        ), "distance maximum must be a nonzero int or float"
         self._dist_max = val
 
     @property
@@ -1040,7 +1225,9 @@ class ContactAdaptiveMPC(LinearContactMPC):
 
     @global_fric_max.setter
     def global_fric_max(self, val):
-        assert isinstance(val, (int, float)) and val > 0, 'friction maximum must be a nonzero int or float'
+        assert (
+            isinstance(val, (int, float)) and val > 0
+        ), "friction maximum must be a nonzero int or float"
         self._fric_max = val
 
     @property
@@ -1065,8 +1252,11 @@ class ContactAdaptiveMPC(LinearContactMPC):
 
     @buffer_size.setter
     def buffer_size(self, val):
-        assert isinstance(val, int) and val > 0, "buffer_size must be a positive integer"
+        assert (
+            isinstance(val, int) and val > 0
+        ), "buffer_size must be a positive integer"
         self._buffer_size = val
+
 
 if __name__ == "__main__":
     print("Hello from MPC!")
