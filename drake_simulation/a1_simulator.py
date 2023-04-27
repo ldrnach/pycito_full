@@ -116,7 +116,8 @@ class A1DrakeSimulationBuilder:
         cls, config: DrakeSimulatorConfig
     ) -> A1DrakeSimulationBuilder:
         this = cls(timestep=config.timestep, urdf=config.urdf)
-        this._addEnvironment(getattr(environments, config.environment))
+        environment_type = getattr(environments, config.environment)
+        this._addEnvironment(environment_type())
         this.controller = build_from_config(
             controllers, config.controller, plant=this.plant
         )

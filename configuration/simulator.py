@@ -12,3 +12,4 @@ class DrakeSimulatorConfig:
         "FlatGroundEnvironment", "FlatGroundWithFrictionPatch", "RampUpEnvironment"
     ]
     controller: ControllerConfig
+    type: Literal["A1DrakeSimulationBuilder"] = "A1DrakeSimulationBuilder"
