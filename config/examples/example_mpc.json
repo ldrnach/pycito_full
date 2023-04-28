@@ -1,0 +1,33 @@
+{
+    "timestep": 0.01,
+    "urdf": "pycito/systems/A1/A1_description/urdf/a1_foot_collision.urdf",
+    "environment": "FlatGroundEnvironment",
+    "controller": {
+        "type": "A1ContactMPCController",
+        "timestep": 0.01,
+        "horizon": 5,
+        "reference_path": "data/a1/reference/symmetric/3m/reftraj.pkl",
+        "lcptype": "ConstantRelaxedPseudoLinearComplementarityConstraint",
+        "cost": {
+            "base_position": 1e2,
+            "joint_position": 1e2,
+            "velocity": 1e-2,
+            "control": 1e-3,
+            "force": 0,
+            "slack": 0,
+            "jlimit": 0,
+            "complementarity_schedule": [1e-2, 1e-4]
+        },
+        "solver_config": {
+            "major_feasibility_tolerance": 1e-5,
+            "major_optimality_tolerance": 1e-5,
+            "scale_option": 0,
+            "major_step_limit": 2.0,
+            "superbasics_limit": 1000,
+            "linesearch_tolerance": 0.9,
+            "iterations_limit": 10000,
+            "use_basis_file": true
+        }
+    },
+    "type": "A1DrakeSimulationBuilder"
+}
