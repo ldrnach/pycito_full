@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import List, Literal, Union
 
 from .estimator import EstimatorConfig
+from .file_constants import FLAT_GROUND_REFERENCE
 from .lcptype import LCP
 from .optimization import SNOPTConfig
 
@@ -36,7 +37,7 @@ class MPCCostConfig:
 @dataclass
 class MPCControllerConfig:
     timestep: float
-    reference_path: str
+    reference_path: str = field(default_factory=lambda: str(FLAT_GROUND_REFERENCE))
     horizon: int = 5
     lcptype: LCP = "ConstantRelaxedPseudoLinearComplementarityConstraint"
     cost: MPCCostConfig = field(default_factory=MPCCostConfig.default)
@@ -59,7 +60,7 @@ class MPCControllerConfig:
 @dataclass
 class ContactEILControllerConfig:
     timestep: float
-    reference_path: str
+    reference_path: str = field(default_factory=lambda: str(FLAT_GROUND_REFERENCE))
     horizon: int = 5
     lcptype: LCP = "ConstantRelaxedPseudoLinearComplementarityConstraint"
     cost: MPCCostConfig = field(default_factory=MPCCostConfig.default)
@@ -73,7 +74,7 @@ class ContactEILControllerConfig:
         iterations_limit=10000,
         use_basis_file=True,
     )
-    estimator: EstimatorConfig = EstimatorConfig()
+    estimator: EstimatorConfig = field(default_factory=EstimatorConfig)
     type: Literal["A1ContactEILController"] = "A1ContactEILController"
 
 
