@@ -1,11 +1,11 @@
 from dataclasses import dataclass
-from typing import Tuple, List, Union, Literal
+from typing import List, Literal, Tuple, Union
 
 
 @dataclass
 class FlatModelConfig:
     location: float
-    direction: Tuple[float, float, float]
+    direction: List[float]
     type: Literal["FlatModel"] = "FlatModel"
 
 

@@ -3,11 +3,8 @@ from dataclasses import dataclass
 from configuration.kernel import WhiteNoiseKernelConfig
 from configuration.parametricmodel import ConstantModelConfig, FlatModelConfig
 from configuration.semiparametricmodel import SemiparametricModelConfig
-from pycito.systems.contactmodel.semiparametric_contact_model import (
-    SemiparametricContactModel,
-)
 
-from .contactmodel import ContactModelConfig, SemiparametricContactModelConfig
+from .contactmodel import ContactConfig, SemiparametricContactModelConfig
 from .lcptype import LCP
 from .optimization import SNOPTConfig
 
@@ -26,7 +23,7 @@ class EstimatorCostConfig:
 class EstimatorConfig:
     horizon: int = 1
     cost: EstimatorCostConfig = EstimatorCostConfig()
-    contact_model: ContactModelConfig = SemiparametricContactModelConfig(
+    contact_model: ContactConfig = SemiparametricContactModelConfig(
         surface=SemiparametricModelConfig(
             prior=FlatModelConfig(location=0, direction=[0, 0, 1]),
             kernel=WhiteNoiseKernelConfig(noise=1),
