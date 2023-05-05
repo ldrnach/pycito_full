@@ -13,5 +13,6 @@ class DrakeSimulatorConfig:
         "FlatGroundEnvironment", "FlatGroundWithFrictionPatch", "RampUpEnvironment"
     ]
     controller: ControllerConfig
+    end_time: float = 12.0
     urdf: str = str(URDF)
     type: Literal["A1DrakeSimulationBuilder"] = "A1DrakeSimulationBuilder"
