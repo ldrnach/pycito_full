@@ -27,6 +27,7 @@ import pycito.utilities as utils
 from configuration.build_from_config import build_from_config
 from configuration.simulator import DrakeSimulatorConfig
 from drake_simulation import controllers, environments
+from drake_simulation.exceptions import SimulationFailedException
 from pycito.systems.A1.a1 import A1, A1VirtualBase
 
 URDF = os.path.join("systems", "A1", "A1_description", "urdf", "a1_foot_collision.urdf")
@@ -230,7 +231,9 @@ class A1DrakeSimulationBuilder:
             self.simulator.AdvanceTo(end_time)
         except:
             print("Simulation failed")
-        self.visualizer.publish_recording()
+            raise SimulationFailedException()
+        finally:
+            self.visualizer.publish_recording()
 
     def get_plant(self):
         """Get the multibody plant object"""
